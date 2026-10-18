@@ -8,7 +8,8 @@ from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..agents.requirements_agent import draft_blueprint, template_blueprint, validate_blueprint
+from ..agents.requirements_agent import blueprint_diff, draft_blueprint, template_blueprint, validate_blueprint
+from ..llm import LLMClient
 from ..models import (
     TASK_COLLECTING,
     AccessGrant,
@@ -67,6 +68,38 @@ def draft_from_requirement(db: Session, task: Task, requirement_text: str,
 
 def draft_from_template(db: Session, task: Task, template: str) -> BlueprintVersion:
     return save_draft(db, task, DraftResult(blueprint=template_blueprint(template)), by_agent=False)
+
+
+def revise_draft(db: Session, task: Task, blueprint_version_id: int, *,
+                 requirement: str = "", answered: Optional[dict] = None,
+                 instruction: str = "",
+                 client: Optional[LLMClient] = None) -> tuple[DraftResult, BlueprintVersion, dict]:
+    """澄清轮次闭环：组织者回答澄清/提出修改意见后，基于当前草案修订（第 3 节）。
+
+    - 修订产生新的草案版本，历史草案不被篡改（对话与结构化编辑沿同一草案线推进）；
+    - 模型不可用或无实质变化时不制造新版本，保留原草案并给警告；
+    - 返回修改影响（blueprint_diff）供界面显示。
+    """
+    bp = db.get(BlueprintVersion, blueprint_version_id)
+    if bp is None or bp.task_id != task.id:
+        raise ValueError("蓝图版本不存在")
+    current = Blueprint.model_validate_json(bp.blueprint_json)
+    result = draft_blueprint(requirement, answered=answered or {},
+                             current_draft=current, instruction=instruction,
+                             client=client)
+    if result.blueprint.model_dump() == current.model_dump():
+        # 无实质变化（含模型不可用降级保留原草案）：不制造新版本
+        audit(db, "blueprint.revise_noop", "blueprint",
+              {"version": bp.version, "answered": sorted((answered or {}).keys())},
+              task.id)
+        return result, bp, blueprint_diff(current, result.blueprint)
+    new_bp = save_draft(db, task, result)
+    impact = blueprint_diff(current, result.blueprint)
+    audit(db, "blueprint.revised", "blueprint",
+          {"from_version": bp.version, "to_version": new_bp.version,
+           "answered": sorted((answered or {}).keys()),
+           "impact": impact["summary"]}, task.id)
+    return result, new_bp, impact
 
 
 def publish(db: Session, task: Task, blueprint_version_id: int) -> BlueprintVersion:
