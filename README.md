@@ -116,6 +116,8 @@ python -m pytest tests/ -q
 - `tests/test_export.py`：快照固定性、CSV/ZIP 同快照、稳定 ID 命名、公式注入防护。
 - `tests/test_authz.py`：会话持久化与过期、越权访问（他人任务/主体）统一 404/401。
 - `tests/test_demo_seed.py`：演示数据不变量（应交 4、张三已验收、李四待补正、王五待人工）与快照只纳入已验收。
+- `tests/test_notifications.py`：催交名单重查、只标已复制（V24）。
+- `tests/test_business_specs.py`：V16 同名新文件保留、V19 上传不算交、V22 材料注入防护与引用校验。
 
 ## 安全说明
 
