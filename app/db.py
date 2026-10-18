@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from pathlib import Path
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
@@ -36,4 +37,7 @@ def init_db() -> None:
     """建表。迁移策略后续再完善，当前阶段直接 create_all。"""
     from . import models  # noqa: F401  确保模型已注册
 
+    if settings.database_url.startswith("sqlite"):
+        db_path = settings.database_url.split("///", 1)[1]
+        Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     Base.metadata.create_all(bind=engine)
