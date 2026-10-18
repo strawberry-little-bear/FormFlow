@@ -25,6 +25,9 @@ class Settings:
         ).rstrip("/")
         self.llm_api_key: str = os.environ.get("FORMFLOW_LLM_API_KEY", "")
         self.llm_model: str = os.environ.get("FORMFLOW_LLM_MODEL", "glm-5.3")
+        # 主模型不可用时的降级模型（如 step-3.7-flash）；留空则不降级。
+        # 背景：glm-5.3 经当前网关单次调用约需 6 分钟，超时/限流时可由快模型兜底。
+        self.llm_fallback_model: str = os.environ.get("FORMFLOW_LLM_FALLBACK_MODEL", "")
 
         self.database_url: str = os.environ.get(
             "FORMFLOW_DATABASE_URL", f"sqlite:///{BASE_DIR / 'data' / 'formflow.db'}"
@@ -36,7 +39,8 @@ class Settings:
         # 审核预算（方案第 4 节：每次审核需有页数/OCR/调用/重试/费用预算）
         self.max_pages_per_run: int = int(os.environ.get("FORMFLOW_MAX_PAGES_PER_RUN", "40"))
         self.max_llm_calls_per_run: int = int(os.environ.get("FORMFLOW_MAX_LLM_CALLS_PER_RUN", "30"))
-        self.llm_timeout_seconds: float = float(os.environ.get("FORMFLOW_LLM_TIMEOUT_SECONDS", "60"))
+        # glm-5.3 经当前网关单次调用可达 6 分钟，默认 300s；主模型 alone 且无降级时建议调大
+        self.llm_timeout_seconds: float = float(os.environ.get("FORMFLOW_LLM_TIMEOUT_SECONDS", "300"))
         self.llm_max_retries: int = int(os.environ.get("FORMFLOW_LLM_MAX_RETRIES", "2"))
 
     @property
