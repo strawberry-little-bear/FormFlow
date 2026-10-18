@@ -5,8 +5,8 @@
 """
 from __future__ import annotations
 
-import hashlib
 import secrets
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
@@ -17,11 +17,19 @@ from ..db import get_db
 from ..models import (
     Account,
     AccessGrant,
+    AuthSession,
     Subject,
     Task,
 )
 from ..schemas import DraftResult
-from ..security import hash_credential, verify_credential
+from ..security import (
+    hash_credential,
+    hash_password,
+    new_salt,
+    utcnow,
+    verify_credential,
+    verify_password,
+)
 from ..services import decisions as decision_service
 from ..services import export as export_service
 from ..services import submissions as sub_service
@@ -33,29 +41,37 @@ from fastapi import APIRouter
 
 router = APIRouter(prefix="/api")
 
-# ---------------------------------------------------------------- 会话（开发阶段）
-_sessions: dict[str, int] = {}
-
-
-def _hash_password(pw: str) -> str:
-    salt = "formflow-static-salt"  # 开发阶段；生产需改为随机 salt 存储
-    return hashlib.pbkdf2_hmac("sha256", pw.encode(), salt.encode(), 100_000).hex()
-
-
+# ---------------------------------------------------------------- 会话（DB 持久化）
 def current_account(
     authorization: str = Header(default=""),
     db: Session = Depends(get_db),
 ) -> Account:
     if not authorization.startswith("Bearer "):
         raise HTTPException(401, "缺少组织者凭证")
-    token = authorization[7:]
-    acct_id = _sessions.get(token)
-    if acct_id is None:
+    sess = db.scalar(select(AuthSession).where(
+        AuthSession.token_hash == hash_credential(authorization[7:])))
+    if sess is None or sess.revoked:
         raise HTTPException(401, "登录已过期")
-    acct = db.get(Account, acct_id)
+    if sess.expires_at is not None:
+        exp = sess.expires_at if sess.expires_at.tzinfo else sess.expires_at.replace(
+            tzinfo=timezone.utc)
+        if exp < utcnow():
+            raise HTTPException(401, "登录已过期")
+    acct = db.get(Account, sess.account_id)
     if acct is None:
         raise HTTPException(401, "账号不存在")
     return acct
+
+
+def _owned_task(db: Session, acct: Account, task_id: int) -> Task:
+    """组织者只能操作自己的任务；稳定 ID 不替代授权校验（方案第 16 节）。
+
+    不存在与无权限统一返回 404，不泄露任务存在性。
+    """
+    task = db.get(Task, task_id)
+    if task is None or task.created_by != acct.id:
+        raise HTTPException(404, "任务不存在或无权访问")
+    return task
 
 
 def current_subject(
@@ -86,19 +102,22 @@ def create_account(username: str = Form(...), password: str = Form(...),
                    db: Session = Depends(get_db)):
     if db.scalar(select(Account).where(Account.username == username)):
         raise HTTPException(409, "用户名已存在")
-    acct = Account(username=username, password_hash=_hash_password(password))
+    salt = new_salt()
+    acct = Account(username=username, password_hash=hash_password(password, salt),
+                   password_salt=salt)
     db.add(acct)
-    db.flush()
+    db.commit()
     return {"id": acct.id, "username": acct.username}
 
 
 @router.post("/auth/login")
 def login(username: str = Form(...), password: str = Form(...), db: Session = Depends(get_db)):
     acct = db.scalar(select(Account).where(Account.username == username))
-    if acct is None or acct.password_hash != _hash_password(password):
+    if acct is None or not verify_password(password, acct.password_salt, acct.password_hash):
         raise HTTPException(401, "用户名或密码错误")
-    token = secrets.token_urlsafe(24)
-    _sessions[token] = acct.id
+    token = secrets.token_urlsafe(32)
+    db.add(AuthSession(token_hash=hash_credential(token), account_id=acct.id))
+    db.commit()
     return {"token": token, "account_id": acct.id}
 
 
@@ -117,9 +136,7 @@ def create_task(name: str = Form(...), mode: str = Form("roster"),
 @router.post("/tasks/{task_id}/draft/agent")
 def draft_by_agent(task_id: int, requirement: str = Form(...), template: str = Form(None),
                    db: Session = Depends(get_db), acct: Account = Depends(current_account)):
-    task = db.get(Task, task_id)
-    if task is None:
-        raise HTTPException(404, "任务不存在")
+    task = _owned_task(db, acct, task_id)
     result, bp = task_service.draft_from_requirement(db, task, requirement, template)
     db.commit()
     return {"blueprint_version_id": bp.id, "draft": result.model_dump()}
@@ -128,9 +145,7 @@ def draft_by_agent(task_id: int, requirement: str = Form(...), template: str = F
 @router.post("/tasks/{task_id}/draft/template")
 def draft_by_template(task_id: int, template: str = Form(...),
                       db: Session = Depends(get_db), acct: Account = Depends(current_account)):
-    task = db.get(Task, task_id)
-    if task is None:
-        raise HTTPException(404, "任务不存在")
+    task = _owned_task(db, acct, task_id)
     bp = task_service.draft_from_template(db, task, template)
     db.commit()
     return {"blueprint_version_id": bp.id}
@@ -139,9 +154,7 @@ def draft_by_template(task_id: int, template: str = Form(...),
 @router.post("/tasks/{task_id}/blueprints/{bp_id}/publish")
 def publish(task_id: int, bp_id: int, db: Session = Depends(get_db),
             acct: Account = Depends(current_account)):
-    task = db.get(Task, task_id)
-    if task is None:
-        raise HTTPException(404, "任务不存在")
+    task = _owned_task(db, acct, task_id)
     try:
         bp = task_service.publish(db, task, bp_id)
     except task_service.PublishBlocked as e:
@@ -152,9 +165,9 @@ def publish(task_id: int, bp_id: int, db: Session = Depends(get_db),
 
 @router.get("/tasks/{task_id}/blueprint")
 def get_blueprint(task_id: int, db: Session = Depends(get_db), acct: Account = Depends(current_account)):
-    task = db.get(Task, task_id)
-    if task is None or task.current_blueprint_id is None:
-        raise HTTPException(404, "任务或蓝图不存在")
+    task = _owned_task(db, acct, task_id)
+    if task.current_blueprint_id is None:
+        raise HTTPException(404, "任务尚未发布蓝图")
     from ..models import BlueprintVersion
 
     bp = db.get(BlueprintVersion, task.current_blueprint_id)
@@ -164,9 +177,7 @@ def get_blueprint(task_id: int, db: Session = Depends(get_db), acct: Account = D
 @router.post("/tasks/{task_id}/roster")
 def import_roster(task_id: int, entries: list[dict], db: Session = Depends(get_db),
                   acct: Account = Depends(current_account)):
-    task = db.get(Task, task_id)
-    if task is None:
-        raise HTTPException(404, "任务不存在")
+    task = _owned_task(db, acct, task_id)
     task_service.add_roster(db, task, entries)
     db.commit()
     return {"imported": len(entries)}
@@ -175,9 +186,7 @@ def import_roster(task_id: int, entries: list[dict], db: Session = Depends(get_d
 @router.post("/tasks/{task_id}/grants")
 def issue_grant(task_id: int, subject_name: str = Form(...), db: Session = Depends(get_db),
                 acct: Account = Depends(current_account)):
-    task = db.get(Task, task_id)
-    if task is None:
-        raise HTTPException(404, "任务不存在")
+    task = _owned_task(db, acct, task_id)
     subject = task_service.ensure_subject(db, task, subject_name)
     token = task_service.issue_grant(db, task, subject)
     db.commit()
@@ -187,9 +196,7 @@ def issue_grant(task_id: int, subject_name: str = Form(...), db: Session = Depen
 @router.get("/tasks/{task_id}/workbench")
 def workbench(task_id: int, db: Session = Depends(get_db), acct: Account = Depends(current_account)):
     """任务工作台：谁没交、谁要改、谁等我决定。"""
-    task = db.get(Task, task_id)
-    if task is None:
-        raise HTTPException(404, "任务不存在")
+    task = _owned_task(db, acct, task_id)
     subjects = db.scalars(select(Subject).where(Subject.task_id == task.id)).all()
     rows = []
     for s in subjects:
@@ -294,7 +301,10 @@ def trigger_check(task_id: int, subject_id: int, db: Session = Depends(get_db),
                   acct: Account = Depends(current_account)):
     from ..models import Revision, Submission as Sub
 
-    task = db.get(Task, task_id)
+    task = _owned_task(db, acct, task_id)
+    subject = db.get(Subject, subject_id)
+    if subject is None or subject.task_id != task.id:
+        raise HTTPException(404, "主体不存在或不属于该任务")
     submission = db.scalar(select(Sub).where(Sub.task_id == task_id, Sub.subject_id == subject_id))
     if submission is None or submission.current_revision_id is None:
         raise HTTPException(422, "该主体没有正式提交")
@@ -310,13 +320,20 @@ def make_decision(task_id: int, subject_id: int, decision: str = Form(...),
                   reason: str = Form(...), scope_rule_id: str = Form(""),
                   expires_at: Optional[str] = Form(None),
                   db: Session = Depends(get_db), acct: Account = Depends(current_account)):
-    task = db.get(Task, task_id)
+    task = _owned_task(db, acct, task_id)
     subject = db.get(Subject, subject_id)
-    if task is None or subject is None:
-        raise HTTPException(404, "任务或主体不存在")
+    if subject is None or subject.task_id != task.id:
+        raise HTTPException(404, "主体不存在或不属于该任务")
+    exp_dt: Optional[datetime] = None
+    if expires_at:
+        try:
+            exp_dt = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+        except ValueError:
+            raise HTTPException(422, "expires_at 不是合法的 ISO 时间")
     try:
         d = decision_service.record_decision(db, task, subject, decision=decision, reason=reason,
-                                             operator_id=acct.id, scope_rule_id=scope_rule_id)
+                                             operator_id=acct.id, scope_rule_id=scope_rule_id,
+                                             expires_at=exp_dt)
     except decision_service.DecisionError as e:
         raise HTTPException(422, str(e))
     db.commit()
@@ -326,7 +343,7 @@ def make_decision(task_id: int, subject_id: int, decision: str = Form(...),
 @router.post("/tasks/{task_id}/subjects/{subject_id}/decisions/{decision_id}/revoke")
 def revoke_decision(task_id: int, subject_id: int, decision_id: int, reason: str = Form(...),
                     db: Session = Depends(get_db), acct: Account = Depends(current_account)):
-    task = db.get(Task, task_id)
+    task = _owned_task(db, acct, task_id)
     try:
         decision_service.revoke_decision(db, task, decision_id, reason, operator_id=acct.id)
     except decision_service.DecisionError as e:
@@ -339,9 +356,7 @@ def revoke_decision(task_id: int, subject_id: int, decision_id: int, reason: str
 @router.post("/tasks/{task_id}/snapshots")
 def create_snapshot(task_id: int, kind: str = Form("formal"),
                     db: Session = Depends(get_db), acct: Account = Depends(current_account)):
-    task = db.get(Task, task_id)
-    if task is None:
-        raise HTTPException(404, "任务不存在")
+    task = _owned_task(db, acct, task_id)
     snap = export_service.create_snapshot(db, task, kind=kind)
     db.commit()
     return {"snapshot_id": snap.id, "manifest": snap.manifest_json}
@@ -355,6 +370,7 @@ def run_export(snapshot_id: int, db: Session = Depends(get_db),
     snap = db.get(DeliverySnapshot, snapshot_id)
     if snap is None:
         raise HTTPException(404, "快照不存在")
+    _owned_task(db, acct, snap.task_id)  # 快照也必须归属当前组织者
     job = export_service.run_export(db, snap)
     db.commit()
     return {"job_id": job.id, "csv": job.csv_path, "zip": job.zip_path}

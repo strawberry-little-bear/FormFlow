@@ -84,13 +84,29 @@ DECISION_ACCEPT_CURRENT = "accept_current"
 
 
 class Account(Base):
-    """组织者账号。"""
+    """组织者账号。密码加盐哈希，salt 随机且每账号独立。"""
 
     __tablename__ = "accounts"
     id: Mapped[int] = mapped_column(primary_key=True)
     username: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(128))
+    password_salt: Mapped[str] = mapped_column(String(64), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class AuthSession(Base):
+    """组织者登录会话（持久化：服务重启不失效，方案 G1"重启不丢"）。
+
+    只存 token 哈希，不存明文；支持过期与撤销。
+    """
+
+    __tablename__ = "auth_sessions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    revoked: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class Task(Base):
