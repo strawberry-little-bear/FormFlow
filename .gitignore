@@ -10,6 +10,9 @@ venv/
 .env.*
 *.local
 
+# 本地数据（数据库与私有文件存储）
+data/
+
 # 构建产物
 dist/
 build/
