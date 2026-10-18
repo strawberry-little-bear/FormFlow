@@ -45,10 +45,15 @@ app/
 ├── services/
 │   ├── tasks.py               # 任务创建 / 蓝图发布冻结
 │   ├── submissions.py         # 幂等收件 / 双截止 / 草稿版本冲突
-│   ├── checks.py              # 检查运行创建/执行/汇总
+│   ├── checks.py              # 检查运行创建/执行/汇总（含验收态）
 │   ├── decisions.py           # 人工决定记录/撤销/验收前检查
-│   └── export.py              # 交付快照 / CSV / ZIP 导出
-└── api/routes.py              # REST API
+│   ├── export.py              # 交付快照 / CSV / ZIP 导出
+│   └── demo_seed.py           # BP-C-001 演示种子（可重复执行）
+├── api/routes.py              # REST API
+├── static/                    # 组织者前端 SPA（P01-P05，无需构建）
+└── worker.py                  # 后台 worker（见上）
+scripts/seed_demo.py           # 演示数据 CLI
+tests/                         # pytest（隔离临时 DB + StubLLM，不打真实网关）
 tests/                         # pytest 测试套件（隔离临时 DB + StubLLM，不打真实网关）
 ```
 
@@ -68,11 +73,14 @@ uvicorn app.main:app --reload
 # 4. （可选）启动后台 worker 处理排队中的检查
 python -m app.worker
 
-# 5. 运行测试
+# 5. （可选）写入演示数据：账号 demo/demo1234，任务 id=1，打印提交者一次性凭证
+python scripts/seed_demo.py
+
+# 6. 运行测试
 python -m pytest tests/ -q
 ```
 
-API 文档：启动后访问 `http://127.0.0.1:8000/docs`。
+启动后访问 `http://127.0.0.1:8000/` 即为组织者前端（P01 登录 → P02 任务/蓝图 → P03 工作台 → P04 证据复核 → P05 快照导出）；API 文档在 `/docs`。
 
 ## API 概览
 
@@ -83,14 +91,15 @@ API 文档：启动后访问 `http://127.0.0.1:8000/docs`。
 | 蓝图 | `POST /tasks/{id}/draft/agent`（需求 Agent 草稿）、`POST /tasks/{id}/draft/template`（模板）、`POST /tasks/{id}/blueprints/{bp_id}/publish` |
 | 名册与授权 | `POST /tasks/{id}/roster`、`POST /tasks/{id}/grants` |
 | 提交者 | `POST /me/draft`、`POST /me/files`、`POST /me/submit`、`GET /me/receipt`、`GET /me/results` |
-| 组织者 | `POST /tasks/{id}/subjects/{sid}/checks`（发起审核）、`POST .../decisions`（决定）、`POST .../decisions/{did}/revoke`（撤销）、`POST /tasks/{id}/snapshots`、`POST /snapshots/{sid}/export` |
+| 组织者 | `GET /tasks`、`POST /tasks/{id}/subjects/{sid}/checks`（发起审核）、`POST .../decisions`（决定）、`POST .../decisions/{did}/revoke`（撤销）、`GET .../findings`（证据复核：规则结论+证据 quote+决定历史）、`POST /tasks/{id}/snapshots`、`POST /snapshots/{sid}/export` |
+| 导出下载 | `GET /exports/{job_id}/csv`、`GET /exports/{job_id}/zip`（均校验快照归属） |
 
 ## 关卡路线（方案第 19 节）
 
 | 关卡 | 目标 | 状态 |
 | --- | --- | --- |
 | G0 设计确认 | 蓝图、页面、虚构材料与人工答案；用户试走关键决策 | 进行中 |
-| G1 无模型业务闭环 | 真实权限、上传、版本、名单、人工验收与导出；重启不丢 | **进行中（当前）** |
+| G1 无模型业务闭环 | 真实权限、上传、版本、名单、人工验收与导出；重启不丢 | **主体功能完成（当前）**：端到端冒烟 24 项通过 |
 | G2 需求 Agent | 澄清与编辑同步，不暗加要求 | 未开始 |
 | G3 审核 Agent | 真实解析、证据、预算、人工转交；样本可重复检查 | 部分（确定性规则+语义规则骨架已完成） |
 | G4 鲁棒性 | 补交、申诉、晚作业、并发、快照、降级与恢复 | 未开始 |
@@ -104,6 +113,8 @@ API 文档：启动后访问 `http://127.0.0.1:8000/docs`。
 - `tests/test_submissions.py`：幂等收件、双截止、草稿冲突。
 - `tests/test_decisions.py`：验收前检查、撤销、作用域。
 - `tests/test_export.py`：快照固定性、CSV/ZIP 同快照、稳定 ID 命名、公式注入防护。
+- `tests/test_authz.py`：会话持久化与过期、越权访问（他人任务/主体）统一 404/401。
+- `tests/test_demo_seed.py`：演示数据不变量（应交 4、张三已验收、李四待补正、王五待人工）与快照只纳入已验收。
 
 ## 安全说明
 
