@@ -66,3 +66,87 @@ def test_budget_blocks_after_limit():
     b.spend()
     with pytest.raises(LLMBudgetExceeded):
         b.spend()
+
+
+# ===== 降级模型（fallback）测试 =====
+
+def _install_behavior(client, behavior):
+    """用可控行为替换 client._post；behavior(payload) -> dict 或抛 LLMUnavailable。
+
+    记录每次调用的 (model, timeout, max_retries)，用于验证主模型快速失败策略。
+    """
+    calls = []
+
+    def post(payload):
+        calls.append((payload["model"], client.timeout, client.max_retries))
+        return behavior(payload)
+
+    client._post = post
+    return calls
+
+
+def _primary_down_fallback_ok(payload):
+    if payload["model"] == "m-primary":
+        raise LLMUnavailable("主模型超时")
+    return {"choices": [{"message": {"content": "兜底结果"}}]}
+
+
+def _always_down(payload):
+    raise LLMUnavailable("网关不可用")
+
+
+def test_primary_unavailable_falls_back_to_fast_model():
+    c = LLMClient(api_key="k", model="m-primary", fallback_model="m-fallback")
+    calls = _install_behavior(c, _primary_down_fallback_ok)
+    assert c.chat([{"role": "user", "content": "x"}]) == "兜底结果"
+    assert c.fallback_used is True
+    assert [m for m, _, _ in calls] == ["m-primary", "m-fallback"]
+
+
+def test_primary_unavailable_without_fallback_raises():
+    c = LLMClient(api_key="k", model="m-primary", fallback_model="")
+    calls = _install_behavior(c, _always_down)
+    with pytest.raises(LLMUnavailable):
+        c.chat([{"role": "user", "content": "x"}])
+    assert len(calls) == 1
+    assert c.fallback_used is False
+
+
+def test_fallback_also_unavailable_raises_for_manual_review():
+    c = LLMClient(api_key="k", model="m-primary", fallback_model="m-fallback")
+    calls = _install_behavior(c, _always_down)
+    with pytest.raises(LLMUnavailable):
+        c.chat([{"role": "user", "content": "x"}])
+    assert len(calls) == 2  # 主模型与降级模型各试过一次，均失败后上抛转人工
+    assert c.fallback_used is False
+
+
+def test_empty_content_raises_llm_error():
+    for empty in ("", "   ", None):
+        c = make_client(empty)
+        with pytest.raises(LLMError):
+            c.chat([{"role": "user", "content": "x"}])
+
+
+def test_primary_attempt_converges_when_fallback_configured():
+    c = LLMClient(api_key="k", model="m-primary", fallback_model="m-fallback",
+                  timeout=300, max_retries=2)
+    assert c.primary_timeout == 90.0
+    calls = _install_behavior(c, lambda p: {"choices": [{"message": {"content": "ok"}}]})
+    c.chat([{"role": "user", "content": "x"}])
+    # 有降级模型时主模型快速失败：时限收敛到 90s、不做内部重试
+    assert calls[0] == ("m-primary", 90.0, 0)
+
+
+def test_primary_timeout_full_when_no_fallback():
+    c = LLMClient(api_key="k", model="m-primary", fallback_model="",
+                  timeout=300, max_retries=2)
+    assert c.primary_timeout == 300
+
+
+def test_fallback_attempt_uses_full_timeout_and_retries():
+    c = LLMClient(api_key="k", model="m-primary", fallback_model="m-fallback",
+                  timeout=300, max_retries=2)
+    calls = _install_behavior(c, _primary_down_fallback_ok)
+    c.chat([{"role": "user", "content": "x"}])
+    assert calls[1] == ("m-fallback", 300, 2)

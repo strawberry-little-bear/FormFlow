@@ -50,11 +50,10 @@ app/
 │   ├── export.py              # 交付快照 / CSV / ZIP 导出
 │   └── demo_seed.py           # BP-C-001 演示种子（可重复执行）
 ├── api/routes.py              # REST API
-├── static/                    # 组织者前端 SPA（P01-P05，无需构建）
-└── worker.py                  # 后台 worker（见上）
+└── static/                    # 组织者前端 SPA（P01-P05，无需构建）
 scripts/seed_demo.py           # 演示数据 CLI
+scripts/push_via_api.py        # git 协议被网络阻断时，经 GitHub REST API 推送提交
 tests/                         # pytest（隔离临时 DB + StubLLM，不打真实网关）
-tests/                         # pytest 测试套件（隔离临时 DB + StubLLM，不打真实网关）
 ```
 
 ## 快速开始
@@ -88,7 +87,7 @@ python -m pytest tests/ -q
 | --- | --- |
 | 账号 | `POST /accounts`、`POST /auth/login`、`GET /me` |
 | 任务 | `POST /tasks`、`GET /tasks/{id}/blueprint`、`GET /tasks/{id}/workbench` |
-| 蓝图 | `POST /tasks/{id}/draft/agent`（需求 Agent 草稿）、`POST /tasks/{id}/draft/template`（模板）、`POST /tasks/{id}/blueprints/{bp_id}/publish` |
+| 蓝图 | `POST /tasks/{id}/draft/agent`（需求 Agent 草稿）、`POST /tasks/{id}/draft/template`（模板）、`POST /tasks/{id}/draft/revise`（澄清轮次：基于指定草案版本修订，返回新草案与修改影响）、`POST /tasks/{id}/blueprints/{bp_id}/publish` |
 | 名册与授权 | `POST /tasks/{id}/roster`、`POST /tasks/{id}/grants` |
 | 提交者 | `POST /me/draft`、`POST /me/files`、`POST /me/submit`、`GET /me/receipt`、`GET /me/results` |
 | 组织者 | `GET /tasks`、`POST /tasks/{id}/subjects/{sid}/checks`（发起审核）、`POST .../decisions`（决定）、`POST .../decisions/{did}/revoke`（撤销）、`GET .../findings`（证据复核：规则结论+证据 quote+决定历史）、`POST /tasks/{id}/snapshots`、`POST /snapshots/{sid}/export` |
@@ -100,16 +99,24 @@ python -m pytest tests/ -q
 | 关卡 | 目标 | 状态 |
 | --- | --- | --- |
 | G0 设计确认 | 蓝图、页面、虚构材料与人工答案；用户试走关键决策 | 进行中 |
-| G1 无模型业务闭环 | 真实权限、上传、版本、名单、人工验收与导出；重启不丢 | **主体功能完成（当前）**：端到端冒烟 24 项通过 |
-| G2 需求 Agent | 澄清与编辑同步，不暗加要求 | 未开始 |
+| G1 无模型业务闭环 | 真实权限、上传、版本、名单、人工验收与导出；重启不丢 | **主体功能完成**：端到端冒烟 24 项通过 |
+| G2 需求 Agent | 澄清与编辑同步，不暗加要求 | **主体功能完成（当前）**：澄清轮次闭环（回答/修改意见 → 修订为新草案版本，历史不篡改，返回修改影响） |
 | G3 审核 Agent | 真实解析、证据、预算、人工转交；样本可重复检查 | 部分（确定性规则+语义规则骨架已完成） |
 | G4 鲁棒性 | 补交、申诉、晚作业、并发、快照、降级与恢复 | 未开始 |
 | G5 外部试用 | 授权脱敏试点，记录收益与错误后再扩展 | 未开始 |
 
+## 大模型网关与降级
+
+- 网关：OpenAI 兼容 `/chat/completions`，默认模型 `glm-5.3`（`FORMFLOW_LLM_MODEL`）。
+- **降级策略**：`FORMFLOW_LLM_FALLBACK_MODEL` 配置兜底模型（如 `step-3.7-flash`）后，主模型不可用（超时/限流/5xx）时自动用降级模型重试一次；主模型尝试时限收敛为 `min(FORMFLOW_LLM_TIMEOUT_SECONDS, 90)` 秒且不做内部重试，以尽快兜底。降级也失败则抛 `LLMUnavailable`，由上层按"检查未完成"转人工，**不影响收件**。
+- 背景：glm-5.3 经当前网关单次调用约 6 分钟且延迟不稳定；推理模型的 `reasoning_content` 可能占满配额导致 `content` 为空，此时抛 `LLMError` 提示转人工，绝不把空响应当成结果。
+- 每次审核有页数/OCR/调用预算（`FORMFLOW_MAX_LLM_CALLS_PER_RUN`），预算耗尽明确记录未完成项并转人工。
+
 ## 测试
 
-- `tests/test_llm.py`：网关客户端、预算、降级异常（StubLLM，无真实网络）。
+- `tests/test_llm.py`：网关客户端、预算、降级异常、fallback 兜底与空内容拦截（StubLLM，无真实网络）。
 - `tests/test_requirements_agent.py`：蓝图草稿生成与程序校验（重复 ID/日期顺序/依赖环/来源可定位）。
+- `tests/test_draft_revision.py`：澄清轮次闭环（修订产生新版本/历史不篡改/修改影响/审计）、无变化与模型不可用不造新版本、`POST /draft/revise` 422/404/越权/happy path。
 - `tests/test_review_agent.py`：确定性规则 + 语义规则（quote 定位、覆盖不足→unknown、故障→failed）。
 - `tests/test_submissions.py`：幂等收件、双截止、草稿冲突。
 - `tests/test_decisions.py`：验收前检查、撤销、作用域。
