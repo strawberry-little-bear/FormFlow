@@ -16,6 +16,10 @@ from sqlalchemy.orm import Session
 
 from ..agents.review_agent import CheckContext, FileInfo, run_checks
 from ..models import (
+    ACCEPTANCE_ACCEPTED,
+    ACCEPTANCE_NOT_ACCEPTED,
+    ACCEPTANCE_PENDING,
+    DECISION_ACCEPT_CURRENT,
     RESULT_FAILED,
     RESULT_ISSUE,
     RESULT_NOT_APPLICABLE,
@@ -81,8 +85,11 @@ def create_run(db: Session, task: Task, revision: Revision) -> CheckRun:
     return run
 
 
-def execute_run(db: Session, run: CheckRun) -> CheckRun:
-    """执行检查：先程序校验，再 Agent 语义调查；结果与证据落库。"""
+def execute_run(db: Session, run: CheckRun, client=None) -> CheckRun:
+    """执行检查：先程序校验，再 Agent 语义调查；结果与证据落库。
+
+    client 可注入（测试/演示用脚本化桩）；默认走真实网关。
+    """
     run.status = RUN_RUNNING
     db.flush()
     revision = db.get(Revision, run.revision_id)
@@ -95,7 +102,7 @@ def execute_run(db: Session, run: CheckRun) -> CheckRun:
 
     files = _load_files(db, revision)
     ctx = CheckContext(blueprint=blueprint, fields=fields, members=members, files=files)
-    outcome = run_checks(ctx)
+    outcome = run_checks(ctx, client)
 
     run.llm_calls_used = outcome.llm_calls_used
     run.pages_read = outcome.pages_read
@@ -150,14 +157,16 @@ def current_summary(db: Session, task: Task, subject_id: int) -> dict:
     submission = db.scalar(select(Submission).where(
         Submission.task_id == task.id, Submission.subject_id == subject_id))
     if submission is None or submission.current_revision_id is None:
-        return {"summary": "未正式提交", "buckets": {"blocking": [], "unknown": [],
-                "human": [], "incomplete": [], "pending_jobs": []}}
+        return {"summary": "未正式提交", "acceptance": ACCEPTANCE_PENDING,
+                "buckets": {"blocking": [], "unknown": [],
+                            "human": [], "incomplete": [], "pending_jobs": []}}
     revision = db.get(Revision, submission.current_revision_id)
     run = db.scalar(select(CheckRun).where(
         CheckRun.revision_id == revision.id,
         CheckRun.status.not_in([RUN_SUPERSEDED])).order_by(CheckRun.id.desc()))
     if run is None:
-        return {"summary": "待检", "buckets": {"pending_jobs": ["排队中"]}}
+        return {"summary": "排队中", "acceptance": ACCEPTANCE_PENDING,
+                "buckets": {"pending_jobs": ["排队中"]}}
     decisions = _active_decisions(db, task.id, subject_id, revision.id)
     decided_rules = {d.scope_rule_id for d in decisions if d.scope_rule_id}
     results = db.scalars(select(RuleResult).where(RuleResult.run_id == run.id)).all()
@@ -180,18 +189,28 @@ def current_summary(db: Session, task: Task, subject_id: int) -> dict:
         jobs.append(run.status)
     human = [rid for rid in human_rules if rid not in decided_rules]
 
-    if blocking:
-        summary = "待补正"
+    accepted = any(
+        d.decision == DECISION_ACCEPT_CURRENT
+        and (d.revision_id in (None, revision.id))
+        for d in decisions
+    )
+    if accepted:
+        # accept_current 只对记录时指向的版本有效；新提交派生新版本后回到待验收
+        summary, acceptance = "已验收", ACCEPTANCE_ACCEPTED
+    elif blocking:
+        summary, acceptance = "待补正", ACCEPTANCE_NOT_ACCEPTED
     elif unknown or human:
-        summary = "待人工"
+        summary, acceptance = "待人工", ACCEPTANCE_PENDING
     elif incomplete and not jobs:
-        summary = "检查未完成"
+        summary, acceptance = "检查未完成", ACCEPTANCE_PENDING
     elif jobs:
-        summary = "检查中"
+        summary, acceptance = "检查中", ACCEPTANCE_PENDING
     else:
         summary = "规则通过（待人工验收）" if blueprint.manual_acceptance else "规则通过"
+        acceptance = ACCEPTANCE_PENDING
     return {
         "summary": summary,
+        "acceptance": acceptance,
         "revision": revision.version,
         "run_status": run.status,
         "buckets": {"blocking": blocking, "unknown": unknown, "human": human,
