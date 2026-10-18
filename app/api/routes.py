@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import json
 import secrets
 from datetime import datetime, timezone
 from pathlib import Path
@@ -26,6 +27,7 @@ from ..models import (
     Evidence,
     ExportJob,
     ManualDecision,
+    NotificationIntent,
     RUN_SUPERSEDED,
     Revision,
     RuleResult,
@@ -56,6 +58,7 @@ from ..security import (
     verify_password,
 )
 from ..services import decisions as decision_service
+from ..services import notifications as notif_service
 from ..services import export as export_service
 from ..services import submissions as sub_service
 from ..services import tasks as task_service
@@ -360,6 +363,54 @@ def revoke_decision(task_id: int, subject_id: int, decision_id: int, reason: str
         raise HTTPException(422, str(e))
     db.commit()
     return {"revoked": decision_id}
+
+# ---------------------------------------------------------------- 通知意图（V24）
+@router.get("/tasks/{task_id}/notifications")
+def list_notifications(task_id: int, db: Session = Depends(get_db),
+                       acct: Account = Depends(current_account)):
+    """催交视图（每次重算）+ 历史通知意图。"""
+    task = _owned_task(db, acct, task_id)
+    return {"view": notif_service.reminder_view(db, task),
+            "notifications": notif_service.list_notifications(db, task)}
+
+
+@router.post("/tasks/{task_id}/notifications")
+def create_notification(task_id: int, content: str = Form(...),
+                        subject_ids: str = Form(""),
+                        db: Session = Depends(get_db),
+                        acct: Account = Depends(current_account)):
+    """生成催交通知意图。subject_ids 为空 = 当前全部可催交目标。"""
+    task = _owned_task(db, acct, task_id)
+    ids: Optional[list[int]] = None
+    if subject_ids.strip():
+        try:
+            ids = [int(x) for x in subject_ids.split(",") if x.strip()]
+        except ValueError:
+            raise HTTPException(422, "subject_ids 必须是逗号分隔的整数")
+    try:
+        intent = notif_service.create_notification(
+            db, task, content=content, subject_ids=ids, operator_id=acct.id)
+    except notif_service.NotificationError as e:
+        raise HTTPException(422, str(e))
+    db.commit()
+    return {"intent_id": intent.id, "status": intent.status,
+            "targets": json.loads(intent.targets_json)}
+
+
+@router.post("/notifications/{intent_id}/copy")
+def mark_notification_copied(intent_id: int, db: Session = Depends(get_db),
+                             acct: Account = Depends(current_account)):
+    """标记「已复制」。唯一状态转移；不存在发送/送达状态。"""
+    intent = db.get(NotificationIntent, intent_id)
+    if intent is None:
+        raise HTTPException(404, "通知意图不存在")
+    task = _owned_task(db, acct, intent.task_id)
+    try:
+        notif_service.mark_copied(db, task, intent_id, operator_id=acct.id)
+    except notif_service.NotificationError as e:
+        raise HTTPException(422, str(e))
+    db.commit()
+    return {"intent_id": intent_id, "status": "copied"}
 
 @router.get("/tasks/{task_id}/subjects/{subject_id}/findings")
 def findings(task_id: int, subject_id: int, db: Session = Depends(get_db),

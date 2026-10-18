@@ -93,6 +93,7 @@ python -m pytest tests/ -q
 | 提交者 | `POST /me/draft`、`POST /me/files`、`POST /me/submit`、`GET /me/receipt`、`GET /me/results` |
 | 组织者 | `GET /tasks`、`POST /tasks/{id}/subjects/{sid}/checks`（发起审核）、`POST .../decisions`（决定）、`POST .../decisions/{did}/revoke`（撤销）、`GET .../findings`（证据复核：规则结论+证据 quote+决定历史）、`POST /tasks/{id}/snapshots`、`POST /snapshots/{sid}/export` |
 | 导出下载 | `GET /exports/{job_id}/csv`、`GET /exports/{job_id}/zip`（均校验快照归属） |
+| 通知（V24） | `GET /tasks/{id}/notifications`（催交视图每次重算 + 历史）、`POST /tasks/{id}/notifications`（生成意图，目标为创建时快照）、`POST /notifications/{nid}/copy`（标记已复制；无发送/送达状态） |
 
 ## 关卡路线（方案第 19 节）
 
