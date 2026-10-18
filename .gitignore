@@ -8,6 +8,7 @@ venv/
 # 环境与密钥
 .env
 .env.*
+!.env.example
 *.local
 
 # 本地数据（数据库与私有文件存储）

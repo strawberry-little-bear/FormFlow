@@ -51,16 +51,32 @@ class LLMClient:
         model: Optional[str] = None,
         timeout: Optional[float] = None,
         max_retries: Optional[int] = None,
+        fallback_model: Optional[str] = None,
     ) -> None:
         self.base_url = (base_url if base_url is not None else settings.llm_base_url).rstrip("/")
         self.api_key = api_key if api_key is not None else settings.llm_api_key
         self.model = model if model is not None else settings.llm_model
         self.timeout = timeout if timeout is not None else settings.llm_timeout_seconds
         self.max_retries = max_retries if max_retries is not None else settings.llm_max_retries
+        # 主模型不可用（超时/5xx/限流）时的降级模型；空串表示不降级
+        self.fallback_model = (fallback_model if fallback_model is not None
+                               else settings.llm_fallback_model)
+        self.fallback_used = False
+        # 有降级模型时，主模型尝试时限收敛到 90s 且不做内部重试，尽快让快模型兜底
+        self.primary_timeout = min(self.timeout, 90.0) if self.fallback_model else self.timeout
 
     @property
     def configured(self) -> bool:
         return bool(self.api_key)
+
+    def _post_with(self, payload: dict, timeout: float, max_retries: int) -> dict:
+        """以指定时限/重试执行一次 _post（供主模型快速失败后切换降级模型）。"""
+        old_t, old_r = self.timeout, self.max_retries
+        self.timeout, self.max_retries = timeout, max_retries
+        try:
+            return self._post(payload)
+        finally:
+            self.timeout, self.max_retries = old_t, old_r
 
     def _post(self, payload: dict) -> dict:
         headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
@@ -101,11 +117,28 @@ class LLMClient:
             "messages": messages,
             "temperature": temperature,
         }
-        data = self._post(payload)
         try:
-            return data["choices"][0]["message"]["content"] or ""
+            data = self._post_with(payload, self.primary_timeout,
+                                   0 if self.fallback_model else self.max_retries)
+        except LLMUnavailable:
+            # 主模型不可用：按配置的降级模型重试一次（glm-5.3 等慢/不稳定模型的保底路径）
+            if not self.fallback_model or self.fallback_model == self.model:
+                raise
+            try:
+                data = self._post_with(dict(payload, model=self.fallback_model),
+                                       self.timeout, self.max_retries)
+                self.fallback_used = True
+            except LLMUnavailable:
+                raise  # 降级也不可用：向上抛，由上层按"检查未完成"转人工
+        try:
+            content = data["choices"][0]["message"]["content"] or ""
         except (KeyError, IndexError, TypeError) as e:
             raise LLMError(f"网关响应结构异常: {data!r:.300}") from e
+        if not content.strip():
+            raise LLMError(
+                f"模型 {self.model} 返回空内容（推理占满配额被截断或未产出正文），"
+                "请调整模型/参数后重试或转人工复核")
+        return content
 
     def chat_json(self, messages: list[dict], temperature: float = 0.1) -> Any:
         """要求模型返回 JSON；容忍 ```json 代码块包裹。解析失败抛 LLMError。"""
