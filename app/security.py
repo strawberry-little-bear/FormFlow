@@ -24,5 +24,23 @@ def verify_credential(token: str, token_hash: str) -> bool:
     return hmac.compare_digest(hash_credential(token), token_hash)
 
 
+def new_salt() -> str:
+    """生成随机 salt（每个账号独立，替换此前的静态 salt）。"""
+    return secrets.token_hex(16)
+
+
+def hash_password(password: str, salt: str) -> str:
+    """PBKDF2-HMAC-SHA256，10 万次迭代。"""
+    return hashlib.pbkdf2_hmac(
+        "sha256", password.encode("utf-8"), bytes.fromhex(salt), 100_000
+    ).hex()
+
+
+def verify_password(password: str, salt: str, expected_hash: str) -> bool:
+    if not salt or not expected_hash:
+        return False
+    return hmac.compare_digest(hash_password(password, salt), expected_hash)
+
+
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
