@@ -67,16 +67,18 @@ def _build_user_prompt(
     template: Optional[str],
     answered: Optional[dict],
     current_draft: Optional[Blueprint],
+    instruction: str = "",
 ) -> str:
     parts = [f"【原始要求】\n{requirement_text.strip()}"]
     if template:
         parts.append(f"【选用模板】{template}")
     if answered:
         parts.append("【组织者已回答的澄清】\n" + json.dumps(answered, ensure_ascii=False, indent=2))
+    if instruction and instruction.strip():
+        parts.append(f"【本次修改意见】\n{instruction.strip()}")
     if current_draft is not None:
         parts.append("【当前草案】\n" + current_draft.model_dump_json(indent=2))
     return "\n\n".join(parts)
-
 
 def _parse_draft(payload: dict) -> DraftResult:
     bp = payload.get("blueprint") or {}
@@ -173,6 +175,7 @@ def draft_blueprint(
     template: Optional[str] = None,
     answered: Optional[dict] = None,
     current_draft: Optional[Blueprint] = None,
+    instruction: str = "",
     client: Optional[LLMClient] = None,
 ) -> DraftResult:
     """需求 Agent 主入口：自然语言要求 → 蓝图草案。"""
@@ -187,7 +190,7 @@ def draft_blueprint(
         payload = client.chat_json(
             [
                 {"role": "system", "content": system},
-                {"role": "user", "content": _build_user_prompt(requirement_text, template, answered, current_draft)},
+                {"role": "user", "content": _build_user_prompt(requirement_text, template, answered, current_draft, instruction)},
             ]
         )
     except LLMUnavailable as e:
@@ -234,3 +237,44 @@ def template_blueprint(template: str) -> Blueprint:
             delivery={"group_by": "track", "naming": "{subject_id}_{field:team_name}"},
         )
     return Blueprint(task_scope={"template": template})
+
+
+def blueprint_diff(old: Blueprint, new: Blueprint) -> dict:
+    """结构化修订影响：按稳定 ID 比较字段/材料/规则变化（方案：显示修改影响）。"""
+    def _index(items):
+        return {getattr(i, "id"): i for i in items}
+
+    def _cmp(old_items, new_items):
+        o, n = _index(old_items), _index(new_items)
+        return {
+            "added": sorted(set(n) - set(o)),
+            "removed": sorted(set(o) - set(n)),
+            "changed": sorted(i for i in set(o) & set(n)
+                              if o[i].model_dump() != n[i].model_dump()),
+        }
+
+    diff = {
+        "fields": _cmp(old.fields, new.fields),
+        "slots": _cmp(old.slots, new.slots),
+        "rules": _cmp(old.rules, new.rules),
+        "auto_scope": {"added": sorted(set(new.auto_scope) - set(old.auto_scope)),
+                       "removed": sorted(set(old.auto_scope) - set(new.auto_scope))},
+        "time_policy_changed": old.time_policy.model_dump() != new.time_policy.model_dump(),
+        "manual_acceptance_changed": old.manual_acceptance != new.manual_acceptance,
+        "eligibility_required_changed": old.eligibility_required != new.eligibility_required,
+    }
+    parts = []
+    for key in ("fields", "slots", "rules"):
+        d = diff[key]
+        if d["added"]:
+            parts.append(f"{key}+{len(d['added'])}")
+        if d["removed"]:
+            parts.append(f"{key}-{len(d['removed'])}")
+        if d["changed"]:
+            parts.append(f"{key}~{len(d['changed'])}")
+    if diff["time_policy_changed"]:
+        parts.append("时间策略变化")
+    if diff["manual_acceptance_changed"] or diff["eligibility_required_changed"]:
+        parts.append("验收/资格设置变化")
+    diff["summary"] = "；".join(parts) if parts else "无实质变化"
+    return diff

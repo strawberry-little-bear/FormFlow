@@ -174,6 +174,30 @@ def draft_by_template(task_id: int, template: str = Form(...),
     db.commit()
     return {"blueprint_version_id": bp.id}
 
+@router.post("/tasks/{task_id}/draft/revise")
+def revise_draft_view(task_id: int, blueprint_version_id: int = Form(...),
+                      requirement: str = Form(""), answered: str = Form(""),
+                      instruction: str = Form(""),
+                      db: Session = Depends(get_db), acct: Account = Depends(current_account)):
+    """澄清轮次闭环：回答澄清/提出修改意见，基于当前草案修订，返回新草案与修改影响。"""
+    task = _owned_task(db, acct, task_id)
+    try:
+        answered_map = json.loads(answered) if answered.strip() else {}
+    except json.JSONDecodeError as e:
+        raise HTTPException(422, f"answered 不是合法 JSON：{e}")
+    if not isinstance(answered_map, dict):
+        raise HTTPException(422, "answered 必须是 JSON 对象（问题 -> 回答）")
+    try:
+        result, bp, impact = task_service.revise_draft(
+            db, task, blueprint_version_id, requirement=requirement,
+            answered=answered_map, instruction=instruction)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+    db.commit()
+    return {"blueprint_version_id": bp.id, "version": bp.version,
+            "draft": result.model_dump(), "impact": impact}
+
+
 @router.post("/tasks/{task_id}/blueprints/{bp_id}/publish")
 def publish(task_id: int, bp_id: int, db: Session = Depends(get_db),
             acct: Account = Depends(current_account)):
