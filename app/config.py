@@ -36,6 +36,9 @@ class Settings:
             os.environ.get("FORMFLOW_STORAGE_DIR", str(BASE_DIR / "data" / "storage"))
         )
 
+        # 解析预算（第 16 节：限制页数、资源与解析时间）
+        self.max_ocr_pages_per_file: int = int(os.environ.get("FORMFLOW_MAX_OCR_PAGES_PER_FILE", "20"))
+        self.ocr_time_budget_seconds: float = float(os.environ.get("FORMFLOW_OCR_TIME_BUDGET_SECONDS", "120"))
         # 审核预算（方案第 4 节：每次审核需有页数/OCR/调用/重试/费用预算）
         self.max_pages_per_run: int = int(os.environ.get("FORMFLOW_MAX_PAGES_PER_RUN", "40"))
         self.max_llm_calls_per_run: int = int(os.environ.get("FORMFLOW_MAX_LLM_CALLS_PER_RUN", "30"))
