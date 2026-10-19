@@ -1,7 +1,7 @@
 "use strict";
 /* 收齐啦 FormFlow 前端（P01–P05）。纯静态 SPA，直接调用 /api。 */
 const ORG_KEY = "ff_org_token", SUB_KEY = "ff_sub_token";
-const state = { bpId: null, draft: null, requirement: "", files: {}, draftVersion: null, me: null, lastJob: null };
+const state = { taskId: null, chat: [], bpId: null, draft: null, requirement: "", answeredDone: false, files: {}, draftVersion: null, me: null, lastJob: null, roster: {} };
 
 const orgToken = () => localStorage.getItem(ORG_KEY) || "";
 const subToken = () => localStorage.getItem(SUB_KEY) || "";
@@ -90,6 +90,7 @@ function route() {
   if (parts[0] === "review") return viewReview(+parts[1], +parts[2]);
   if (parts[0] === "submit") return viewSubmit();
   if (parts[0] === "delivery") return viewDelivery(+parts[1]);
+  if (parts[0] === "roster") return viewRoster(+parts[1]);
   viewLogin();
 }
 window.addEventListener("hashchange", route);
@@ -220,6 +221,7 @@ async function viewTasks() {
         <td><span class="badge info">${esc(t.status)}</span></td><td>${esc(t.mode)}</td>
         <td>
           <a href="#/design/${t.id}">设计台</a> ·
+          <a href="#/roster/${t.id}">名单</a> ·
           <a href="#/workbench/${t.id}">工作台</a> ·
           <a href="#/delivery/${t.id}">交付预览</a>
         </td></tr>`).join("")}</table>` : `<p class="muted">还没有任务</p>`;
@@ -236,148 +238,423 @@ async function createTask() {
   });
 }
 
-/* ---------------------------------------------------------------- P01 设计台 */
+/* ---------------------------------------------------------------- P01 对话式设计台 */
+const EXECUTOR_LABEL = { deterministic: "程序校验", semantic: "语义检查", human_only: "仅人工" };
+const CAP_BADGE = { supported: '<span class="badge ok">已支持</span>',
+                    needs_human: '<span class="badge warn">需人工</span>',
+                    needs_clarification: '<span class="badge warn">需澄清</span>' };
+
 async function viewDesign(taskId) {
+  state.taskId = taskId;
   document.getElementById("app").innerHTML = `<div id="flash"></div>
-  <div class="card"><h3>P01 任务设计台（任务 #${taskId}）</h3>
-    <label>原始要求（一句话或一段话）</label>
-    <textarea id="req" placeholder="例：收名单内同学的 2026 秋季第 1 期团课报告，含姓名、期次、活动内容、个人收获，按班级整理。接受一份 PDF 或 DOCX…"></textarea>
-    <div class="row">
-      <div><label>模板</label><select id="tpl">
-        <option value="class_report">团课报告</option>
-        <option value="contest_signup">比赛报名</option></select></div>
-    </div>
-    <div class="row">
-      <button onclick="genDraft(${taskId},'agent')">AI 生成草案</button>
-      <button class="ghost" onclick="genDraft(${taskId},'template')">用模板生成</button>
-      <button class="ghost" onclick="publishBp(${taskId})">发布蓝图</button>
-    </div>
-    <p class="muted">发布前会做程序校验：对象/材料/能力/双截止/验收/交付与数据用途。</p>
+  <div class="step-flow">
+    <span class="st on" id="st-1"><span class="dot">1</span>对话起草</span><span class="arw"></span>
+    <span class="st" id="st-2"><span class="dot">2</span>澄清确认</span><span class="arw"></span>
+    <span class="st" id="st-3"><span class="dot">3</span>发布</span>
   </div>
-  <div class="card"><h3>蓝图草案</h3><div id="bp-view"><p class="muted">尚未生成草案</p></div></div>
-  <div class="card"><h3>澄清与修订（对话与结构化编辑同一草案）</h3>
-    <div id="revise-panel"><p class="muted">生成草案后，可在此回答澄清、提出修改意见；修订会产生新的草案版本，历史版本不丢失，并显示修改影响。</p></div>
-    <label>修改意见（自然语言，例：首次截止改到 11 月 9 日 18:00；材料也接受 Markdown）</label>
-    <textarea id="revise-instruction" placeholder="要改什么就写什么；未提及的部分会原样保留"></textarea>
-    <button onclick="reviseDraft(${taskId})">按回答与意见修订草案</button>
+  <div class="grid-chat">
+    <div class="card">
+      <h3>💬 和小齐聊着把问卷定下来 <span class="sub">对话与右侧结构化草案始终是同一份</span></h3>
+      <div class="chat">
+        <div class="chat-scroll" id="chat-scroll"></div>
+        <div class="chips" id="chat-chips"></div>
+        <div class="chat-input">
+          <textarea id="chat-in" placeholder="说出你要收什么，或提出修改意见…（Enter 发送，Shift+Enter 换行）"
+            onkeydown="if(event.key===String.fromCharCode(13)&&!event.shiftKey){event.preventDefault();chatSend()}"></textarea>
+          <button onclick="chatSend()">发送</button>
+        </div>
+      </div>
+    </div>
+    <div id="draft-panel"></div>
+  </div>`;
+  state.chat = []; state.bpId = null; state.draft = null; state.requirement = "";
+  agentSay(`你好，我是设计助手<b>小齐</b> 👋
+    <div class="mini">把「收什么、交给谁、什么时候交」告诉我就行：我会生成登记字段、材料要求和检查规则。
+    拿不准的地方我会先问你——已知信息不重复追问，也绝不暗加你没有提的要求。</div>`);
+  renderChips();
+  renderDraftPanel();
+}
+
+function renderChips() {
+  const box = document.getElementById("chat-chips");
+  if (!box) return;
+  box.innerHTML = state.bpId ? `
+      <span class="chip" onclick="fillChat('首次截止改到 11 月 9 日 18:00')">改截止时间</span>
+      <span class="chip" onclick="fillChat('材料也接受 Markdown')">加材料格式</span>
+      <span class="chip" onclick="fillChat('再加一个登记字段：班级')">加字段</span>`
+    : `<span class="chip" onclick="quickTemplate('class_report')">📋 团课报告模板</span>
+      <span class="chip" onclick="quickTemplate('contest_signup')">🏆 比赛报名模板</span>
+      <span class="kv" style="align-self:center">或直接输入一句话要求</span>`;
+}
+function fillChat(t) {
+  const el = document.getElementById("chat-in");
+  el.value = t; el.focus();
+}
+function chatScrollBottom() {
+  const el = document.getElementById("chat-scroll");
+  if (el) el.scrollTop = el.scrollHeight;
+}
+function userSay(text) {
+  state.chat.push({ role: "user", html: esc(text).replace(/\n/g, "<br>") });
+  paintChat();
+}
+function agentSay(html, mini) {
+  state.chat.push({ role: "agent", html, mini: mini || "" });
+  paintChat();
+}
+function chatTyping(on) {
+  const old = document.getElementById("typing-row");
+  if (!on) { if (old) old.remove(); return; }
+  if (old) return;
+  const div = document.createElement("div");
+  div.className = "msg agent"; div.id = "typing-row";
+  div.innerHTML = `<div class="avatar">🤖</div><div class="body"><span class="typing"><i></i><i></i><i></i></span></div>`;
+  document.getElementById("chat-scroll").appendChild(div);
+  chatScrollBottom();
+}
+function paintChat() {
+  const box = document.getElementById("chat-scroll");
+  if (!box) return;
+  box.innerHTML = state.chat.map(m => `
+    <div class="msg ${m.role}">
+      <div class="avatar">${m.role === "agent" ? "🤖" : "🧑"}</div>
+      <div class="body">${m.html}${m.mini ? `<div class="mini">${m.mini}</div>` : ""}</div>
+    </div>`).join("");
+  const clar = (state.draft && state.draft.clarifications) || [];
+  if (state.bpId && clar.length && !state.answeredDone) {
+    box.insertAdjacentHTML("beforeend", clarCard(clar));
+  }
+  chatScrollBottom();
+}
+function clarCard(clars) {
+  return `<div class="msg agent"><div class="avatar">🤖</div><div class="body">
+    <b>还有 ${clars.length} 个问题需要你确认：</b>
+    ${clars.map((c, i) => `<div style="margin-top:9px">
+      <div>${i + 1}. ${esc(c.question)}${c.why ? `<div class="mini">为什么问：${esc(c.why)}</div>` : ""}</div>
+      <input id="clar-${i}" placeholder="你的回答（可留空，按默认处理并说明）">
+    </div>`).join("")}
+    <input id="clar-extra" placeholder="补充修改意见（可选，例：截止改到 11 月 9 日 18:00）" style="margin-top:9px">
+    <div class="row" style="margin-top:4px">
+      <button class="sm" onclick="submitClarAnswers()">提交回答，更新草案</button>
+    </div>
+  </div></div>`;
+}
+async function quickTemplate(tpl) {
+  await guard(async () => {
+    chatTyping(true);
+    try {
+      const r = await api(`/api/tasks/${state.taskId}/draft/template`,
+                          { method: "POST", form: { template: tpl } });
+      state.bpId = r.blueprint_version_id;
+      state.draft = { blueprint: r.blueprint, clarifications: [], publish_summary: [], warnings: [] };
+      state.answeredDone = true;
+      chatTyping(false);
+      userSay(`用「${tpl === "class_report" ? "团课报告" : "比赛报名"}」模板生成`);
+      agentSay(`已按模板生成草案，右侧可以查看完整结构。
+        <div class="mini">模板只是起点——继续告诉我你的具体要求，我会在这份草案上改。</div>`);
+      renderChips(); renderDraftPanel();
+    } catch (e) { chatTyping(false); setFlash(e.message); }
+  });
+}
+
+async function chatSend() {
+  const el = document.getElementById("chat-in");
+  const text = (el.value || "").trim();
+  if (!text) return;
+  el.value = "";
+  userSay(text);
+  chatTyping(true);
+  try {
+    if (!state.bpId) {
+      const r = await api(`/api/tasks/${state.taskId}/draft/agent`,
+                          { method: "POST", form: { requirement: text } });
+      state.bpId = r.blueprint_version_id;
+      state.draft = r.draft;
+      state.requirement = text;
+      state.answeredDone = false;
+      chatTyping(false);
+      const bp = r.draft.blueprint || {};
+      const rules = bp.rules || [];
+      const nAuto = rules.filter(x => x.executor !== "human_only").length;
+      agentSay(`看懂了，草案生成好了 ✅
+        <div class="mini">登记字段 ${(bp.fields || []).length} 项 · 材料槽位 ${(bp.slots || []).length} 个 ·
+        检查规则 ${rules.length} 条（自动 ${nAuto} / 人工 ${rules.length - nAuto}）<br>
+        右侧是可核对的结构化草案；有拿不准的地方我在下面问你。</div>`);
+      renderChips(); renderDraftPanel();
+    } else {
+      const r = await api(`/api/tasks/${state.taskId}/draft/revise`, {
+        method: "POST",
+        form: { blueprint_version_id: String(state.bpId),
+                requirement: state.requirement || "",
+                answered: "{}", instruction: text } });
+      state.bpId = r.blueprint_version_id;
+      state.draft = r.draft;
+      state.answeredDone = false;
+      chatTyping(false);
+      agentSay(`改好了，已生成新草案版本 v${r.version}。
+        <div class="mini">${impactText(r.impact)}</div>`);
+      renderDraftPanel();
+    }
+  } catch (e) { chatTyping(false); setFlash(e.message); }
+}
+
+function impactText(im) {
+  im = im || {};
+  const bits = [];
+  for (const k of ["fields", "slots", "rules"]) {
+    const c = im[k] || {};
+    if (c.added && c.added.length) bits.push(`${k} 增加 ${c.added.length}`);
+    if (c.removed && c.removed.length) bits.push(`${k} 移除 ${c.removed.length}`);
+    if (c.changed && c.changed.length) bits.push(`${k} 修改 ${c.changed.length}`);
+  }
+  if (im.time_policy_changed) bits.push("时间策略有变化");
+  if (im.manual_acceptance_changed) bits.push("验收设置有变化");
+  if (im.eligibility_required_changed) bits.push("资格要求有变化");
+  return bits.length ? "本次变化：" + esc(bits.join("；")) : "没有实质变化";
+}
+
+async function submitClarAnswers() {
+  const clar = (state.draft && state.draft.clarifications) || [];
+  const answered = {};
+  clar.forEach((c, i) => {
+    const v = (document.getElementById("clar-" + i).value || "").trim();
+    if (v) answered[c.question] = v;
+  });
+  const extra = (document.getElementById("clar-extra").value || "").trim();
+  await guard(async () => {
+    chatTyping(true);
+    try {
+      const r = await api(`/api/tasks/${state.taskId}/draft/revise`, {
+        method: "POST",
+        form: { blueprint_version_id: String(state.bpId),
+                requirement: state.requirement || "",
+                answered: JSON.stringify(answered), instruction: extra } });
+      state.bpId = r.blueprint_version_id;
+      state.draft = r.draft;
+      const left = (r.draft.clarifications || []).length;
+      state.answeredDone = !left;
+      chatTyping(false);
+      agentSay(`收到 ${Object.keys(answered).length} 条回答${extra ? "和补充意见" : ""}，草案已更新 ✅
+        <div class="mini">${left ? `仍有 ${left} 个问题待确认，可继续回答。`
+          : "没有待澄清问题了，右侧核对无误后即可发布。"}</div>`);
+      renderDraftPanel();
+    } catch (e) { chatTyping(false); setFlash(e.message); }
+  });
+}
+/* 右侧结构化草案面板：与对话同一份草案，可人工核对每一项 */
+function renderDraftPanel() {
+  const box = document.getElementById("draft-panel");
+  if (!box) return;
+  const d = state.draft;
+  const has = state.bpId && d && d.blueprint;
+  const st2 = document.getElementById("st-2"), st3 = document.getElementById("st-3");
+  if (st2) st2.classList.toggle("on", !!has);
+  if (st3) st3.classList.toggle("on", !!(has && !(d.warnings || []).length));
+  if (!has) {
+    box.innerHTML = `<div class="card"><h3>📋 结构化草案</h3>
+      <p class="empty">还没有草案。<br>在左侧把要求发给小齐，或点模板快速开始。</p></div>`;
+    return;
+  }
+  const bp = d.blueprint;
+  const rules = bp.rules || [];
+  const nAuto = rules.filter(x => x.executor !== "human_only").length;
+  const tp = bp.time_policy || {};
+  const fmtDT = (x) => x ? esc(String(x).replace("T", " ").slice(0, 16)) : "未设置";
+  box.innerHTML = `
+  <div class="card">
+    <h3>📋 结构化草案 <span class="sub">蓝图版本 #${state.bpId} · 与对话同步</span></h3>
+    <div class="stat-row">
+      <div class="stat"><div class="n">${(bp.fields || []).length}</div><div class="t">登记字段</div></div>
+      <div class="stat"><div class="n">${(bp.slots || []).length}</div><div class="t">材料槽位</div></div>
+      <div class="stat"><div class="n">${rules.length}</div><div class="t">检查规则（自动 ${nAuto}）</div></div>
+      <div class="stat"><div class="n">${(d.clarifications || []).length}</div><div class="t">待澄清</div></div>
+    </div>
+    ${(d.warnings || []).length ? `<p style="color:var(--bad)"><b>警告（发布前请处理）：</b></p>
+      <ul>${d.warnings.map(w => `<li>${esc(w)}</li>`).join("")}</ul>` : ""}
+    ${state.requirement ? `<details style="margin:8px 0"><summary class="kv">查看原始要求</summary>
+      <p class="kv" style="white-space:pre-wrap">${esc(state.requirement)}</p></details>` : ""}
   </div>
-  <div class="grid2">
-    <div class="card"><h3>导入名册</h3>
-      <p class="muted">JSON 数组，如 [{"name":"张三","ref":"一班"}]</p>
-      <textarea id="roster" placeholder='[{"name":"张三","ref":"一班"}]'></textarea>
-      <button onclick="importRoster(${taskId})">导入</button>
+  <div class="card"><h3>登记字段</h3>
+    ${(bp.fields || []).map(f => `<span class="pill"><b>${esc(f.label)}</b>
+      ${f.required ? "必填" : "选填"}${f.required_condition ? ` · 条件 ${esc(f.required_condition)}` : ""}
+      ${f.visibility === "organizer" ? " · 仅组织者可见" : ""}</span>`).join("") || '<p class="muted">无字段</p>'}
+  </div>
+  <div class="card"><h3>材料槽位</h3>
+    ${(bp.slots || []).map(s => `<span class="pill"><b>${esc(s.label)}</b>
+      ${(s.formats || []).map(esc).join("/") || "不限格式"} · 最多 ${s.max_count} 个
+      ${s.max_size_mib ? ` · ≤${s.max_size_mib}MiB` : ""}${s.max_pages ? ` · ≤${s.max_pages}页` : ""}
+      ${s.required_condition ? ` · 条件 ${esc(s.required_condition)}` : ""}</span>`).join("") || '<p class="muted">无材料槽位</p>'}
+  </div>
+  <div class="card"><h3>检查规则 <span class="sub">能力如实标注，不把做不到的说成自动</span></h3>
+    <table><tr><th>规则</th><th>能力</th><th>执行</th><th>级别</th></tr>
+    ${rules.map(r => `<tr><td>${esc(r.statement)}<div class="kv">${esc(r.requirement_source || "")}</div></td>
+      <td>${CAP_BADGE[r.capability] || esc(r.capability)}</td>
+      <td>${esc(EXECUTOR_LABEL[r.executor] || r.executor)}</td>
+      <td>${r.severity === "blocking" ? '<span class="badge bad">阻塞</span>' : '<span class="badge">提醒</span>'}</td></tr>`).join("")}
+    </table>
+  </div>
+  <div class="card"><h3>时间与验收</h3>
+    <dl class="kv-list">
+      <dt>开放时间</dt><dd>${fmtDT(tp.open_at)}</dd>
+      <dt>首次截止</dt><dd>${fmtDT(tp.first_deadline)}</dd>
+      <dt>补正截止</dt><dd>${fmtDT(tp.correction_deadline)}</dd>
+      <dt>人工验收</dt><dd>${bp.manual_acceptance ? "需要组织者最终人工验收" : "不要求"}</dd>
+      <dt>资格核实</dt><dd>${bp.eligibility_required ? "需要" : "不要求"}</dd>
+    </dl>
+    ${(d.publish_summary || []).length ? `<p class="kv" style="margin-top:10px"><b>发布摘要：</b></p>
+      <ul>${d.publish_summary.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
+    <div class="row" style="margin-top:12px">
+      <button onclick="publishBp(${state.taskId})">发布蓝图</button>
     </div>
-    <div class="card"><h3>发放提交凭证</h3>
-      <label>主体名称</label><input id="grant-name" placeholder="张三">
-      <button onclick="issueGrant(${taskId})">发放</button>
-      <div id="grant-out"></div>
-    </div>
+    <p class="kv" style="margin-top:8px">发布时会逐项程序校验：对象/材料/能力/双截止/验收/交付与数据用途；
+      关键冲突会定位到具体项，不会静默放过。</p>
   </div>`;
 }
-async function genDraft(taskId, mode) {
-  await guard(async () => {
-    let r;
-    if (mode === "agent") {
-      const requirement = document.getElementById("req").value.trim();
-      if (!requirement) throw new Error("请先填写原始要求");
-      r = await api(`/api/tasks/${taskId}/draft/agent`,
-                    { method: "POST", form: { requirement } });
-    } else {
-      r = await api(`/api/tasks/${taskId}/draft/template`,
-                    { method: "POST", form: { template: document.getElementById("tpl").value } });
-    }
-    state.bpId = r.blueprint_version_id;
-    state.draft = r.draft;
-    state.requirement = requirement;
-    renderDraft(r.draft, null, null);
-    setFlash(`草案已生成（蓝图版本 #${r.blueprint_version_id}），请核对后发布`, "ok");
-  });
-}
 
-/* 渲染草案：警告/待澄清/发布摘要/蓝图 + 修订面板（澄清回答输入） */
-function renderDraft(d, impact, version) {
-  d = d || {};
-  document.getElementById("bp-view").innerHTML = `
-    ${version ? `<p class="kv">草案版本 v${version}</p>` : ""}
-    ${d.warnings && d.warnings.length ? `<p><b>警告（发布前请处理）：</b></p><ul>${
-      d.warnings.map(w => `<li>${esc(w)}</li>`).join("")}</ul>` : ""}
-    ${d.clarifications && d.clarifications.length ? `<p><b>待澄清：</b></p><ul>${
-      d.clarifications.map(c => `<li>${esc(c.question)}<span class="muted">（${esc(c.why)}）</span></li>`).join("")}</ul>` : ""}
-    ${d.publish_summary && d.publish_summary.length ? `<p><b>发布摘要：</b></p><ul>${
-      d.publish_summary.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
-    <pre class="mono" style="white-space:pre-wrap">${esc(JSON.stringify(d.blueprint || {}, null, 2))}</pre>`;
-  const panel = document.getElementById("revise-panel");
-  if (panel) {
-    const clar = d.clarifications || [];
-    panel.innerHTML = (clar.length
-      ? `<p><b>待澄清（填写回答后将随修订一起提交）：</b></p>` +
-        clar.map((c, i) => `<label>${esc(c.question)}</label>` +
-          `<input id="clar-${i}" placeholder="回答（可留空）">`).join("")
-      : `<p class="muted">当前草案没有待澄清问题。</p>`) +
-      (state.bpId ? `<p class="muted">当前草案版本 #${state.bpId}；修订将产生新版本。</p>` : "");
-  }
-}
-
-/* G2 澄清轮次闭环：回答澄清 + 修改意见 → 修订为新草案版本，显示修改影响 */
-async function reviseDraft(taskId) {
-  await guard(async () => {
-    if (!state.bpId) throw new Error("请先生成蓝图草案");
-    const clar = (state.draft && state.draft.clarifications) || [];
-    const answered = {};
-    clar.forEach((c, i) => {
-      const el = document.getElementById("clar-" + i);
-      const v = (el && el.value || "").trim();
-      if (v) answered[c.question] = v;
-    });
-    const instruction = (document.getElementById("revise-instruction").value || "").trim();
-    if (!Object.keys(answered).length && !instruction)
-      throw new Error("请先回答澄清问题或填写修改意见");
-    const r = await api(`/api/tasks/${taskId}/draft/revise`, {
-      method: "POST",
-      form: { blueprint_version_id: String(state.bpId),
-              requirement: state.requirement || "",
-              answered: JSON.stringify(answered), instruction },
-    });
-    state.bpId = r.blueprint_version_id;
-    state.draft = r.draft;
-    renderDraft(r.draft, r.impact, r.version);
-    const im = r.impact || {};
-    const bits = [];
-    for (const k of ["fields", "slots", "rules"]) {
-      const c = im[k] || {};
-      if (c.added && c.added.length) bits.push(`${k}+${c.added.length}`);
-      if (c.removed && c.removed.length) bits.push(`${k}-${c.removed.length}`);
-      if (c.changed && c.changed.length) bits.push(`${k}~${c.changed.length}`);
-    }
-    if (im.time_policy_changed) bits.push("时间策略变化");
-    if (im.manual_acceptance_changed || im.eligibility_required_changed) bits.push("验收/资格设置变化");
-    setFlash(`已修订为新草案版本 #${r.blueprint_version_id}（v${r.version}），修改影响：${bits.join("；") || "无实质变化"}`, "ok");
-  });
-}
 async function publishBp(taskId) {
   await guard(async () => {
     if (!state.bpId) throw new Error("请先生成蓝图草案");
     const r = await api(`/api/tasks/${taskId}/blueprints/${state.bpId}/publish`, { method: "POST" });
-    setFlash(`已发布版本 v${r.published_version}，任务状态：${r.task_status}`, "ok");
+    setFlash(`已发布版本 v${r.published_version}，任务状态：${r.task_status}。下一步：导入名单`, "ok");
+    agentSay(`蓝图已发布 ✅ 版本 v${r.published_version}，提交者现在可以按这份问卷提交了。
+      <div class="mini">别忘了去「名单」页导入应交名单、发放提交凭证。</div>`);
   });
 }
+
+/* ---------------------------------------------------------------- 名单管理 */
+async function viewRoster(taskId) {
+  document.getElementById("app").innerHTML = `<div id="flash"></div>
+  <div class="card"><h3>👥 名单管理 <span class="sub" id="roster-task"></span></h3>
+    <div class="stat-row" id="roster-stats"></div>
+    <p class="kv">名册计数：名册 = 应交 + 有效免交；应交 = 已正式提交 + 未正式提交。
+      验收、补正和人工待办都是已提交的子集，不能相加成总人数。</p>
+  </div>
+  <div class="card"><h3>① 导入名册</h3>
+    <p class="kv">每行一条：<b>姓名</b> 或 <b>姓名,备注</b>（中英文逗号或制表符均可；备注建议写学号/班级，用于按班整理与核对）。</p>
+    <textarea id="roster-raw" placeholder="张三,一班&#10;李四,一班&#10;王五,二班" style="min-height:110px"></textarea>
+    <div class="preview-box" id="roster-preview">输入后这里实时显示解析预览</div>
+    <div class="row" style="margin-top:10px"><button onclick="importRoster(${taskId})">导入名册</button></div>
+  </div>
+  <div class="card"><h3>② 名册与凭证</h3>
+    <div class="row" style="margin-bottom:10px">
+      <button class="ghost" onclick="issueAllGrants(${taskId})">为全部未发放凭证的主体发放</button>
+    </div>
+    <div id="roster-table"><p class="muted">加载中…</p></div>
+    <div id="grant-out" style="margin-top:12px"></div>
+    <p class="kv" style="margin-top:10px">凭证是提交者进入本人提交空间的唯一钥匙，请通过私下渠道发放；
+      同名主体只按名复用提交空间，是否同一人请在复核页人工核对，不自动合并。</p>
+  </div>
+  <div class="card"><h3>③ 接下来</h3>
+    <p class="kv">名单就绪后，到 <a href="#/workbench/${taskId}">任务工作台</a> 跟踪谁没交、谁要改、谁等你决定。</p>
+  </div>`;
+  document.getElementById("roster-raw").addEventListener("input", renderRosterPreview);
+  await loadRoster(taskId);
+}
+
+function parseRosterText(text) {
+  const rows = [], seen = new Set(), dup = [];
+  for (const line of (text || "").split(/\r?\n/)) {
+    const t = line.trim();
+    if (!t) continue;
+    const parts = t.split(/[,\t，]/).map(x => x.trim());
+    const name = parts[0] || "";
+    if (!name) continue;
+    if (seen.has(name)) { dup.push(name); continue; }
+    seen.add(name);
+    rows.push({ name, ref: parts.slice(1).join(",") });
+  }
+  return { rows, dup };
+}
+
+function renderRosterPreview() {
+  const { rows, dup } = parseRosterText(document.getElementById("roster-raw").value);
+  const box = document.getElementById("roster-preview");
+  if (!rows.length && !dup.length) { box.textContent = "输入后这里实时显示解析预览"; return; }
+  box.innerHTML = `将导入 <b>${rows.length}</b> 条${dup.length
+    ? `，跳过重复 ${dup.length} 条（${esc(dup.join("、"))}）` : ""}
+    <table style="margin-top:8px"><tr><th>#</th><th>姓名</th><th>备注</th></tr>
+    ${rows.map((r, i) => `<tr><td>${i + 1}</td><td>${esc(r.name)}</td><td>${esc(r.ref || "-")}</td></tr>`).join("")}
+    </table>`;
+}
+
+async function loadRoster(taskId) {
+  const d = await api(`/api/tasks/${taskId}/roster`);
+  state.roster = {};
+  d.entries.forEach(e => { state.roster[e.id] = e; });
+  document.getElementById("roster-task").textContent = `任务 #${taskId}`;
+  document.getElementById("roster-stats").innerHTML = `
+    <div class="stat"><div class="n">${d.total}</div><div class="t">名册总数</div></div>
+    <div class="stat"><div class="n">${d.granted}</div><div class="t">已发放凭证</div></div>
+    <div class="stat"><div class="n">${d.exempt}</div><div class="t">有效免交</div></div>
+    <div class="stat"><div class="n">${Math.max(0, d.total - d.granted - d.exempt)}</div><div class="t">待发放</div></div>`;
+  document.getElementById("roster-table").innerHTML = d.entries.length ? `
+    <table><tr><th>姓名</th><th>备注</th><th>凭证</th><th>提交空间</th><th>操作</th></tr>
+    ${d.entries.map(e => `<tr>
+      <td>${esc(e.name)}</td><td>${esc(e.ref || "-")}</td>
+      <td>${e.granted ? '<span class="badge ok">已发放</span>' : '<span class="badge warn">未发放</span>'}</td>
+      <td>${e.exempt ? '<span class="badge info">免交</span>'
+        : (e.subject_id ? "已创建" : '<span class="muted">发放凭证时自动创建</span>')}</td>
+      <td>${e.granted ? '<span class="muted">可重发以替换旧凭证</span>' : ""}
+        <button class="ghost sm" onclick="issueGrant(${taskId},${e.id})">${
+          e.granted ? "重发凭证" : "发放凭证"}</button></td>
+    </tr>`).join("")}</table>`
+    : `<p class="empty">名册还是空的——先在上面粘贴名单导入。</p>`;
+}
+
 async function importRoster(taskId) {
   await guard(async () => {
-    const entries = JSON.parse(document.getElementById("roster").value || "[]");
-    await api(`/api/tasks/${taskId}/roster`, { method: "POST", json: entries });
-    setFlash(`已导入 ${entries.length} 条名册`, "ok");
+    const { rows } = parseRosterText(document.getElementById("roster-raw").value);
+    if (!rows.length) throw new Error("没有可导入的有效行");
+    const r = await api(`/api/tasks/${taskId}/roster`, { method: "POST", json: rows });
+    setFlash(`已导入 ${r.imported} 条名册`, "ok");
+    document.getElementById("roster-raw").value = "";
+    renderRosterPreview();
+    await loadRoster(taskId);
   });
 }
-async function issueGrant(taskId) {
+
+async function issueGrant(taskId, entryId) {
   await guard(async () => {
-    const name = document.getElementById("grant-name").value.trim();
-    if (!name) throw new Error("请填写主体名称");
-    const r = await api(`/api/tasks/${taskId}/grants`,
-                        { method: "POST", form: { subject_name: name } });
-    document.getElementById("grant-out").innerHTML =
-      `<p class="kv">主体 #${r.subject_id} 凭证（仅显示这一次，请复制发给提交者）：</p>
-       <p class="mono" style="word-break:break-all">${esc(r.credential)}</p>`;
+    const e = state.roster[entryId];
+    if (!e) throw new Error("名册条目不存在，请刷新页面");
+    const r = await api(`/api/tasks/${taskId}/grants`, {
+      method: "POST",
+      form: { subject_name: e.name, roster_entry_id: String(entryId) } });
+    showCredential(e.name, r.credential);
+    await loadRoster(taskId);
   });
+}
+
+async function issueAllGrants(taskId) {
+  await guard(async () => {
+    const d = await api(`/api/tasks/${taskId}/roster`);
+    const todo = d.entries.filter(e => !e.granted && !e.exempt);
+    if (!todo.length) { setFlash("所有名册主体都已发放凭证（免交主体不发放）", "ok"); return; }
+    if (!window.confirm(`将为 ${todo.length} 个未发放凭证的主体各生成一个凭证，继续？`)) return;
+    const out = [];
+    for (const e of todo) {
+      const r = await api(`/api/tasks/${taskId}/grants`, {
+        method: "POST",
+        form: { subject_name: e.name, roster_entry_id: String(e.id) } });
+      out.push({ name: e.name, credential: r.credential });
+    }
+    showCredentialList(out);
+    await loadRoster(taskId);
+  });
+}
+
+function showCredential(name, cred) {
+  document.getElementById("grant-out").innerHTML = `
+    <p class="kv">主体「${esc(name)}」的凭证（<b>仅显示这一次</b>，请复制后通过私下渠道发给本人）：</p>
+    <div class="cred">${esc(cred)}</div>
+    <p class="kv" style="margin-top:6px">重发会生成新凭证；为安全起见，旧凭证仍有效直到被撤销或过期。</p>`;
+}
+function showCredentialList(list) {
+  document.getElementById("grant-out").innerHTML = `
+    <p class="kv">已生成 ${list.length} 个凭证（<b>仅显示这一次</b>，请逐一复制发给对应同学）：</p>
+    <table><tr><th>姓名</th><th>凭证</th></tr>
+    ${list.map(x => `<tr><td>${esc(x.name)}</td><td><div class="cred">${esc(x.credential)}</div></td></tr>`).join("")}
+    </table>`;
 }
 
 /* ---------------------------------------------------------------- P02 工作台 */
@@ -489,7 +766,7 @@ async function viewReview(taskId, sid) {
     html += `</p>`;
     html += coverageCard(d.run);
     if ((d.notes || []).length) {
-      html += `<div class="card"><h3>提交者解释 / 复核申诹</h3>
+      html += `<div class="card"><h3>提交者解释 / 复核申诉</h3>
         ${(d.notes || []).map(n => `<p>规则 ${esc(n.rule_id || "整体")}
           <span class="badge${n.handled ? " ok" : " warn"}">${
             n.handled ? "组织者已处理" : "待处理"}</span>
@@ -755,9 +1032,9 @@ async function loadMyResults() {
     if (!details.length && r.summary && r.summary !== "未正式提交") {
       html += `<p class="muted">暂无规则明细（可能尚未检查）</p>`;
     }
-    // 申诹入口：补交或解释（第 10 节）。解释不改变机器结论。
+    // 申诉入口：补交或解释（第 10 节）。解释不改变机器结论。
     if (todo.length) {
-      html += `<div class="card"><h3>申诹复核 / 补充说明</h3>
+      html += `<div class="card"><h3>申诉复核 / 补充说明</h3>
         <p class="kv">解释不改变机器结论，也不替代组织者决定；
           组织者核对原文后再决定。也可以选择直接补交更正材料。</p>
         <div class="row">
@@ -773,7 +1050,7 @@ async function loadMyResults() {
     }
     const appeals = r.appeals || [];
     if (appeals.length) {
-      html += `<div class="card"><h3>我的解释与复核申诹</h3>
+      html += `<div class="card"><h3>我的解释与复核申诉</h3>
         ${appeals.map(a => `<p>#${a.id} ${a.rule_id ? esc(a.rule_id) : "整体"}
           <span class="badge${a.status === "withdrawn" ? "" : (a.handled ? " ok" : " warn")}">${
             a.status === "withdrawn" ? "已撤回" : (a.handled ? "组织者已处理" : "待组织者处理")}</span>
