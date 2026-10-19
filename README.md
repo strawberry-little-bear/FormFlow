@@ -36,7 +36,7 @@ app/
 ├── schemas.py                 # Pydantic 模型（蓝图/字段/槽位/规则/时间策略）
 ├── security.py                # 凭证哈希
 ├── storage.py                 # 私有文件存储：安全文件名、稳定 ID、sha256
-├── parsing.py                 # PDF/DOCX/文本提取（图片=未读，不 OCR 臆测）
+├── parsing.py                 # PDF/DOCX/文本提取；扫描件/图片 OCR（RapidOCR 本地识别）
 ├── llm.py                     # OpenAI 兼容网关客户端 + 预算 + 降级异常
 ├── worker.py                  # 后台 worker：解析/审核/打包异步任务（进程内轮询）
 ├── agents/
@@ -101,7 +101,7 @@ python -m pytest tests/ -q
 | G0 设计确认 | 蓝图、页面、虚构材料与人工答案；用户试走关键决策 | 进行中 |
 | G1 无模型业务闭环 | 真实权限、上传、版本、名单、人工验收与导出；重启不丢 | **主体功能完成**：端到端冒烟 24 项通过 |
 | G2 需求 Agent | 澄清与编辑同步，不暗加要求 | **主体功能完成（当前）**：澄清轮次闭环（回答/修改意见 → 修订为新草案版本，历史不篡改，返回修改影响） |
-| G3 审核 Agent | 真实解析、证据、预算、人工转交；样本可重复检查 | 部分（确定性规则+语义规则骨架已完成） |
+| G3 审核 Agent | 真实解析、证据、预算和人工转交；样本可重复检查 | **已完成**：PyMuPDF+RapidOCR 真实解析（扫描件/图片 OCR，失败记未读不臆造）、真实类型检测防扩展名伪装、OCR 噪声引用容忍、6 场景真实冒烟（V05/V06/V07/V12/预算） |
 | G4 鲁棒性 | 补交、申诉、晚作业、并发、快照、降级与恢复 | 未开始 |
 | G5 外部试用 | 授权脱敏试点，记录收益与错误后再扩展 | 未开始 |
 
@@ -117,6 +117,7 @@ python -m pytest tests/ -q
 - `tests/test_llm.py`：网关客户端、预算、降级异常、fallback 兜底与空内容拦截（StubLLM，无真实网络）。
 - `tests/test_requirements_agent.py`：蓝图草稿生成与程序校验（重复 ID/日期顺序/依赖环/来源可定位）。
 - `tests/test_draft_revision.py`：澄清轮次闭环（修订产生新版本/历史不篡改/修改影响/审计）、无变化与模型不可用不造新版本、`POST /draft/revise` 422/404/越权/happy path。
+- `tests/test_parsing.py`：真实样本文件解析（文字层 PDF/扫描件 OCR/图片 OCR/DOCX/损坏/伪装/旧版），样本由 `scripts/make_samples.py` 可重复生成
 - `tests/test_review_agent.py`：确定性规则 + 语义规则（quote 定位、覆盖不足→unknown、故障→failed）。
 - `tests/test_submissions.py`：幂等收件、双截止、草稿冲突。
 - `tests/test_decisions.py`：验收前检查、撤销、作用域。
@@ -125,6 +126,7 @@ python -m pytest tests/ -q
 - `tests/test_demo_seed.py`：演示数据不变量（应交 4、张三已验收、李四待补正、王五待人工）与快照只纳入已验收。
 - `tests/test_notifications.py`：催交名单重查、只标已复制（V24）。
 - `tests/test_business_specs.py`：V16 同名新文件保留、V19 上传不算交、V22 材料注入防护与引用校验。
+- `scripts/smoke_review.py`：审核链路真实冒烟（真实解析样本 + 确定性/语义规则 + 证据定位 + 预算 + V05/V06/V07/V12/预算耗尽场景；`--stub` 用本地桩不调网关）
 - `scripts/smoke_llm.py`：真实网关冒烟（起草 → 澄清/修改意见修订），验证主模型与降级兜底链路；不写数据库，仅打印耗时/降级触发/程序校验/修改影响。
 
 ## 安全说明
