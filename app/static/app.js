@@ -403,6 +403,13 @@ async function viewReview(taskId, sid) {
       }
     }
     html += `</p>`;
+    if (d.same_name_subjects && d.same_name_subjects.length) {
+      html += `<div class="card"><h3>同名主体待核</h3>
+        <p class="kv">${esc(d.same_name_hint || "")}</p>
+        ${d.same_name_subjects.map(s => `<p>主体 #${s.id}（${esc(s.name)}）——以主体 ID 为准人工核对，系统不自动合并</p>`).join("")}
+      </div>`;
+    }
+
     html += (d.rules || []).map(r => `
       <div class="card">
         <h3>${esc(r.rule_id)} ${resultBadge(r.result)}
