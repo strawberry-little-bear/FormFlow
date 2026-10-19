@@ -45,10 +45,31 @@ def get_db() -> Iterator[Session]:
 
 
 def init_db() -> None:
-    """建表。迁移策略后续再完善，当前阶段直接 create_all。"""
+    """建表 + 轻量迁移（SQLite 缺列时补齐，不引入 Alembic）。"""
     from . import models  # noqa: F401  确保模型已注册
 
     if settings.database_url.startswith("sqlite"):
         db_path = settings.database_url.split("///", 1)[1]
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     Base.metadata.create_all(bind=engine)
+    if settings.database_url.startswith("sqlite"):
+        _add_missing_columns()
+
+
+# 已有本地库升级用：新列 → (表, 列, 定义)。SQLite 不支持 ADD COLUMN IF NOT EXISTS，
+# 先查 PRAGMA table_info 再补，重复执行安全。
+_SQLITE_COLUMNS = {
+    "submissions": [("draft_fields_json", "TEXT DEFAULT '{}'")],
+}
+
+
+def _add_missing_columns() -> None:
+    from sqlalchemy import text
+
+    with engine.begin() as conn:
+        for table, columns in _SQLITE_COLUMNS.items():
+            existing = {row[1] for row in conn.execute(
+                text(f"PRAGMA table_info({table})")).fetchall()}
+            for name, ddl in columns:
+                if name not in existing:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))

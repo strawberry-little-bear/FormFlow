@@ -170,22 +170,53 @@ def create_task(name: str = Form(...), mode: str = Form("roster"),
     db.commit()
     return {"task_id": task.id, "status": task.status}
 
+@router.get("/tasks/{task_id}/design")
+def get_design_view(task_id: int, db: Session = Depends(get_db),
+                    acct: Account = Depends(current_account)):
+    """Owner-only design recovery; unpublished rules and source text are private."""
+    return task_service.get_design(db, _owned_task(db, acct, task_id))
+
+
+@router.get("/tasks/{task_id}/blueprints/{bp_id}")
+def get_blueprint_version(task_id: int, bp_id: int, db: Session = Depends(get_db),
+                          acct: Account = Depends(current_account)):
+    """只读查看历史草案版本；发布后的版本同样可见，用于版本对比。"""
+    task = _owned_task(db, acct, task_id)
+    try:
+        return task_service.get_blueprint_version(db, task, bp_id)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+
+
 @router.post("/tasks/{task_id}/draft/agent")
 def draft_by_agent(task_id: int, requirement: str = Form(...), template: str = Form(None),
                    db: Session = Depends(get_db), acct: Account = Depends(current_account)):
     task = _owned_task(db, acct, task_id)
-    result, bp = task_service.draft_from_requirement(db, task, requirement, template)
+    try:
+        result, bp = task_service.draft_from_requirement(db, task, requirement, template)
+    except task_service.TaskNotWritable as e:
+        raise HTTPException(409, str(e))
     db.commit()
-    return {"blueprint_version_id": bp.id, "draft": result.model_dump()}
+    blocking, advisories = task_service.split_publish_checks(result.blueprint, bp, result)
+    return {"blueprint_version_id": bp.id, "version": bp.version, "status": bp.status,
+            "draft": result.model_dump(), "blocking": blocking, "advisories": advisories}
 
 @router.post("/tasks/{task_id}/draft/template")
 def draft_by_template(task_id: int, template: str = Form(...),
                       db: Session = Depends(get_db), acct: Account = Depends(current_account)):
     task = _owned_task(db, acct, task_id)
-    bp = task_service.draft_from_template(db, task, template)
+    try:
+        bp = task_service.draft_from_template(db, task, template)
+    except task_service.TaskNotWritable as e:
+        raise HTTPException(409, str(e))
+    except ValueError as e:
+        raise HTTPException(422, str(e))
     db.commit()
+    design = task_service.get_design(db, task)
     return {"blueprint_version_id": bp.id, "version": bp.version,
-            "blueprint": Blueprint.model_validate_json(bp.blueprint_json).model_dump()}
+            "blueprint": Blueprint.model_validate_json(bp.blueprint_json).model_dump(),
+            "draft": design["draft"], "blocking": design.get("blocking", []),
+            "advisories": design.get("advisories", [])}
 
 @router.post("/tasks/{task_id}/draft/revise")
 def revise_draft_view(task_id: int, blueprint_version_id: int = Form(...),
@@ -209,8 +240,10 @@ def revise_draft_view(task_id: int, blueprint_version_id: int = Form(...),
     except ValueError as e:
         raise HTTPException(404, str(e))
     db.commit()
+    blocking, advisories = task_service.split_publish_checks(result.blueprint, bp, result)
     return {"blueprint_version_id": bp.id, "version": bp.version,
-            "draft": result.model_dump(), "impact": impact}
+            "status": bp.status, "draft": result.model_dump(), "impact": impact,
+            "blocking": blocking, "advisories": advisories}
 
 
 @router.post("/tasks/{task_id}/blueprints/{bp_id}/publish")
@@ -409,6 +442,16 @@ def save_draft(body: DraftIn,
     db.commit()
     return {"draft_version": version}
 
+@router.get("/me/draft")
+def read_draft(grant_and_subject: tuple = Depends(current_subject),
+               db: Session = Depends(get_db)):
+    """恢复提交者草稿：刷新/换设备后字段与已上传文件都还在。"""
+    grant, subject = grant_and_subject
+    task = db.get(Task, grant.task_id)
+    submission = sub_service.get_or_create_draft(db, task, subject.id)
+    db.commit()
+    return sub_service.draft_view(db, task, submission)
+
 @router.post("/me/files")
 async def upload_file(slot: str = Form(...), file: UploadFile = File(...),
                       grant_and_subject: tuple = Depends(current_subject),
@@ -417,14 +460,38 @@ async def upload_file(slot: str = Form(...), file: UploadFile = File(...),
     task = db.get(Task, grant.task_id)
     submission = sub_service.get_or_create_draft(db, task, subject.id)
     content = await file.read()
+    bp = db.get(BlueprintVersion, task.current_blueprint_id) if task.current_blueprint_id else None
+    blueprint = Blueprint.model_validate_json(bp.blueprint_json) if bp else None
     try:
+        sub_service.validate_slot_count(db, submission, blueprint, slot=slot)
+        sub_service.validate_upload(task, blueprint, slot=slot,
+                                    original_name=file.filename or "unnamed",
+                                    size=len(content))
         fo = sub_service.attach_file(db, submission, slot=slot,
                                      original_name=file.filename or "unnamed",
                                      content=content, sha256="", mime=file.content_type or "")
     except task_service.TaskNotWritable as e:
         raise HTTPException(409, str(e))
+    except sub_service.SubmitError as e:
+        raise HTTPException(422, str(e))
     db.commit()
     return {"file_id": fo.file_id, "status": fo.status, "size": fo.size}
+
+@router.delete("/me/files/{file_id}")
+def delete_file(file_id: str, grant_and_subject: tuple = Depends(current_subject),
+                db: Session = Depends(get_db)):
+    """删除尚未进入正式版本的草稿文件。"""
+    grant, subject = grant_and_subject
+    task = db.get(Task, grant.task_id)
+    submission = sub_service.get_or_create_draft(db, task, subject.id)
+    try:
+        sub_service.delete_file(db, submission, file_id)
+    except task_service.TaskNotWritable as e:
+        raise HTTPException(409, str(e))
+    except sub_service.SubmitError as e:
+        raise HTTPException(422, str(e))
+    db.commit()
+    return {"deleted": file_id}
 
 @router.post("/me/submit")
 def formal_submit(body: SubmitIn,
