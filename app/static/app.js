@@ -376,6 +376,10 @@ async function viewWorkbench(taskId) {
           ${canRetry ? `<button class="ghost" onclick="retryCheck(${taskId},${r.subject_id})" title="上次检查技术失败：重试生成新运行，旧运行标记被取代并保留">重试</button>` : ""}
               <a href="#/review/${taskId}/${r.subject_id}">复核</a></td></tr>`;
       }).join("")}</table>` : `<p class="muted">暂无主体</p>`;
+    // 有排队/执行中的检查：3 秒后自动刷新，直到 Worker 跑完（失败可重试，成功即止）
+    const pending = rows.some(r => ["queued", "running", "retry_wait"].includes(r.run_status));
+    clearTimeout(_wbTimer);
+    if (pending) _wbTimer = setTimeout(() => viewWorkbench(taskId), 3000);
   } catch (e) { setFlash(e.message); }
 }
 
@@ -405,17 +409,18 @@ async function taskLifecycle(taskId, action) {
     await viewWorkbench(taskId);
   });
 }
+let _wbTimer = 0;
 async function runCheck(taskId, sid) {
   await guard(async () => {
     await api(`/api/tasks/${taskId}/subjects/${sid}/checks`, { method: "POST" });
-    setFlash("检查已发起", "ok");
+    setFlash("检查已排队：后台执行中，页面会自动刷新", "ok");
     await viewWorkbench(taskId);
   });
 }
 async function retryCheck(taskId, sid, back) {
   await guard(async () => {
     const r = await api(`/api/tasks/${taskId}/subjects/${sid}/checks/retry`, { method: "POST" });
-    setFlash(`已重试：新运行 #${r.run_id}（${r.status}），旧运行 #${r.retried_from} 已标记被取代、历史保留`, "ok");
+    setFlash(`已重新排队：新运行 #${r.run_id} 后台执行中，旧运行 #${r.retried_from} 已标记被取代、历史保留`, "ok");
     if (back === "review") await viewReview(taskId, sid);
     else await viewWorkbench(taskId);
   });
