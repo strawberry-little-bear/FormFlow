@@ -28,3 +28,7 @@ desktop.ini
 .vscode/
 .idea/
 *.swp
+# 本地临时凭证/截图数据
+_tokens.json
+data/shots/
+data/*.log
