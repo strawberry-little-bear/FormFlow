@@ -18,15 +18,18 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..models import (
+    EXEMPTION_ACTIVE,
     AccessGrant,
     Account,
     AuthSession,
     BlueprintVersion,
     CheckRun,
     DeliverySnapshot,
+    Exemption,
     ExportJob,
     ManualDecision,
     NotificationIntent,
+    RosterEntry,
     RUN_SUPERSEDED,
     Revision,
     Submission,
@@ -50,7 +53,7 @@ class SubmitIn(BaseModel):
 
 
 class AppealIn(BaseModel):
-    """提交者解释/申诹复核：作用域规则（可空）+ 内容 + 幂等键。"""
+    """提交者解释/申诉复核：作用域规则（可空）+ 内容 + 幂等键。"""
 
     rule_id: str = ""
     content: str = ""
@@ -181,7 +184,8 @@ def draft_by_template(task_id: int, template: str = Form(...),
     task = _owned_task(db, acct, task_id)
     bp = task_service.draft_from_template(db, task, template)
     db.commit()
-    return {"blueprint_version_id": bp.id}
+    return {"blueprint_version_id": bp.id, "version": bp.version,
+            "blueprint": Blueprint.model_validate_json(bp.blueprint_json).model_dump()}
 
 @router.post("/tasks/{task_id}/draft/revise")
 def revise_draft_view(task_id: int, blueprint_version_id: int = Form(...),
@@ -299,9 +303,33 @@ def import_roster(task_id: int, entries: list[dict], db: Session = Depends(get_d
     db.commit()
     return {"imported": len(entries)}
 
+
+@router.get("/tasks/{task_id}/roster")
+def get_roster(task_id: int, db: Session = Depends(get_db),
+               acct: Account = Depends(current_account)):
+    """名册视图：应交分母、凭证发放与免交状态一屏看清（名单管理页）。"""
+    task = _owned_task(db, acct, task_id)
+    entries = db.scalars(select(RosterEntry).where(
+        RosterEntry.task_id == task.id).order_by(RosterEntry.id)).all()
+    exempt_ids = set(db.scalars(select(Exemption.subject_id).where(
+        Exemption.task_id == task.id,
+        Exemption.status == EXEMPTION_ACTIVE)).all())
+    out = []
+    for e in entries:
+        subj = db.get(Subject, e.subject_id) if e.subject_id else None
+        out.append({
+            "id": e.id, "name": e.name, "ref": e.ref,
+            "subject_id": e.subject_id,
+            "granted": bool(subj is not None and task_service.has_valid_grant(db, subj)),
+            "exempt": bool(e.subject_id and e.subject_id in exempt_ids),
+        })
+    return {"entries": out, "total": len(out),
+            "granted": sum(1 for x in out if x["granted"]),
+            "exempt": sum(1 for x in out if x["exempt"])}
+
 @router.post("/tasks/{task_id}/grants")
 def issue_grant(task_id: int, subject_name: str = Form(...),
-                members: str = Form(""),
+                members: str = Form(""), roster_entry_id: Optional[int] = Form(None),
                 db: Session = Depends(get_db),
                 acct: Account = Depends(current_account)):
     """发放提交凭证。members 为可选 JSON 字符串数组：团队主体按名登记成员（V10）。
@@ -310,6 +338,14 @@ def issue_grant(task_id: int, subject_name: str = Form(...),
     """
     task = _owned_task(db, acct, task_id)
     subject = task_service.ensure_subject(db, task, subject_name)
+    # 名册条目精确关联：从名单页发放时把该条目绑到主体，便于核对应交分母
+    if roster_entry_id is not None:
+        entry = db.get(RosterEntry, roster_entry_id)
+        if entry is None or entry.task_id != task.id:
+            raise HTTPException(404, "名册条目不存在或不属于该任务")
+        if entry.subject_id is None:
+            entry.subject_id = subject.id
+            db.flush()
     added: list[str] = []
     if members.strip():
         try:
@@ -434,7 +470,7 @@ def my_receipt(grant_and_subject: tuple = Depends(current_subject), db: Session 
 def create_appeal(body: AppealIn,
                   grant_and_subject: tuple = Depends(current_subject),
                   db: Session = Depends(get_db)):
-    """P04 申诹入口：提交者对具体规则提交解释/申诹复核。
+    """P04 申诉入口：提交者对具体规则提交解释/申诉复核。
 
     解释不改变机器结论，也不替代组织者决定；组织者在 P03 看到后再决定。
     """
@@ -487,7 +523,7 @@ def my_results(grant_and_subject: tuple = Depends(current_subject), db: Session 
     out = current_summary(db, task, subject.id)
     # P04：提交者同样看到规则明细（哪里有问题/怎么改/引用证据），与 P03 同源
     out["details"] = current_details(db, task, subject.id)
-    # P04 申诹入口：本人解释与处理进展（不改变机器结论）
+    # P04 申诉入口：本人解释与处理进展（不改变机器结论）
     out["appeals"] = [appeal_service.to_dict(db, n)
                       for n in appeal_service.list_notes(db, task, subject)]
     return out

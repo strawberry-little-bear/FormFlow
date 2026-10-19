@@ -73,7 +73,7 @@ EXEMPTION_ACTIVE = "active"
 EXEMPTION_REVOKED = "revoked"
 EXEMPTION_EXPIRED = "expired"
 
-# 提交者解释 / 申请复核（第 10 节“提交者的申诹路径”）
+# 提交者解释 / 申请复核（第 10 节“提交者的申诉路径”）
 NOTE_PENDING = "pending"          # 待组织者处理
 NOTE_WITHDRAWN = "withdrawn"      # 提交者自行撤回（只改状态，不删历史）
 
