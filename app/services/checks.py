@@ -222,6 +222,49 @@ def run_coverage(run: Optional[CheckRun]) -> dict:
             "complete": unread == 0 and failed == 0}
 
 
+def _latest_run(db: Session, submission: Optional[Submission]) -> Optional[CheckRun]:
+    """主体当前版本对应的最新非被取代运行。"""
+    if submission is None or submission.current_revision_id is None:
+        return None
+    return db.scalar(select(CheckRun).where(
+        CheckRun.revision_id == submission.current_revision_id,
+        CheckRun.status.not_in([RUN_SUPERSEDED])).order_by(CheckRun.id.desc()))
+
+
+def rule_details(db: Session, run: Optional[CheckRun]) -> list[dict]:
+    """规则明细：哪里有问题、怎么改、引用证据。
+
+    P03 证据复核与 P04 提交者自查共用同一份事实，避免两端说法不一致。
+    """
+    if run is None:
+        return []
+    bp = db.get(BlueprintVersion, run.blueprint_version_id)
+    rules_meta: dict = {}
+    if bp is not None:
+        blueprint = Blueprint.model_validate_json(bp.blueprint_json)
+        rules_meta = {r.id: r.model_dump() for r in blueprint.rules}
+    out = []
+    for r in db.scalars(select(RuleResult).where(RuleResult.run_id == run.id)).all():
+        evs = [{"file_id": e.file_id, "locator": e.locator, "quote": e.quote,
+                "method": e.method, "method_version": e.method_version}
+               for e in db.scalars(select(Evidence).where(
+                   Evidence.rule_result_id == r.id)).all()]
+        out.append({
+            "rule_id": r.rule_id, "result": r.result, "severity": r.severity,
+            "explanation": r.explanation, "next_step": r.next_step,
+            "requirement": rules_meta.get(r.rule_id, {}),
+            "evidence": evs,
+        })
+    return out
+
+
+def current_details(db: Session, task: Task, subject_id: int) -> list[dict]:
+    """提交者视角的规则明细：哪里有问题、怎么改、引用证据、剩余待办。"""
+    submission = db.scalar(select(Submission).where(
+        Submission.task_id == task.id, Submission.subject_id == subject_id))
+    return rule_details(db, _latest_run(db, submission))
+
+
 def current_summary(db: Session, task: Task, subject_id: int) -> dict:
     """主摘要与可重叠待办（第 7 节）。"""
     submission = db.scalar(select(Submission).where(
@@ -232,9 +275,7 @@ def current_summary(db: Session, task: Task, subject_id: int) -> dict:
                 "buckets": {"blocking": [], "unknown": [],
                             "human": [], "incomplete": [], "pending_jobs": []}}
     revision = db.get(Revision, submission.current_revision_id)
-    run = db.scalar(select(CheckRun).where(
-        CheckRun.revision_id == revision.id,
-        CheckRun.status.not_in([RUN_SUPERSEDED])).order_by(CheckRun.id.desc()))
+    run = _latest_run(db, submission)
     if run is None:
         return {"summary": "排队中", "acceptance": ACCEPTANCE_PENDING,
                 "coverage": run_coverage(None),

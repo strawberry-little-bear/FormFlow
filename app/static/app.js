@@ -36,6 +36,47 @@ async function guard(fn) {
   try { await fn(); } catch (e) { setFlash(e.message || String(e)); }
 }
 
+/* 规则结果徽标与规则卡片：P03 与 P04 共用同一渲染，避免两端说法不一致 */
+const RESULT_BADGE = {
+  satisfied: '<span class="badge ok">满足</span>',
+  issue: '<span class="badge bad">问题</span>',
+  unknown: '<span class="badge warn">unknown</span>',
+  not_applicable: '<span class="badge">不适用</span>',
+  failed: '<span class="badge bad">失败</span>',
+};
+const resultBadge = (r) => RESULT_BADGE[r] || esc(r);
+const METHOD_LABEL = {
+  text: "文字层提取", ocr: "OCR 识别", mixed: "文字层+OCR",
+  visual: "无可提取文字（图像）", none: "未提取到文字",
+};
+const coverageCard = (run) => {
+  if (!run || !run.coverage) return "";
+  const cov = run.coverage;
+  const gap = (cov.unread_pages || 0) + (cov.failed_pages || 0);
+  return `<div class="card"><h3>材料覆盖情况（提取方法与覆盖缺口）</h3>
+    <p class="kv">已读页 ${run.pages_read ?? 0} ｜ 语义模型调用 ${run.llm_calls_used ?? 0}${run.budget_exhausted ? " ｜ 预算已耗尽" : ""}
+      ｜ <span class="badge${gap ? " warn" : " ok"}">${cov.complete === false ? "覆盖不完整" : "覆盖完整"}</span></p>
+    <table><tr><th>文件</th><th>提取方式</th><th>总页</th><th>已读</th><th>未读</th><th>失败</th></tr>
+    ${(cov.files || []).map(f => `<tr><td>${esc(f.name || f.file_id)}</td>
+      <td>${esc(METHOD_LABEL[f.method] || f.method || "-")}</td>
+      <td>${f.total ?? 0}</td><td>${f.text ?? 0}</td><td>${f.unread ?? 0}</td><td>${f.failed ?? 0}</td></tr>`).join("")}
+    </table>
+    ${gap ? `<p class="kv" style="margin-top:8px">共 ${gap} 页未能读取：这些页不构成「确认缺失」，相关要素按 unknown 处理，需补充清晰可读的材料或转人工复核。</p>` : ""}
+  </div>`;
+};
+const ruleCard = (r) => `
+  <div class="card">
+    <h3>${esc(r.rule_id)} ${resultBadge(r.result)}
+      <span class="badge">${esc(r.severity || "")}</span></h3>
+    ${r.explanation ? `<p>${esc(r.explanation)}</p>` : ""}
+    ${r.next_step ? `<p class="kv">下一步：${esc(r.next_step)}</p>` : ""}
+    ${r.requirement && r.requirement.statement ?
+      `<p class="kv">要求来源：${esc(r.requirement.requirement_source || "")} ｜ ${esc(r.requirement.statement)}</p>` : ""}
+    ${(r.evidence || []).map(e => `
+      <div class="evidence">[${esc(e.locator || "-")} · ${esc(e.method || "-")}] ${esc(e.quote || "")}</div>
+    `).join("") || `<p class="muted">无证据</p>`}
+  </div>`;
+
 /* ---------------------------------------------------------------- 路由 */
 function route() {
   const h = (location.hash || "#/login").replace(/^#/, "");
@@ -387,13 +428,6 @@ async function viewReview(taskId, sid) {
     <div id="rv"><p class="muted">加载中…</p></div></div>`;
   try {
     const d = await api(`/api/tasks/${taskId}/subjects/${sid}/findings`);
-    const resultBadge = (r) => ({
-      satisfied: '<span class="badge ok">满足</span>',
-      issue: '<span class="badge bad">问题</span>',
-      unknown: '<span class="badge warn">unknown</span>',
-      not_applicable: '<span class="badge">不适用</span>',
-      failed: '<span class="badge bad">失败</span>',
-    }[r] || esc(r));
     let html = `<p class="kv">主体：${esc(d.subject.name)}`;
     if (d.revision) html += ` · 当前版本 v${d.revision.version} · 回执 ${esc(d.revision.receipt)}`;
     if (d.run) {
@@ -403,6 +437,7 @@ async function viewReview(taskId, sid) {
       }
     }
     html += `</p>`;
+    html += coverageCard(d.run);
     if (d.same_name_subjects && d.same_name_subjects.length) {
       html += `<div class="card"><h3>同名主体待核</h3>
         <p class="kv">${esc(d.same_name_hint || "")}</p>
@@ -410,18 +445,8 @@ async function viewReview(taskId, sid) {
       </div>`;
     }
 
-    html += (d.rules || []).map(r => `
-      <div class="card">
-        <h3>${esc(r.rule_id)} ${resultBadge(r.result)}
-          <span class="badge">${esc(r.severity)}</span></h3>
-        ${r.explanation ? `<p>${esc(r.explanation)}</p>` : ""}
-        ${r.next_step ? `<p class="kv">下一步：${esc(r.next_step)}</p>` : ""}
-        ${r.requirement && r.requirement.statement ?
-          `<p class="kv">要求来源：${esc(r.requirement.requirement_source || "")} ｜ ${esc(r.requirement.statement)}</p>` : ""}
-        ${(r.evidence || []).map(e => `
-          <div class="evidence">[${esc(e.locator || "-")} · ${esc(e.method || "-")}] ${esc(e.quote || "")}</div>
-        `).join("") || `<p class="muted">无证据</p>`}
-      </div>`).join("") || `<p class="muted">暂无规则结果（可能尚未检查）</p>`;
+    html += (d.rules || []).map(ruleCard).join("")
+      || `<p class="muted">暂无规则结果（可能尚未检查）</p>`;
     html += `
       <div class="card"><h3>人工决定</h3>
         <div class="row">
@@ -639,7 +664,7 @@ async function loadMyResults() {
   try {
     const r = await api("/api/me/results", { sub: true });
     const b = r.buckets || {};
-    document.getElementById("my-results").innerHTML = `
+    let html = `
       <p>状态：<b>${esc(r.summary)}</b>${r.revision ? `（v${r.revision}）` : ""}</p>
       <p>${[
         ...(b.blocking || []).map(x => `<span class="badge bad">阻塞:${esc(x)}</span>`),
@@ -647,6 +672,30 @@ async function loadMyResults() {
         ...(b.human || []).map(x => `<span class="badge info">人工:${esc(x)}</span>`),
         ...(b.incomplete || []).map(x => `<span class="badge bad">失败:${esc(x)}</span>`),
       ].join("") || '<span class="muted">暂无待办</span>'}</p>`;
+    // 覆盖缺口：读不到的页不能算缺失，必须显式告知提交者
+    const cov = r.coverage || {};
+    const gap = (cov.unread_pages || 0) + (cov.failed_pages || 0);
+    if (gap) {
+      html += `<div class="flash err">有 ${gap} 页材料未能读取：系统不把没读到的内容判为缺失，`
+        + `请补充清晰可读的材料后重新正式提交。</div>`;
+    }
+    // 规则明细：哪里有问题、怎么改、引用证据、剩余待办
+    const details = r.details || [];
+    const todo = details.filter(x => x.result === "issue" || x.result === "unknown"
+      || x.result === "failed");
+    const done = details.filter(x => x.result === "satisfied"
+      || x.result === "not_applicable");
+    if (todo.length) {
+      html += `<h3>待办事项（${todo.length}）</h3>` + todo.map(ruleCard).join("");
+    }
+    if (done.length) {
+      html += `<p class="kv">已通过 ${done.length} 项：`
+        + `${done.map(x => esc(x.rule_id)).join("、")}</p>`;
+    }
+    if (!details.length && r.summary && r.summary !== "未正式提交") {
+      html += `<p class="muted">暂无规则明细（可能尚未检查）</p>`;
+    }
+    document.getElementById("my-results").innerHTML = html;
   } catch (e) { /* 结果加载失败不打断页面 */ }
 }
 
