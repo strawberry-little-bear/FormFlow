@@ -81,7 +81,24 @@ def test_slot_constraints_wrong_format():
                  parse=ParseResult(pages=["x"]))
     r = run_deterministic(_bp().rules[0], _ctx(files=[f]))
     assert r.result == RESULT_ISSUE
-    assert "格式" in r.explanation
+    assert "扩展名" in r.explanation
+
+
+def test_slot_constraints_disguised_type_by_real_content():
+    """扩展名伪装：名为 .pdf 实为 docx 内容，按真实类型判不符（V11，不轻信扩展名）。"""
+    f = FileInfo(file_id="f1", slot="report", original_name="a.pdf", size=1024,
+                 parse=ParseResult(pages=["x"], detected="docx"))
+    r = run_deterministic(_bp().rules[0], _ctx(files=[f]))
+    assert r.result == RESULT_ISSUE
+    assert "真实内容" in r.explanation or "实际内容" in r.explanation
+
+
+def test_slot_constraints_detected_type_ok():
+    """真实类型与声明格式一致时通过（内容检测为 pdf 的 .pdf）。"""
+    f = FileInfo(file_id="f1", slot="report", original_name="a.pdf", size=1024,
+                 parse=ParseResult(pages=["x"], detected="pdf"))
+    r = run_deterministic(_bp().rules[0], _ctx(files=[f]))
+    assert r.result == RESULT_SATISFIED
 
 
 def test_slot_constraints_too_many_pages():
