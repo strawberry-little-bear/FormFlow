@@ -289,6 +289,8 @@ class CheckRun(Base):
     llm_calls_used: Mapped[int] = mapped_column(Integer, default=0)
     pages_read: Mapped[int] = mapped_column(Integer, default=0)
     budget_exhausted: Mapped[bool] = mapped_column(Boolean, default=False)
+    # V08 覆盖缺口：file_id -> {total,text,unread,failed,method,name}，供复核与提交者看到“哪些页没读到”
+    coverage_json: Mapped[str] = mapped_column(Text, default="")
     error: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)

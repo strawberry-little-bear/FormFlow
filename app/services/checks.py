@@ -111,6 +111,8 @@ def _execute_check_pipeline(db: Session, run: CheckRun, client=None) -> CheckRun
     run.llm_calls_used = outcome.llm_calls_used
     run.pages_read = outcome.pages_read
     run.budget_exhausted = outcome.budget_exhausted
+    # V08：覆盖缺口落库（未读/失败页），复核页与提交者均可见
+    run.coverage_json = json.dumps(outcome.coverage, ensure_ascii=False)
     for r in outcome.results:
         rr = RuleResult(run_id=run.id, rule_id=r.rule_id, result=r.result,
                         severity=_severity_of(blueprint, r.rule_id),
@@ -198,12 +200,35 @@ def _active_decisions(db: Session, task_id: int, subject_id: int,
     return out
 
 
+def run_coverage(run: Optional[CheckRun]) -> dict:
+    """V08 覆盖缺口视图：按文件给出总页/已读/未读/失败与提取方式。
+
+    未读/失败页存在时 complete=False：语义结论只能 unknown，
+    不得把“没读到”写成“确认缺失”。
+    """
+    empty = {"files": [], "unread_pages": 0, "failed_pages": 0, "complete": True}
+    if run is None or not run.coverage_json:
+        return empty
+    try:
+        raw = json.loads(run.coverage_json)
+    except Exception:
+        return empty
+    if not isinstance(raw, dict):
+        return empty
+    files = [{"file_id": fid, **cov} for fid, cov in sorted(raw.items())]
+    unread = sum(int(c.get("unread", 0) or 0) for c in files)
+    failed = sum(int(c.get("failed", 0) or 0) for c in files)
+    return {"files": files, "unread_pages": unread, "failed_pages": failed,
+            "complete": unread == 0 and failed == 0}
+
+
 def current_summary(db: Session, task: Task, subject_id: int) -> dict:
     """主摘要与可重叠待办（第 7 节）。"""
     submission = db.scalar(select(Submission).where(
         Submission.task_id == task.id, Submission.subject_id == subject_id))
     if submission is None or submission.current_revision_id is None:
         return {"summary": "未正式提交", "acceptance": ACCEPTANCE_PENDING,
+                "coverage": run_coverage(None),
                 "buckets": {"blocking": [], "unknown": [],
                             "human": [], "incomplete": [], "pending_jobs": []}}
     revision = db.get(Revision, submission.current_revision_id)
@@ -212,6 +237,7 @@ def current_summary(db: Session, task: Task, subject_id: int) -> dict:
         CheckRun.status.not_in([RUN_SUPERSEDED])).order_by(CheckRun.id.desc()))
     if run is None:
         return {"summary": "排队中", "acceptance": ACCEPTANCE_PENDING,
+                "coverage": run_coverage(None),
                 "buckets": {"pending_jobs": ["排队中"]}}
     decisions = _active_decisions(db, task.id, subject_id, revision.id)
     decided_rules = {d.scope_rule_id for d in decisions if d.scope_rule_id}
@@ -262,6 +288,7 @@ def current_summary(db: Session, task: Task, subject_id: int) -> dict:
         "acceptance": acceptance,
         "revision": revision.version,
         "run_status": run.status,
+        "coverage": run_coverage(run),
         "buckets": {"blocking": blocking, "unknown": unknown, "human": human,
                     "incomplete": incomplete, "pending_jobs": jobs},
     }
