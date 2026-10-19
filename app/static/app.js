@@ -117,40 +117,85 @@ function logout() {
 /* ---------------------------------------------------------------- 登录 */
 function viewLogin() {
   document.getElementById("app").innerHTML = `
-  <div class="grid2">
-    <div class="card"><h3>组织者登录 / 注册</h3>
-      <label>用户名</label><input id="lg-user" placeholder="用户名">
-      <label>密码</label><input id="lg-pass" type="password" placeholder="密码">
-      <div class="row">
-        <button onclick="doLogin()">登录</button>
-        <button class="ghost" onclick="doRegister()">注册并登录</button>
+  <div class="login-wrap">
+    <div class="login-hero">
+      <div class="logo"><span class="mark">齐</span><span style="font-size:17px">收齐啦 FormFlow</span></div>
+      <h1>把一句要求，变成 everyone 都能交对的问卷</h1>
+      <p class="tag">对话式起草 · 证据化核对 · 版本化交付</p>
+      <div class="feat"><div class="ic">💬</div><div><b>对话即成问卷</b>
+        <span>和组织者助手聊几句，自动生成字段、材料要求与检查规则</span></div></div>
+      <div class="feat"><div class="ic">🔍</div><div><b>交上来逐条核对</b>
+        <span>每处问题都带原文位置与改法，不把「没读到」说成「确认缺失」</span></div></div>
+      <div class="feat"><div class="ic">📦</div><div><b>按正确版本交付</b>
+        <span>正式版本不可篡改，快照固定，历史验收不丢失</span></div></div>
+    </div>
+    <div class="login-panel">
+      <h2>欢迎回来</h2>
+      <p class="tip">组织者使用账号；提交者使用组织者发放的凭证。</p>
+      <div class="tabs">
+        <button id="tab-org" class="on" onclick="switchLoginTab('org')">我是组织者</button>
+        <button id="tab-sub" onclick="switchLoginTab('sub')">我是提交者</button>
+      </div>
+      <div id="login-err" class="flash err" style="display:none"></div>
+      <div id="pane-org">
+        <label>用户名</label><input id="lg-user" placeholder="请输入用户名" autocomplete="username">
+        <label>密码</label><input id="lg-pass" type="password" placeholder="请输入密码"
+          autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
+        <div class="row" style="margin-top:12px">
+          <button onclick="doLogin()" style="flex:2">登 录</button>
+          <button class="ghost" onclick="doRegister()">注册并登录</button>
+        </div>
+        <p class="kv" style="margin-top:10px">第一次使用可直接「注册并登录」，账号数据仅存本机数据库。</p>
+      </div>
+      <div id="pane-sub" style="display:none">
+        <label>提交凭证</label>
+        <textarea id="lg-cred" placeholder="粘贴组织者发放的提交凭证（形如 v9MhIdcn_1_EUt...）"
+          onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();doSubLogin()}"></textarea>
+        <button onclick="doSubLogin()" style="width:100%">进入我的提交空间</button>
+        <p class="kv" style="margin-top:10px">凭证不见了？请联系组织者核验后重发，旧凭证会被撤销。</p>
       </div>
     </div>
-    <div class="card"><h3>提交者（凭证登录）</h3>
-      <p class="muted">使用组织者发放的提交凭证进入本人的提交空间。</p>
-      <label>提交凭证</label><input id="lg-cred" placeholder="粘贴凭证">
-      <button onclick="doSubLogin()">进入提交空间</button>
-    </div>
   </div>`;
+}
+function switchLoginTab(which) {
+  document.getElementById("tab-org").classList.toggle("on", which === "org");
+  document.getElementById("tab-sub").classList.toggle("on", which === "sub");
+  document.getElementById("pane-org").style.display = which === "org" ? "" : "none";
+  document.getElementById("pane-sub").style.display = which === "sub" ? "" : "none";
+  document.getElementById("login-err").style.display = "none";
+}
+function loginErr(msg) {
+  const el = document.getElementById("login-err");
+  if (el) { el.textContent = msg; el.style.display = ""; }
 }
 async function doLogin() {
   const username = document.getElementById("lg-user").value.trim();
   const password = document.getElementById("lg-pass").value;
-  const r = await api("/api/auth/login", { method: "POST", form: { username, password } });
-  localStorage.setItem(ORG_KEY, r.token);
-  location.hash = "#/tasks"; route();
+  if (!username || !password) return loginErr("请输入用户名和密码");
+  try {
+    const r = await api("/api/auth/login", { method: "POST", form: { username, password } });
+    localStorage.setItem(ORG_KEY, r.token);
+    location.hash = "#/tasks"; route();
+  } catch (e) { loginErr(e.message || "登录失败"); }
 }
 async function doRegister() {
   const username = document.getElementById("lg-user").value.trim();
   const password = document.getElementById("lg-pass").value;
-  await api("/api/accounts", { method: "POST", form: { username, password } });
-  await doLogin();
+  if (!username || !password) return loginErr("请输入用户名和密码");
+  if (password.length < 8) return loginErr("密码至少 8 位");
+  try {
+    await api("/api/accounts", { method: "POST", form: { username, password } });
+    await doLogin();
+  } catch (e) { loginErr(e.message || "注册失败"); }
 }
 async function doSubLogin() {
   const cred = document.getElementById("lg-cred").value.trim();
-  localStorage.setItem(SUB_KEY, cred);
-  await api("/api/me", { sub: true });   // 校验凭证
-  location.hash = "#/submit"; route();
+  if (!cred) return loginErr("请先粘贴提交凭证");
+  try {
+    await api("/api/me", { sub: true });   // 校验凭证
+    localStorage.setItem(SUB_KEY, cred);
+    location.hash = "#/submit"; route();
+  } catch (e) { loginErr("凭证无效或已失效：" + (e.message || "")); }
 }
 
 /* ---------------------------------------------------------------- 任务列表 */
