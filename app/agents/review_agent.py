@@ -89,6 +89,15 @@ def _slot_files(ctx: CheckContext, slot_id: str) -> list[FileInfo]:
     return [f for f in ctx.files if f.slot == slot_id]
 
 
+# 检测到的真实类型 → 可能对应的扩展名（第 16 节：核验真实类型，不只信任扩展名）
+_DETECTED_FORMATS = {
+    "pdf": {"pdf"},
+    "docx": {"docx"},
+    "image": {"jpg", "jpeg", "png", "gif", "webp", "bmp"},
+    "text": {"txt", "md", "csv"},
+}
+
+
 def _norm(s: str) -> str:
     return re.sub(r"\s+", "", s or "")
 
@@ -131,7 +140,14 @@ def _check_slot_constraints(rule: RuleDef, ctx: CheckContext, check: dict) -> Ru
         ext = f.original_name.rsplit(".", 1)[-1].lower() if "." in f.original_name else ""
         allowed = {fmt.lower().lstrip(".") for fmt in slot_def.formats}
         if allowed and ext not in allowed:
-            problems.append(f"{f.original_name} 格式 {ext} 不在允许范围 {slot_def.formats}")
+            problems.append(f"{f.original_name} 扩展名 {ext or '无'} 不在允许范围 {slot_def.formats}")
+        # 真实类型复核：内容检测与声明格式不符时按实际内容判（防扩展名伪装）
+        if allowed and f.parse is not None and f.parse.detected:
+            real = _DETECTED_FORMATS.get(f.parse.detected, set())
+            if real and not (real & allowed):
+                problems.append(
+                    f"{f.original_name} 实际内容为 {f.parse.detected} 类型，"
+                    f"不在允许范围 {slot_def.formats}（按真实内容判定，不轻信扩展名）")
         if slot_def.max_size_mib and f.size > slot_def.max_size_mib * 1024 * 1024:
             problems.append(f"{f.original_name} 大小超过 {slot_def.max_size_mib} MiB 上限")
         if f.parse_error:
