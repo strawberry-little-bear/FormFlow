@@ -73,6 +73,10 @@ EXEMPTION_ACTIVE = "active"
 EXEMPTION_REVOKED = "revoked"
 EXEMPTION_EXPIRED = "expired"
 
+# 提交者解释 / 申请复核（第 10 节“提交者的申诹路径”）
+NOTE_PENDING = "pending"          # 待组织者处理
+NOTE_WITHDRAWN = "withdrawn"      # 提交者自行撤回（只改状态，不删历史）
+
 # 人工决定类型（表 11）
 DECISION_CONFIRM_ISSUE = "confirm_issue"
 DECISION_CORRECT_FALSE_POSITIVE = "correct_false_positive"
@@ -340,6 +344,29 @@ class ManualDecision(Base):
     reason: Mapped[str] = mapped_column(Text)
     expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     revoked: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class SubmitterNote(Base):
+    """提交者解释/申请复核（第 10 节：补交或解释）。
+
+    解释不改变任何机器结论，也不替代组织者决定；
+    它只作为组织者核对原文、纠正误报或批准例外的输入，
+    并可作为下一轮语义检查的上下文。
+    只追加不删除：撤回只改状态，历史保留。
+    """
+
+    __tablename__ = "submitter_notes"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id"), index=True)
+    subject_id: Mapped[int] = mapped_column(ForeignKey("subjects.id"), index=True)
+    revision_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("revisions.id"), nullable=True
+    )  # 提交时的当前正式版本；新版本不自动继承
+    rule_id: Mapped[str] = mapped_column(String(64), default="")  # 空 = 针对整体提交
+    content: Mapped[str] = mapped_column(Text)
+    idempotency_key: Mapped[str] = mapped_column(String(64), default="", index=True)
+    status: Mapped[str] = mapped_column(String(16), default=NOTE_PENDING)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
