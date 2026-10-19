@@ -139,6 +139,7 @@ class BlueprintVersion(Base):
     task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id"), index=True)
     version: Mapped[int] = mapped_column(Integer)
     blueprint_json: Mapped[str] = mapped_column(Text)   # 结构化蓝图（JSON）
+    source_text: Mapped[str] = mapped_column(Text, default="")  # 组织者原始输入汇总（V01：发布时复核规则来源，不暗加规则）
     status: Mapped[str] = mapped_column(String(16), default="draft")  # draft/published
     created_by_agent: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

@@ -44,7 +44,8 @@ def test_draft_parses_and_passes_validation(stub_llm):
     result = draft_blueprint(REQUIREMENT, client=stub_llm)
     assert len(result.blueprint.rules) == 2
     assert result.blueprint.rules[0].executor.value == "deterministic"
-    assert result.warnings == []  # 来源均可定位，无校验错误
+    assert not any("无法在原始要求中定位" in w for w in result.warnings)  # V01：来源均可定位
+    assert any("截止" in w for w in result.warnings)  # V01 提醒：原始要求含截止而草案无时间策略，应先澄清不猜默认值
     assert stub_llm.calls == 1
 
 
@@ -132,7 +133,8 @@ def test_executor_alias_mapped_silently(stub_llm):
     stub_llm.responses = [payload]
     result = draft_blueprint(REQUIREMENT, client=stub_llm)
     assert result.blueprint.rules[0].executor.value == "deterministic"
-    assert result.warnings == []  # 已知别名静默规整，不打扰组织者
+    # 已知别名静默规整，不产生噪音警告（V01 截止提醒属预期提示，另行断言）
+    assert not any("别名" in w or "规整" in w or "规范" in w for w in result.warnings)
 
 
 def test_unknown_capability_and_field_type_normalized(stub_llm):
@@ -143,7 +145,8 @@ def test_unknown_capability_and_field_type_normalized(stub_llm):
     result = draft_blueprint(REQUIREMENT, client=stub_llm)
     assert result.blueprint.rules[1].capability.value == "supported"
     assert result.blueprint.fields[0].type.value == "text"
-    assert result.warnings == []  # 已知别名静默规整
+    # 已知别名静默规整，不产生噪音警告（V01 截止提醒属预期提示，另行断言）
+    assert not any("别名" in w or "规整" in w or "规范" in w for w in result.warnings)
 
 
 def test_non_json_response_preserves_draft(stub_llm):

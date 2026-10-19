@@ -8,7 +8,8 @@ from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..agents.requirements_agent import blueprint_diff, draft_blueprint, template_blueprint, validate_blueprint
+from ..agents.requirements_agent import (blueprint_diff, build_source_text, draft_blueprint,
+                                           template_blueprint, validate_blueprint)
 from ..llm import LLMClient
 from ..models import (
     RUN_QUEUED,
@@ -46,7 +47,8 @@ def create_task(db: Session, *, name: str, mode: str, subject_kind: str,
     return task
 
 
-def save_draft(db: Session, task: Task, draft: DraftResult, by_agent: bool = True) -> BlueprintVersion:
+def save_draft(db: Session, task: Task, draft: DraftResult, by_agent: bool = True,
+               source_text: str = "") -> BlueprintVersion:
     """保存蓝图草案（不发布）。"""
     latest = db.scalar(
         select(BlueprintVersion).where(BlueprintVersion.task_id == task.id)
@@ -56,6 +58,7 @@ def save_draft(db: Session, task: Task, draft: DraftResult, by_agent: bool = Tru
     bp = BlueprintVersion(
         task_id=task.id, version=version,
         blueprint_json=draft.blueprint.model_dump_json(),
+        source_text=source_text,
         status="draft", created_by_agent=by_agent,
     )
     db.add(bp)
@@ -68,7 +71,7 @@ def draft_from_requirement(db: Session, task: Task, requirement_text: str,
                            template: Optional[str] = None) -> tuple[DraftResult, BlueprintVersion]:
     """需求 Agent 起草并保存草案。模型不可用时保留原草案并给警告。"""
     result = draft_blueprint(requirement_text, template=template)
-    bp = save_draft(db, task, result)
+    bp = save_draft(db, task, result, source_text=requirement_text)
     return result, bp
 
 
@@ -115,9 +118,10 @@ def revise_draft(db: Session, task: Task, blueprint_version_id: int, *,
         raise ValueError("蓝图版本不存在")
     ensure_task_writable(task)  # V24 readonly guard
     current = Blueprint.model_validate_json(bp.blueprint_json)
+    prior_source = bp.source_text or ""
     result = draft_blueprint(requirement, answered=answered or {},
                              current_draft=current, instruction=instruction,
-                             client=client)
+                             prior_source=prior_source, client=client)
     _restore_dropped_check_specs(current, result.blueprint)
     if result.blueprint.model_dump() == current.model_dump():
         # 无实质变化（含模型不可用降级保留原草案）：不制造新版本
@@ -125,7 +129,9 @@ def revise_draft(db: Session, task: Task, blueprint_version_id: int, *,
               {"version": bp.version, "answered": sorted((answered or {}).keys())},
               task.id)
         return result, bp, blueprint_diff(current, result.blueprint)
-    new_bp = save_draft(db, task, result)
+    addendum = build_source_text(requirement, instruction, answered or {})
+    accumulated = (prior_source + chr(10) + addendum).strip() if prior_source.strip() else addendum
+    new_bp = save_draft(db, task, result, source_text=accumulated)
     impact = blueprint_diff(current, result.blueprint)
     _warn_unrequested_removal(result, impact)
     audit(db, "blueprint.revised", "blueprint",
@@ -145,7 +151,7 @@ def publish(db: Session, task: Task, blueprint_version_id: int) -> BlueprintVers
         raise ValueError("蓝图版本不存在")
     ensure_task_writable(task)  # V24 readonly guard
     blueprint = Blueprint.model_validate_json(bp.blueprint_json)
-    errors = validate_blueprint(blueprint)
+    errors = validate_blueprint(blueprint, bp.source_text or "")
     if errors:
         raise PublishBlocked("；".join(errors))
     bp.status = "published"
