@@ -438,6 +438,16 @@ async function viewReview(taskId, sid) {
     }
     html += `</p>`;
     html += coverageCard(d.run);
+    if ((d.notes || []).length) {
+      html += `<div class="card"><h3>提交者解释 / 复核申诹</h3>
+        ${(d.notes || []).map(n => `<p>规则 ${esc(n.rule_id || "整体")}
+          <span class="badge${n.handled ? " ok" : " warn"}">${
+            n.handled ? "组织者已处理" : "待处理"}</span>
+          <span class="kv">${esc(n.content)}，${esc(n.created_at)}</span></p>`).join("")}
+        <p class="kv">解释不改变机器结论；请核对原文后再做决定，
+          可确认问题、纠正误报或批准有范围的例外。</p>
+      </div>`;
+    }
     if (d.same_name_subjects && d.same_name_subjects.length) {
       html += `<div class="card"><h3>同名主体待核</h3>
         <p class="kv">${esc(d.same_name_hint || "")}</p>
@@ -695,8 +705,56 @@ async function loadMyResults() {
     if (!details.length && r.summary && r.summary !== "未正式提交") {
       html += `<p class="muted">暂无规则明细（可能尚未检查）</p>`;
     }
+    // 申诹入口：补交或解释（第 10 节）。解释不改变机器结论。
+    if (todo.length) {
+      html += `<div class="card"><h3>申诹复核 / 补充说明</h3>
+        <p class="kv">解释不改变机器结论，也不替代组织者决定；
+          组织者核对原文后再决定。也可以选择直接补交更正材料。</p>
+        <div class="row">
+          <div><label>作用域规则</label><select id="ap-rule">
+            <option value="">整体提交（不指定规则）</option>
+            ${todo.map(x => `<option value="${esc(x.rule_id)}">${esc(x.rule_id)}</option>`).join("")}
+          </select></div>
+        </div>
+        <label>说明/理由（必填）</label>
+        <textarea id="ap-content" placeholder="例如：姓名与登记一致，报告封面第 2 页写的就是本人姓名"></textarea>
+        <button onclick="submitAppeal()">提交解释</button>
+      </div>`;
+    }
+    const appeals = r.appeals || [];
+    if (appeals.length) {
+      html += `<div class="card"><h3>我的解释与复核申诹</h3>
+        ${appeals.map(a => `<p>#${a.id} ${a.rule_id ? esc(a.rule_id) : "整体"}
+          <span class="badge${a.status === "withdrawn" ? "" : (a.handled ? " ok" : " warn")}">${
+            a.status === "withdrawn" ? "已撤回" : (a.handled ? "组织者已处理" : "待组织者处理")}</span>
+          <span class="kv">${esc(a.content)}，${esc(a.created_at)}</span>
+          ${a.status === "pending" && !a.handled ?
+            `<button class="link" onclick="withdrawAppeal(${a.id})">撤回</button>` : ""}</p>`).join("")}
+      </div>`;
+    }
     document.getElementById("my-results").innerHTML = html;
   } catch (e) { /* 结果加载失败不打断页面 */ }
+}
+
+async function submitAppeal() {
+  await guard(async () => {
+    const ruleId = document.getElementById("ap-rule").value;
+    const content = document.getElementById("ap-content").value.trim();
+    if (!content) throw new Error("解释/复核理由不能为空");
+    const key = "web-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8);
+    const r = await api("/api/me/appeals", { method: "POST", sub: true,
+      json: { rule_id: ruleId, content, idempotency_key: key } });
+    setFlash(`已提交解释 #${r.note_id}（待组织者处理）；`
+      + `解释不改变机器结论`, "ok");
+    await loadMyResults();
+  });
+}
+async function withdrawAppeal(noteId) {
+  await guard(async () => {
+    const r = await api(`/api/me/appeals/${noteId}/withdraw`, { method: "POST", sub: true });
+    setFlash(`已撤回解释 #${r.note_id}（只改状态，历史保留）`, "ok");
+    await loadMyResults();
+  });
 }
 
 /* ---------------------------------------------------------------- P05 交付预览 */
