@@ -24,13 +24,11 @@ from ..models import (
     BlueprintVersion,
     CheckRun,
     DeliverySnapshot,
-    Evidence,
     ExportJob,
     ManualDecision,
     NotificationIntent,
     RUN_SUPERSEDED,
     Revision,
-    RuleResult,
     Submission,
     Subject,
     Task,
@@ -62,8 +60,9 @@ from ..services import notifications as notif_service
 from ..services import export as export_service
 from ..services import submissions as sub_service
 from ..services import tasks as task_service
-from ..services.checks import (create_run, current_summary, execute_run,
-                             retry_run, run_coverage)
+from ..services.checks import (create_run, current_details, current_summary,
+                               execute_run, retry_run, rule_details,
+                               run_coverage)
 from ..agents.requirements_agent import validate_blueprint
 from ..schemas import Blueprint
 from fastapi import APIRouter
@@ -426,7 +425,10 @@ def my_receipt(grant_and_subject: tuple = Depends(current_subject), db: Session 
 def my_results(grant_and_subject: tuple = Depends(current_subject), db: Session = Depends(get_db)):
     grant, subject = grant_and_subject
     task = db.get(Task, grant.task_id)
-    return current_summary(db, task, subject.id)
+    out = current_summary(db, task, subject.id)
+    # P04：提交者同样看到规则明细（哪里有问题/怎么改/引用证据），与 P03 同源
+    out["details"] = current_details(db, task, subject.id)
+    return out
 
 # ---------------------------------------------------------------- 组织者复核与决定
 @router.post("/tasks/{task_id}/subjects/{subject_id}/checks")
@@ -589,25 +591,7 @@ def findings(task_id: int, subject_id: int, db: Session = Depends(get_db),
     run = db.scalar(select(CheckRun).where(
         CheckRun.revision_id == rev.id,
         CheckRun.status.not_in([RUN_SUPERSEDED])).order_by(CheckRun.id.desc()))
-    rules_meta = {}
-    if run is not None:
-        bp = db.get(BlueprintVersion, run.blueprint_version_id)
-        if bp is not None:
-            blueprint = Blueprint.model_validate_json(bp.blueprint_json)
-            rules_meta = {r.id: r.model_dump() for r in blueprint.rules}
-    rules = []
-    if run is not None:
-        for r in db.scalars(select(RuleResult).where(RuleResult.run_id == run.id)).all():
-            evs = [{"file_id": e.file_id, "locator": e.locator, "quote": e.quote,
-                    "method": e.method, "method_version": e.method_version}
-                   for e in db.scalars(select(Evidence).where(
-                       Evidence.rule_result_id == r.id)).all()]
-            rules.append({
-                "rule_id": r.rule_id, "result": r.result, "severity": r.severity,
-                "explanation": r.explanation, "next_step": r.next_step,
-                "requirement": rules_meta.get(r.rule_id, {}),
-                "evidence": evs,
-            })
+    rules = rule_details(db, run)
     decisions = [{"id": d.id, "decision": d.decision, "reason": d.reason,
                   "scope_rule_id": d.scope_rule_id, "revoked": d.revoked,
                   "created_at": _iso(d.created_at)}
