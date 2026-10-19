@@ -47,6 +47,14 @@ class SubmitIn(BaseModel):
     slot_file_ids: dict
     idempotency_key: str
     is_correction: bool = False
+
+
+class AppealIn(BaseModel):
+    """提交者解释/申诹复核：作用域规则（可空）+ 内容 + 幂等键。"""
+
+    rule_id: str = ""
+    content: str = ""
+    idempotency_key: str = ""
 from ..security import (
     hash_credential,
     hash_password,
@@ -55,6 +63,7 @@ from ..security import (
     verify_credential,
     verify_password,
 )
+from ..services import appeals as appeal_service
 from ..services import decisions as decision_service
 from ..services import notifications as notif_service
 from ..services import export as export_service
@@ -421,6 +430,56 @@ def my_receipt(grant_and_subject: tuple = Depends(current_subject), db: Session 
     return {"formal": True, "receipt": rev.receipt, "revision": rev.version,
             "formal_submitted_at": rev.formal_submitted_at}
 
+@router.post("/me/appeals")
+def create_appeal(body: AppealIn,
+                  grant_and_subject: tuple = Depends(current_subject),
+                  db: Session = Depends(get_db)):
+    """P04 申诹入口：提交者对具体规则提交解释/申诹复核。
+
+    解释不改变机器结论，也不替代组织者决定；组织者在 P03 看到后再决定。
+    """
+    grant, subject = grant_and_subject
+    task = db.get(Task, grant.task_id)
+    try:
+        note = appeal_service.create_note(db, task, subject,
+                                          rule_id=body.rule_id, content=body.content,
+                                          idempotency_key=body.idempotency_key)
+    except appeal_service.IdempotencyConflict as e:
+        raise HTTPException(409, str(e))
+    except appeal_service.AppealError as e:
+        raise HTTPException(422, str(e))
+    except task_service.TaskNotWritable as e:
+        raise HTTPException(409, str(e))
+    db.commit()
+    return {"note_id": note.id, "rule_id": note.rule_id, "status": note.status,
+            "revision_id": note.revision_id}
+
+
+@router.get("/me/appeals")
+def my_appeals(grant_and_subject: tuple = Depends(current_subject),
+               db: Session = Depends(get_db)):
+    """提交者视角：本人全部解释（含已撤回）与处理进展。"""
+    grant, subject = grant_and_subject
+    task = db.get(Task, grant.task_id)
+    notes = appeal_service.list_notes(db, task, subject)
+    return {"notes": [appeal_service.to_dict(db, n) for n in notes]}
+
+
+@router.post("/me/appeals/{note_id}/withdraw")
+def withdraw_appeal(note_id: int,
+                    grant_and_subject: tuple = Depends(current_subject),
+                    db: Session = Depends(get_db)):
+    """撤回：只改状态，历史保留；只能撤回本人未撤回的解释。"""
+    grant, subject = grant_and_subject
+    task = db.get(Task, grant.task_id)
+    try:
+        note = appeal_service.withdraw_note(db, task, subject, note_id)
+    except appeal_service.AppealError as e:
+        raise HTTPException(422, str(e))
+    db.commit()
+    return {"note_id": note.id, "status": note.status}
+
+
 @router.get("/me/results")
 def my_results(grant_and_subject: tuple = Depends(current_subject), db: Session = Depends(get_db)):
     grant, subject = grant_and_subject
@@ -428,6 +487,9 @@ def my_results(grant_and_subject: tuple = Depends(current_subject), db: Session 
     out = current_summary(db, task, subject.id)
     # P04：提交者同样看到规则明细（哪里有问题/怎么改/引用证据），与 P03 同源
     out["details"] = current_details(db, task, subject.id)
+    # P04 申诹入口：本人解释与处理进展（不改变机器结论）
+    out["appeals"] = [appeal_service.to_dict(db, n)
+                      for n in appeal_service.list_notes(db, task, subject)]
     return out
 
 # ---------------------------------------------------------------- 组织者复核与决定
@@ -606,6 +668,9 @@ def findings(task_id: int, subject_id: int, db: Session = Depends(get_db),
                      "budget_exhausted": run.budget_exhausted,
                      "coverage": run_coverage(run)} if run else None),
             "rules": rules, "decisions": decisions,
+            "notes": [appeal_service.to_dict(db, n)
+                      for n in appeal_service.pending_notes(db, task)
+                      if n.subject_id == subject.id],
             "same_name_subjects": same_name, "same_name_hint": same_name_hint}
 
 # ---------------------------------------------------------------- 交付

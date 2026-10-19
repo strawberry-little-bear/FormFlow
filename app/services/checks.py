@@ -15,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..agents.review_agent import CheckContext, FileInfo, run_checks
+from . import appeals
 from ..models import (
     ACCEPTANCE_ACCEPTED,
     ACCEPTANCE_NOT_ACCEPTED,
@@ -89,6 +90,35 @@ def create_run(db: Session, task: Task, revision: Revision) -> CheckRun:
     return run
 
 
+def _history_issues(db: Session, run: CheckRun) -> list[str]:
+    """历史阻塞问题（本次运行之前）：补正与重试时不从零开始。
+
+    范围：同一主体更早的正式版本（否则新版本看不到上一轮的问题），
+    以及本版本之前的运行（重试时保留上一次结论）。
+    """
+    rev = db.get(Revision, run.revision_id)
+    if rev is None:
+        return []
+    older = db.scalars(select(Revision).where(
+        Revision.submission_id == rev.submission_id,
+        Revision.version < rev.version)).all()
+    run_ids = [r.id for r in older]
+    same_rev = db.scalars(select(CheckRun).where(
+        CheckRun.revision_id == rev.id, CheckRun.id != run.id)).all()
+    run_ids += [r.id for r in same_rev]
+    if not run_ids:
+        return []
+    out: list[str] = []
+    runs = db.scalars(select(CheckRun).where(
+        CheckRun.id.in_(run_ids)).order_by(CheckRun.id)).all()
+    for old in runs:
+        for r in db.scalars(select(RuleResult).where(
+                RuleResult.run_id == old.id,
+                RuleResult.result == RESULT_ISSUE).order_by(RuleResult.id)).all():
+            out.append(f"{r.rule_id}：{r.explanation}")
+    return out[-10:]
+
+
 def _execute_check_pipeline(db: Session, run: CheckRun, client=None) -> CheckRun:
     """执行检查：先程序校验，再 Agent 语义调查；结果与证据落库。
 
@@ -105,7 +135,13 @@ def _execute_check_pipeline(db: Session, run: CheckRun, client=None) -> CheckRun
     members = [m.name for m in subject.members] if subject else []
 
     files = _load_files(db, revision)
-    ctx = CheckContext(blueprint=blueprint, fields=fields, members=members, files=files)
+    task = db.get(Task, run.task_id)
+    # 第 10 节：补正时让模型看到历史问题与提交者解释，
+    # 不从零重新推理，也不把解释当成结论。
+    ctx = CheckContext(blueprint=blueprint, fields=fields, members=members, files=files,
+                       history_issues=_history_issues(db, run),
+                       submitter_explanation=appeals.latest_explanation(
+                           db, task, subject.id) if subject else "")
     outcome = run_checks(ctx, client)
 
     run.llm_calls_used = outcome.llm_calls_used
