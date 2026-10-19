@@ -1,7 +1,7 @@
 "use strict";
 /* 收齐啦 FormFlow 前端（P01–P05）。纯静态 SPA，直接调用 /api。 */
 const ORG_KEY = "ff_org_token", SUB_KEY = "ff_sub_token";
-const state = { bpId: null, draft: null, files: {}, draftVersion: null, me: null, lastJob: null };
+const state = { bpId: null, draft: null, requirement: "", files: {}, draftVersion: null, me: null, lastJob: null };
 
 const orgToken = () => localStorage.getItem(ORG_KEY) || "";
 const subToken = () => localStorage.getItem(SUB_KEY) || "";
@@ -169,6 +169,12 @@ async function viewDesign(taskId) {
     <p class="muted">发布前会做程序校验：对象/材料/能力/双截止/验收/交付与数据用途。</p>
   </div>
   <div class="card"><h3>蓝图草案</h3><div id="bp-view"><p class="muted">尚未生成草案</p></div></div>
+  <div class="card"><h3>澄清与修订（对话与结构化编辑同一草案）</h3>
+    <div id="revise-panel"><p class="muted">生成草案后，可在此回答澄清、提出修改意见；修订会产生新的草案版本，历史版本不丢失，并显示修改影响。</p></div>
+    <label>修改意见（自然语言，例：首次截止改到 11 月 9 日 18:00；材料也接受 Markdown）</label>
+    <textarea id="revise-instruction" placeholder="要改什么就写什么；未提及的部分会原样保留"></textarea>
+    <button onclick="reviseDraft(${taskId})">按回答与意见修订草案</button>
+  </div>
   <div class="grid2">
     <div class="card"><h3>导入名册</h3>
       <p class="muted">JSON 数组，如 [{"name":"张三","ref":"一班"}]</p>
@@ -196,14 +202,70 @@ async function genDraft(taskId, mode) {
     }
     state.bpId = r.blueprint_version_id;
     state.draft = r.draft;
-    const d = r.draft || {};
-    document.getElementById("bp-view").innerHTML = `
-      ${d.clarifications && d.clarifications.length ? `<p><b>待澄清：</b></p><ul>${
-        d.clarifications.map(c => `<li>${esc(c.question)}<span class="muted">（${esc(c.why)}）</span></li>`).join("")}</ul>` : ""}
-      ${d.publish_summary && d.publish_summary.length ? `<p><b>发布摘要：</b></p><ul>${
-        d.publish_summary.map(s => `<li>${esc(s)}</li>`).join("")}</ul>` : ""}
-      <pre class="mono" style="white-space:pre-wrap">${esc(JSON.stringify(d.blueprint || {}, null, 2))}</pre>`;
+    state.requirement = requirement;
+    renderDraft(r.draft, null, null);
     setFlash(`草案已生成（蓝图版本 #${r.blueprint_version_id}），请核对后发布`, "ok");
+  });
+}
+
+/* 渲染草案：警告/待澄清/发布摘要/蓝图 + 修订面板（澄清回答输入） */
+function renderDraft(d, impact, version) {
+  d = d || {};
+  document.getElementById("bp-view").innerHTML = `
+    ${version ? `<p class="kv">草案版本 v${version}</p>` : ""}
+    ${d.warnings && d.warnings.length ? `<p><b>警告（发布前请处理）：</b></p><ul>${
+      d.warnings.map(w => `<li>${esc(w)}</li>`).join("")}</ul>` : ""}
+    ${d.clarifications && d.clarifications.length ? `<p><b>待澄清：</b></p><ul>${
+      d.clarifications.map(c => `<li>${esc(c.question)}<span class="muted">（${esc(c.why)}）</span></li>`).join("")}</ul>` : ""}
+    ${d.publish_summary && d.publish_summary.length ? `<p><b>发布摘要：</b></p><ul>${
+      d.publish_summary.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
+    <pre class="mono" style="white-space:pre-wrap">${esc(JSON.stringify(d.blueprint || {}, null, 2))}</pre>`;
+  const panel = document.getElementById("revise-panel");
+  if (panel) {
+    const clar = d.clarifications || [];
+    panel.innerHTML = (clar.length
+      ? `<p><b>待澄清（填写回答后将随修订一起提交）：</b></p>` +
+        clar.map((c, i) => `<label>${esc(c.question)}</label>` +
+          `<input id="clar-${i}" placeholder="回答（可留空）">`).join("")
+      : `<p class="muted">当前草案没有待澄清问题。</p>`) +
+      (state.bpId ? `<p class="muted">当前草案版本 #${state.bpId}；修订将产生新版本。</p>` : "");
+  }
+}
+
+/* G2 澄清轮次闭环：回答澄清 + 修改意见 → 修订为新草案版本，显示修改影响 */
+async function reviseDraft(taskId) {
+  await guard(async () => {
+    if (!state.bpId) throw new Error("请先生成蓝图草案");
+    const clar = (state.draft && state.draft.clarifications) || [];
+    const answered = {};
+    clar.forEach((c, i) => {
+      const el = document.getElementById("clar-" + i);
+      const v = (el && el.value || "").trim();
+      if (v) answered[c.question] = v;
+    });
+    const instruction = (document.getElementById("revise-instruction").value || "").trim();
+    if (!Object.keys(answered).length && !instruction)
+      throw new Error("请先回答澄清问题或填写修改意见");
+    const r = await api(`/api/tasks/${taskId}/draft/revise`, {
+      method: "POST",
+      form: { blueprint_version_id: String(state.bpId),
+              requirement: state.requirement || "",
+              answered: JSON.stringify(answered), instruction },
+    });
+    state.bpId = r.blueprint_version_id;
+    state.draft = r.draft;
+    renderDraft(r.draft, r.impact, r.version);
+    const im = r.impact || {};
+    const bits = [];
+    for (const k of ["fields", "slots", "rules"]) {
+      const c = im[k] || {};
+      if (c.added && c.added.length) bits.push(`${k}+${c.added.length}`);
+      if (c.removed && c.removed.length) bits.push(`${k}-${c.removed.length}`);
+      if (c.changed && c.changed.length) bits.push(`${k}~${c.changed.length}`);
+    }
+    if (im.time_policy_changed) bits.push("时间策略变化");
+    if (im.manual_acceptance_changed || im.eligibility_required_changed) bits.push("验收/资格设置变化");
+    setFlash(`已修订为新草案版本 #${r.blueprint_version_id}（v${r.version}），修改影响：${bits.join("；") || "无实质变化"}`, "ok");
   });
 }
 async function publishBp(taskId) {
