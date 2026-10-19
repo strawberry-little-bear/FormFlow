@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Optional
 
 from ..llm import LLMClient, LLMError, LLMUnavailable, get_client
@@ -260,6 +261,92 @@ def _parse_draft(payload: dict) -> DraftResult:
     )
 
 
+# ---------------------------------------------------------------- 程序侧校验组件
+# V02：无可执行定义的态度类表述。命中后必须标人工/需澄清，
+# 不得把"认真、态度"这类无法计算的要求包装成可自动鉴定的能力。
+_VAGUE_ATTITUDE_WORDS = ("认真", "态度", "用心", "真情实感", "原创性", "独创性", "高质量", "优质")
+
+# V03：条件表达式仅支持 字段==值 / 字段!=值 及 and / or 连接（与 review_agent 同一语法）；
+# 其余形式（括号、函数、区间比较等）不受支持——不支持就不承诺自动判定。
+_CONDITION_CMP = re.compile(
+    "^([A-Za-z_][A-Za-z0-9_]*)" + chr(92) + "s*(==|!=)" + chr(92) + "s*(.+)$")
+
+
+def _looks_vague_attitude(statement: str) -> Optional[str]:
+    """返回命中的态度类词；态度没有可执行定义，不能交给程序或模型自动鉴定。"""
+    for w in _VAGUE_ATTITUDE_WORDS:
+        if w in statement:
+            return w
+    return None
+
+
+def _condition_supported(expr: str) -> bool:
+    """条件表达式是否为受支持的简单形式（V03）。"""
+    expr = (expr or "").strip()
+    if not expr:
+        return True
+    for joiner in (" or ", " and "):
+        if joiner in expr:
+            return all(_condition_supported(p) for p in expr.split(joiner))
+    return bool(_CONDITION_CMP.match(expr))
+
+
+def _check_spec_errors(rule: RuleDef, field_ids: list[str],
+                       slot_ids: list[str]) -> list[str]:
+    """V04：check 规格引用必须存在且 kind 受支持；被引用字段/槽位被删时定位冲突。"""
+    errors: list[str] = []
+    check = rule.check or {}
+    kind = check.get("kind")
+    if kind in ("field_required", "contact_in_members"):
+        ref = check.get("field")
+        if ref is not None and ref not in field_ids:
+            errors.append(f"规则 {rule.id} 的检查规格引用了不存在的字段 {ref}")
+    elif kind in ("slot_constraints", "slot_presence"):
+        ref = check.get("slot")
+        if ref not in slot_ids:
+            errors.append(f"规则 {rule.id} 的检查规格引用了不存在的槽位 {ref}")
+    elif kind == "team_size":
+        lo, hi = check.get("min", 2), check.get("max", 5)
+        if isinstance(lo, int) and isinstance(hi, int) and lo > hi:
+            errors.append(f"规则 {rule.id} 的团队人数范围 min={lo} 大于 max={hi}")
+    else:
+        errors.append(f"规则 {rule.id} 的检查规格 kind={kind!r} 不受支持，无法自动执行")
+    return errors
+
+
+def build_source_text(requirement_text: str, instruction: str = "",
+                      answered: Optional[dict] = None) -> str:
+    """组织者一侧原始输入汇总：原始要求 + 修改意见 + 已回答澄清（V01 来源核对面）。"""
+    nl = chr(10)
+    source_text = requirement_text
+    if instruction and instruction.strip():
+        source_text += nl + "【组织者修改意见】" + nl + instruction.strip()
+    if answered:
+        qa = nl.join(f"{q}：{a}" for q, a in answered.items())
+        source_text += nl + "【组织者已回答的澄清】" + nl + qa
+    return source_text
+
+
+def blueprint_advisories(blueprint: Blueprint, source_text: str = "") -> list[str]:
+    """非阻塞提醒（V01）：原始要求提到时间/截止而蓝图没有任何时间策略时提示核对。"""
+    if not source_text.strip():
+        return []
+    tp = blueprint.time_policy
+    if tp.open_at or tp.first_deadline or tp.correction_deadline:
+        return []
+    text = source_text
+    has_time_hint = (
+        ("月" in text and ("日" in text or "号" in text))
+        or "截止" in text
+        or "deadline" in text.lower()
+        or re.search("[0-9]{4}[-/][0-9]{1,2}[-/][0-9]{1,2}", text)
+    )
+    if has_time_hint:
+        return ["原始要求中提到时间或截止，但蓝图尚未设置任何开放/截止时间；"
+                "关键期次与截止应先向组织者澄清确认，不猜默认值"]
+    return []
+
+
 def validate_blueprint(blueprint: Blueprint, source_text: str = "") -> list[str]:
     """程序侧发布校验（第 3 节）：
     引用存在、日期顺序、重复 ID、依赖环、规则来源可定位。
@@ -302,6 +389,50 @@ def validate_blueprint(blueprint: Blueprint, source_text: str = "") -> list[str]
     if tp.first_deadline and tp.correction_deadline and tp.first_deadline >= tp.correction_deadline:
         errors.append("时间冲突：补正截止必须晚于首次截止")
 
+    # V02：态度类无可执行定义 -> 必须标人工/需澄清，不得宣称可自动鉴定
+    for r in blueprint.rules:
+        hit = _looks_vague_attitude(r.statement)
+        if hit and r.executor is not Executor.HUMAN_ONLY and r.capability is Capability.SUPPORTED:
+            errors.append(
+                f"规则 {r.id} 的表述「{hit}」没有可执行定义，必须标为人工（human_only）"
+                f"或需澄清（needs_human/needs_clarification），不得宣称可由系统自动鉴定")
+
+    # V03：条件表达式只支持简单形式；不受支持的形式不放行（不承诺自动判定）
+    for owner, items in (("字段", blueprint.fields), ("槽位", blueprint.slots)):
+        for it in items:
+            cond = getattr(it, "required_condition", None)
+            if cond and not _condition_supported(cond):
+                errors.append(
+                    f"{owner} {it.id} 的必交条件「{cond}」使用了不受支持的形式；"
+                    f"仅支持 字段==值 / 字段!=值 及 and/or 连接，"
+                    f"请改写为简单条件或改为人工核验")
+
+    # V04：check 规格 / 依赖 / 交付命名 / 自动范围引用必须自洽；
+    # 被引用字段或规则被删除时在这里定位冲突，不静默移除约束。
+    rule_id_set = set(rule_ids)
+    by_id = {r.id: r for r in blueprint.rules}
+    for r in blueprint.rules:
+        if r.check:
+            errors.extend(_check_spec_errors(r, field_ids, slot_ids))
+        elif r.executor is Executor.DETERMINISTIC:
+            errors.append(f"规则 {r.id} 是确定性规则但没有 check 规格，无法自动执行")
+        for d in r.depends_on:
+            if d not in rule_id_set:
+                errors.append(f"规则 {r.id} 依赖了不存在的规则 {d}")
+    naming = str(blueprint.delivery.get("naming", "") or "")
+    for token in re.findall("{field:([A-Za-z_][A-Za-z0-9_]*)}", naming):
+        if token not in field_ids:
+            errors.append(f"交付命名模板引用了不存在的字段 {token}")
+    for rid in blueprint.auto_scope:
+        if rid not in rule_id_set:
+            errors.append(f"自动处理范围引用了不存在的规则 {rid}")
+            continue
+        r = by_id[rid]
+        if r.executor is Executor.HUMAN_ONLY:
+            errors.append(f"自动处理范围不能包含人工规则 {rid}（不自动承诺人工项）")
+        elif r.capability is not Capability.SUPPORTED:
+            errors.append(f"自动处理范围不能包含能力为 {r.capability.value} 的规则 {rid}")
+
     # 规则来源必须能在原文定位（防暗加要求的程序校验）
     if source_text.strip():
         for r in blueprint.rules:
@@ -337,6 +468,7 @@ def draft_blueprint(
     current_draft: Optional[Blueprint] = None,
     instruction: str = "",
     client: Optional[LLMClient] = None,
+    prior_source: str = "",
 ) -> DraftResult:
     """需求 Agent 主入口：自然语言要求 → 蓝图草案。"""
     if not requirement_text.strip() and current_draft is None:
@@ -365,13 +497,11 @@ def draft_blueprint(
             blueprint=current_draft or Blueprint(),
             warnings=[f"需求 Agent 返回无法解析（{e}）。已保留当前草案，请手动编辑或稍后重试。"],
         )
-    source_text = requirement_text
-    if instruction and instruction.strip():
-        source_text += "\n【组织者修改意见】\n" + instruction.strip()
-    if answered:
-        qa = "\n".join(f"{q}：{a}" for q, a in answered.items())
-        source_text += "\n【组织者已回答的澄清】\n" + qa
-    result.warnings.extend(validate_blueprint(result.blueprint, source_text))
+    source_text = build_source_text(requirement_text, instruction, answered)
+    validation_source = ((prior_source + chr(10) + source_text).strip()
+                         if prior_source.strip() else source_text)
+    result.warnings.extend(validate_blueprint(result.blueprint, validation_source))
+    result.warnings.extend(blueprint_advisories(result.blueprint, validation_source))
     return result
 
 

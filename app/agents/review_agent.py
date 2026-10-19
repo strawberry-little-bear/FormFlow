@@ -67,20 +67,33 @@ class CheckOutcome:
 
 
 # ---------------------------------------------------------------- 条件求值
-def _eval_condition(expr: Optional[str], fields: dict) -> bool:
-    """求值简单枚举条件，如 track==实物。不使用 eval。"""
+_CONDITION_CMP_PATTERN = ("^([A-Za-z_][A-Za-z0-9_]*)" + chr(92) + "s*(==|!=)" + chr(92) + "s*(.+)$")
+
+
+def _eval_condition(expr: Optional[str], fields: dict) -> Optional[bool]:
+    """求值简单枚举条件，如 track==实物。不使用 eval。
+
+    返回 None 表示条件形式不受支持——调用方不得静默当作“不满足”，
+    必须提示改写或转人工（V03：不支持就不承诺自动判定）。
+    """
     if not expr:
         return True
     expr = expr.strip()
     # 支持 and / or 连接（无括号，从左到右按 and 优先）
     if " or " in expr:
-        return any(_eval_condition(p, fields) for p in expr.split(" or "))
+        parts = [_eval_condition(p, fields) for p in expr.split(" or ")]
+        if any(p is None for p in parts):
+            return None
+        return any(parts)
     if " and " in expr:
-        return all(_eval_condition(p, fields) for p in expr.split(" and "))
-    m = re.match(r"^([A-Za-z_][A-Za-z0-9_]*)\s*(==|!=)\s*(.+)$", expr)
+        parts = [_eval_condition(p, fields) for p in expr.split(" and ")]
+        if any(p is None for p in parts):
+            return None
+        return all(parts)
+    m = re.match(_CONDITION_CMP_PATTERN, expr)
     if not m:
-        return False
-    fid, op, val = m.group(1), m.group(2), m.group(3).strip().strip("'\"")
+        return None
+    fid, op, val = m.group(1), m.group(2), m.group(3).strip().strip(chr(39) + chr(34))
     actual = str(fields.get(fid, ""))
     return actual == val if op == "==" else actual != val
 
@@ -184,6 +197,10 @@ def _check_slot_presence(rule: RuleDef, ctx: CheckContext, check: dict) -> RuleR
         return RuleResultOut(rule_id=rule.id, result=RESULT_FAILED,
                              explanation=f"规则引用了不存在的槽位 {check.get('slot')}")
     applicable = _eval_condition(slot_def.required_condition, ctx.fields)
+    if applicable is None:
+        return RuleResultOut(rule_id=rule.id, result=RESULT_FAILED,
+                             explanation=f"槽位 {slot_def.id} 的必交条件「{slot_def.required_condition}」使用了不受支持的形式，未做判定（不静默通过）",
+                             next_step="将条件改写为 字段==值 的简单形式，或将该材料改为人工核验")
     if not applicable:
         return RuleResultOut(rule_id=rule.id, result=RESULT_NOT_APPLICABLE,
                              explanation=f"条件 {slot_def.required_condition} 不满足，槽位 {slot_def.id} 不适用")
@@ -223,6 +240,16 @@ def _check_contact(rule: RuleDef, ctx: CheckContext, check: dict) -> RuleResultO
 
 def _check_field_required(rule: RuleDef, ctx: CheckContext, check: dict) -> RuleResultOut:
     fid = check.get("field", "")
+    field_def = next((f for f in ctx.blueprint.fields if f.id == fid), None)
+    if field_def is not None and field_def.required_condition:
+        applicable = _eval_condition(field_def.required_condition, ctx.fields)
+        if applicable is None:
+            return RuleResultOut(rule_id=rule.id, result=RESULT_FAILED,
+                                 explanation=f"字段 {fid} 的必填条件「{field_def.required_condition}」使用了不受支持的形式，未做判定（不静默通过）",
+                                 next_step="将条件改写为 字段==值 的简单形式，或将该字段改为人工核验")
+        if not applicable:
+            return RuleResultOut(rule_id=rule.id, result=RESULT_NOT_APPLICABLE,
+                                 explanation=f"条件 {field_def.required_condition} 不满足，字段 {fid} 当前不适用")
     if str(ctx.fields.get(fid, "")).strip():
         return RuleResultOut(rule_id=rule.id, result=RESULT_SATISFIED,
                              explanation=f"字段 {fid} 已填写")
