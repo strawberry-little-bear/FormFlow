@@ -62,7 +62,7 @@ from ..services import notifications as notif_service
 from ..services import export as export_service
 from ..services import submissions as sub_service
 from ..services import tasks as task_service
-from ..services.checks import create_run, current_summary, execute_run
+from ..services.checks import create_run, current_summary, execute_run, retry_run
 from ..agents.requirements_agent import validate_blueprint
 from ..schemas import Blueprint
 from fastapi import APIRouter
@@ -426,6 +426,35 @@ def trigger_check(task_id: int, subject_id: int, db: Session = Depends(get_db),
     execute_run(db, run)
     db.commit()
     return {"run_id": run.id, "status": run.status}
+
+@router.post("/tasks/{task_id}/subjects/{subject_id}/checks/retry")
+def retry_check(task_id: int, subject_id: int, db: Session = Depends(get_db),
+                acct: Account = Depends(current_account)):
+    """重试一次检查（V20 / 表 6）：模型或 OCR 故障后可重试，历史运行保留不篡改。"""
+    task = _owned_task(db, acct, task_id)
+    subject = db.get(Subject, subject_id)
+    if subject is None or subject.task_id != task.id:
+        raise HTTPException(404, "提交者不存在或不属于该任务")
+    submission = db.scalar(select(Submission).where(
+        Submission.task_id == task_id, Submission.subject_id == subject_id))
+    if submission is None or submission.current_revision_id is None:
+        raise HTTPException(422, "该提交者尚未正式提交")
+    rev = db.get(Revision, submission.current_revision_id)
+    run = db.scalar(select(CheckRun).where(
+        CheckRun.revision_id == rev.id,
+        CheckRun.status.not_in([RUN_SUPERSEDED])).order_by(CheckRun.id.desc()))
+    if run is None:
+        raise HTTPException(422, "尚未发起检查，无可重试运行")
+    try:
+        new_run = retry_run(db, run)
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+    except task_service.TaskNotWritable as e:
+        raise HTTPException(409, str(e))
+    execute_run(db, new_run)
+    db.commit()
+    return {"run_id": new_run.id, "status": new_run.status,
+            "retried_from": run.id}
 
 @router.post("/tasks/{task_id}/subjects/{subject_id}/decisions")
 def make_decision(task_id: int, subject_id: int, decision: str = Form(...),

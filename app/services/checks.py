@@ -25,7 +25,9 @@ from ..models import (
     RESULT_NOT_APPLICABLE,
     RESULT_SATISFIED,
     RESULT_UNKNOWN,
+    RUN_FAILED,
     RUN_QUEUED,
+    RUN_RETRY_WAIT,
     RUN_RUNNING,
     RUN_SUCCESS,
     RUN_SUPERSEDED,
@@ -87,7 +89,7 @@ def create_run(db: Session, task: Task, revision: Revision) -> CheckRun:
     return run
 
 
-def execute_run(db: Session, run: CheckRun, client=None) -> CheckRun:
+def _execute_check_pipeline(db: Session, run: CheckRun, client=None) -> CheckRun:
     """执行检查：先程序校验，再 Agent 语义调查；结果与证据落库。
 
     client 可注入（测试/演示用脚本化桩）；默认走真实网关。
@@ -121,6 +123,48 @@ def execute_run(db: Session, run: CheckRun, client=None) -> CheckRun:
     run.status = RUN_SUCCESS
     db.flush()
     return run
+
+
+def execute_run(db: Session, run: CheckRun, client=None) -> CheckRun:
+    """执行检查（V20）：未预期异常不向上抛，运行标记 failed 并记录原因，可重试。"""
+    try:
+        return _execute_check_pipeline(db, run, client)
+    except Exception as e:  # 未预期故障：标记失败并可重试（表 6：模型/OCR 故障可重试）
+        run.status = RUN_FAILED
+        run.error = f"{type(e).__name__}: {e}"
+        db.flush()
+        task_service.audit(db, "check.failed", "check_run",
+                           {"run_id": run.id, "error": run.error}, run.task_id)
+        return run
+
+
+def retry_run(db: Session, run: CheckRun) -> CheckRun:
+    """重试一次检查（V20 / 表 6：模型或 OCR 故障可重试，转人工由组织者决定）。
+
+    - 仅「失败」或「成功但含失败规则结果」的运行可重试；进行中的运行不可重试；
+    - 旧运行标记为被取代：历史运行、结果与证据全部保留，不篡改；
+    - 为同一正式版本创建新运行并返回（queued），由调用方执行或交由 Worker。
+    """
+    if run.status == RUN_SUPERSEDED:
+        raise ValueError("该运行已被取代，请对当前版本发起检查")
+    if run.status in (RUN_QUEUED, RUN_RUNNING, RUN_RETRY_WAIT):
+        raise ValueError("检查正在进行中，暂不能重试")
+    task = db.get(Task, run.task_id)
+    task_service.ensure_task_writable(task)  # V24：只读任务不允许重试
+    has_failed = db.scalar(select(RuleResult).where(
+        RuleResult.run_id == run.id, RuleResult.result == RESULT_FAILED)) is not None
+    if run.status == RUN_SUCCESS and not has_failed:
+        raise ValueError("该运行已成功完成，无需重试")
+    revision = db.get(Revision, run.revision_id)
+    old_status = run.status
+    run.status = RUN_SUPERSEDED
+    db.flush()
+    new_run = create_run(db, task, revision)
+    task_service.audit(db, "check.retry", "check_run",
+                       {"from_run": run.id, "from_status": old_status,
+                        "new_run": new_run.id, "revision": revision.version},
+                       task.id)
+    return new_run
 
 
 def _severity_of(blueprint: Blueprint, rule_id: str) -> str:
@@ -204,6 +248,9 @@ def current_summary(db: Session, task: Task, subject_id: int) -> dict:
     elif unknown or human:
         summary, acceptance = "待人工", ACCEPTANCE_PENDING
     elif incomplete and not jobs:
+        summary, acceptance = "检查未完成", ACCEPTANCE_PENDING
+    elif run.status == RUN_FAILED:
+        # 运行自身失败且没有可信结果：按检查未完成处理（可重试或转人工）
         summary, acceptance = "检查未完成", ACCEPTANCE_PENDING
     elif jobs:
         summary, acceptance = "检查中", ACCEPTANCE_PENDING
