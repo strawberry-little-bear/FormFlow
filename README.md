@@ -71,6 +71,8 @@ uvicorn app.main:app --reload
 
 # 4. （可选）启动后台 worker 处理排队中的检查
 python -m app.worker
+# 检查执行全异步：正式提交/发起检查/重试都只入队即返回，由 worker 轮询执行
+# （LLM 语义检查可能耗时数分钟，请求不挂起；worker 重启后自动接管排队与中断的运行）
 
 # 5. （可选）写入演示数据：账号 demo/demo1234，任务 id=1，打印提交者一次性凭证
 python scripts/seed_demo.py
