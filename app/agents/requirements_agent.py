@@ -10,13 +10,16 @@ import json
 from typing import Optional
 
 from ..llm import LLMClient, LLMError, LLMUnavailable, get_client
+from pydantic import ValidationError
 from ..schemas import (
     Blueprint,
     Capability,
     Clarification,
+    Executor,
     DraftResult,
     Executor,
     FieldDef,
+    FieldType,
     RuleDef,
     SlotDef,
     TimePolicy,
@@ -27,12 +30,12 @@ SYSTEM_PROMPT = """你是"收齐啦"平台的需求 Agent。把组织者的自�
 硬性规则（必须遵守）：
 1. 只能从原始要求中提取规则。每条规则必须给出 requirement_source，即原始要求中的原文引用。
    禁止添加组织者没有提出的要求（如字数、签章、签到、格式细则）。
-2. 规则能力必须如实标注：
+2. 规则执行者 executor 只能取以下四个值之一，不得自造取值：
    - deterministic: 可由程序确定性核验（数量、大小、页数、格式、人数、联系人是否在成员列表、条件必交）
    - semantic: 需要理解文档内容（如标题期次、要素是否存在）
    - cross_material: 需要跨材料/字段一致性比对
    - human_only: 只能人工判断（如态度、真实性、资格）
-   capability 取值：supported（可自动）、needs_human（需人工）、needs_clarification（需澄清）。
+   能力标签 capability 只能取：supported（可自动）、needs_human（需人工）、needs_clarification（需澄清）。
 3. 只问高影响澄清问题；已知信息不重复追问；没有歧义就不要编造问题。
 4. 不得自行决定发布；你只产出草案与发布摘要，由组织者确认。
 5. 空输入或信息不足时，不要虚构要求，改用 clarifications 提出澄清。
@@ -43,7 +46,7 @@ SYSTEM_PROMPT = """你是"收齐啦"平台的需求 Agent。把组织者的自�
     "task_scope": {"name": "...", "description": "...", "template": "...", "mode": "roster|open", "subject_kind": "individual|team"},
     "fields": [{"id":"...","label":"...","type":"text|enum|date|number","options":[],"required":true,"required_condition":null,"purpose":"...","visibility":"organizer|submitter"}],
     "slots": [{"id":"...","label":"...","formats":["pdf"],"max_count":1,"max_size_mib":10,"max_pages":20,"required_condition":null}],
-    "rules": [{"id":"...","statement":"...","requirement_source":"原文引用","executor":"...","capability":"...","severity":"blocking|advisory","depends_on":[],"clarification_question":null}],
+    "rules": [{"id":"...","statement":"...","requirement_source":"原文引用","executor":"deterministic|semantic|cross_material|human_only","capability":"supported|needs_human|needs_clarification","severity":"blocking|advisory","depends_on":[],"clarification_question":null}],
     "time_policy": {"timezone":"Asia/Shanghai","open_at":null,"first_deadline":null,"correction_deadline":null},
     "auto_scope": ["规则ID"],
     "manual_acceptance": true,
@@ -58,8 +61,33 @@ SYSTEM_PROMPT = """你是"收齐啦"平台的需求 Agent。把组织者的自�
 """
 
 REVISION_SYSTEM_PROMPT = """你是"收齐啦"平台的需求 Agent。组织者在结构化编辑器基础上提出了修改意见。
-请输出修改后的完整蓝图 JSON（格式与首次起草相同），并保持未提及部分不变。
-保持字段稳定 ID 不变；不要暗加要求；修改要有据可依，引用原始要求。只输出 JSON。"""
+硬性要求：
+1. 输出修改后的完整蓝图 JSON。【当前草案】中的全部字段、材料槽位、规则必须逐一保留；
+   除修改意见明确要求删除或修改的内容外，一律原样保留（含稳定 ID 与 check 等程序规格），
+   不得遗漏、不得重写、不得减少数量。
+2. 时间策略（open_at / first_deadline / correction_deadline）未被修改意见提及时必须原样保留；
+   日期时间使用 ISO 8601 格式，如 2026-11-08T18:00:00。
+3. 保持字段稳定 ID 不变；不要暗加要求；修改要有据可依，引用原始要求。
+4. executor 只能取 deterministic|semantic|cross_material|human_only；
+   capability 只能取 supported|needs_human|needs_clarification。
+只输出 JSON，格式（必须带 blueprint 外壳，与首次起草相同）：
+{
+  "blueprint": {
+    "task_scope": {"name": "...", "description": "...", "template": "...", "mode": "roster|open", "subject_kind": "individual|team"},
+    "fields": [{"id":"...","label":"...","type":"text|enum|date|number","options":[],"required":true,"required_condition":null,"purpose":"...","visibility":"organizer|submitter"}],
+    "slots": [{"id":"...","label":"...","formats":["pdf"],"max_count":1,"max_size_mib":10,"max_pages":20,"required_condition":null}],
+    "rules": [{"id":"...","statement":"...","requirement_source":"原文引用","executor":"deterministic|semantic|cross_material|human_only","capability":"supported|needs_human|needs_clarification","severity":"blocking|advisory","depends_on":[],"clarification_question":null,"check":null}],
+    "time_policy": {"timezone":"Asia/Shanghai","open_at":null,"first_deadline":null,"correction_deadline":null},
+    "auto_scope": ["规则ID"],
+    "manual_acceptance": true,
+    "eligibility_required": false,
+    "delivery": {},
+    "governance": {}
+  },
+  "clarifications": [],
+  "publish_summary": [],
+  "warnings": []
+}"""
 
 
 def _build_user_prompt(
@@ -80,25 +108,155 @@ def _build_user_prompt(
         parts.append("【当前草案】\n" + current_draft.model_dump_json(indent=2))
     return "\n\n".join(parts)
 
+_EXECUTOR_ALIASES = {
+    "program": "deterministic", "programmatic": "deterministic", "code": "deterministic",
+    "auto": "deterministic", "automatic": "deterministic",
+    "ai": "semantic", "model": "semantic", "llm": "semantic", "agent": "semantic",
+    "cross": "cross_material", "crosscheck": "cross_material", "consistency": "cross_material",
+    "human": "human_only", "manual": "human_only", "organizer": "human_only",
+}
+_CAPABILITY_ALIASES = {
+    "auto": "supported", "automatic": "supported",
+    "human": "needs_human", "manual": "needs_human",
+    "clarify": "needs_clarification", "clarification": "needs_clarification",
+}
+_FIELD_TYPE_ALIASES = {
+    "string": "text", "str": "text", "textarea": "text",
+    "select": "enum", "choice": "enum", "option": "enum",
+    "datetime": "date", "int": "number", "integer": "number", "float": "number",
+}
+_SEVERITY_ALIASES = {"block": "blocking", "warn": "advisory", "warning": "advisory"}
+
+
+def _norm_choice(value, allowed: set, aliases: dict, default: str,
+                 warnings: list, what: str) -> str:
+    """模型枚举值规整：命中即用；别名映射；无法识别时保守默认并记录 warning。
+
+    保守方向：executor 默认 human_only（看不懂的规则绝不自动执行），
+    capability 默认 needs_human，severity 默认 blocking，字段类型默认 text。
+    """
+    raw = str(value if value is not None else "").strip().lower()
+    if raw in allowed:
+        return raw
+    if raw in aliases:
+        return aliases[raw]
+    warnings.append(f"{what} 无法识别（{value!r}），已按 {default} 保守处理")
+    return default
+
+
+def _parse_field(f: dict, warnings: list) -> FieldDef:
+    f = dict(f)
+    fid = f.get("id", "?")
+    if "type" in f:
+        f["type"] = _norm_choice(f.get("type"), {t.value for t in FieldType},
+                                 _FIELD_TYPE_ALIASES, "text", warnings,
+                                 f"字段 {fid} 的 type")
+    for key in ("label", "purpose"):
+        if key in f and f[key] is not None and not isinstance(f[key], str):
+            warnings.append(f"字段 {fid} 的 {key} 不是字符串（{f[key]!r}），已转换为文本")
+            f[key] = str(f[key])
+    if f.get("visibility") is not None and not isinstance(f["visibility"], str):
+        warnings.append(f"字段 {fid} 的 visibility 不是字符串（{f['visibility']!r}），已按 organizer 处理")
+        f["visibility"] = "organizer"
+    if f.get("required_condition") is not None and not isinstance(f["required_condition"], str):
+        warnings.append(f"字段 {fid} 的 required_condition 不是字符串，已置空")
+        f["required_condition"] = None
+    return FieldDef(**f)
+
+
+def _parse_rule(r: dict, warnings: list) -> RuleDef:
+    r = dict(r)
+    rid = r.get("id", "?")
+    if "executor" in r:
+        r["executor"] = _norm_choice(r.get("executor"), {e.value for e in Executor},
+                                     _EXECUTOR_ALIASES, "human_only", warnings,
+                                     f"规则 {rid} 的 executor")
+    if "capability" in r:
+        r["capability"] = _norm_choice(r.get("capability"), {c.value for c in Capability},
+                                       _CAPABILITY_ALIASES, "needs_human", warnings,
+                                       f"规则 {rid} 的 capability")
+    if "severity" in r:
+        r["severity"] = _norm_choice(r.get("severity"), {"blocking", "advisory"},
+                                     _SEVERITY_ALIASES, "blocking", warnings,
+                                     f"规则 {rid} 的 severity")
+    for key in ("statement", "requirement_source", "clarification_question"):
+        if key in r and r[key] is not None and not isinstance(r[key], str):
+            r[key] = str(r[key])
+    return RuleDef(**r)
+
+
+def _parse_slot(slot: dict, warnings: list) -> SlotDef:
+    slot = dict(slot)
+    sid = slot.get("id", "?")
+    fmts = slot.get("formats")
+    if isinstance(fmts, str):
+        slot["formats"] = [fmts]  # 模型偶尔把格式列表写成单个字符串
+    if slot.get("label") is not None and not isinstance(slot["label"], str):
+        slot["label"] = str(slot["label"])
+    if slot.get("required_condition") is not None and not isinstance(slot["required_condition"], str):
+        warnings.append(f"材料槽位 {sid} 的 required_condition 不是字符串，已置空")
+        slot["required_condition"] = None
+    return SlotDef(**slot)
+
+
+def _as_dict(value, warnings: list, what: str) -> dict:
+    if isinstance(value, dict):
+        return value
+    if value not in (None, "", [], {}):
+        warnings.append(f"{what} 不是对象，已忽略")
+    return {}
+
+
+def _as_str_list(value) -> list:
+    if not isinstance(value, list):
+        return []
+    return [str(x) for x in value]
+
+
+def _parse_clarifications(raw, warnings: list) -> list:
+    """澄清项偶尔被模型写成纯字符串或结构不全：容错而非崩溃。"""
+    out = []
+    for c in raw if isinstance(raw, list) else []:
+        if isinstance(c, str) and c.strip():
+            out.append(Clarification(question=c.strip()))
+            warnings.append(f"澄清项不是对象，已按问题文本处理：{c.strip()[:40]}")
+        elif isinstance(c, dict):
+            try:
+                out.append(Clarification(**c))
+            except ValidationError:
+                warnings.append(f"澄清项结构不合法已忽略：{str(c)[:60]}")
+    return out
+
+
 def _parse_draft(payload: dict) -> DraftResult:
+    warnings: list[str] = []
     bp = payload.get("blueprint") or {}
-    blueprint = Blueprint(
-        task_scope=bp.get("task_scope") or {},
-        fields=[FieldDef(**f) for f in bp.get("fields", [])],
-        slots=[SlotDef(**s) for s in bp.get("slots", [])],
-        rules=[RuleDef(**r) for r in bp.get("rules", [])],
-        time_policy=TimePolicy(**bp.get("time_policy", {})),
-        auto_scope=bp.get("auto_scope", []),
-        manual_acceptance=bp.get("manual_acceptance", True),
-        eligibility_required=bp.get("eligibility_required", False),
-        delivery=bp.get("delivery") or {},
-        governance=bp.get("governance") or {},
-    )
+    if not bp and isinstance(payload, dict) and (
+            "task_scope" in payload or "fields" in payload
+            or "slots" in payload or "rules" in payload):
+        bp = payload  # 模型直接返回了蓝图本体（未包 blueprint 外壳）
+    try:
+        blueprint = Blueprint(
+            task_scope=_as_dict(bp.get("task_scope"), warnings, "task_scope"),
+            fields=[_parse_field(f, warnings) for f in bp.get("fields", []) or []],
+            slots=[_parse_slot(x, warnings) for x in bp.get("slots", []) or []],
+            rules=[_parse_rule(r, warnings) for r in bp.get("rules", []) or []],
+            time_policy=TimePolicy(**_as_dict(bp.get("time_policy"), warnings, "time_policy")),
+            auto_scope=_as_str_list(bp.get("auto_scope")),
+            manual_acceptance=bool(bp.get("manual_acceptance", True)),
+            eligibility_required=bool(bp.get("eligibility_required", False)),
+            delivery=_as_dict(bp.get("delivery"), warnings, "delivery"),
+            governance=_as_dict(bp.get("governance"), warnings, "governance"),
+        )
+    except ValidationError as e:
+        first = e.errors()[0]
+        loc = ".".join(str(x) for x in first.get("loc", ()))
+        raise LLMError(f"蓝图草案结构不合法（{loc}: {first.get('msg', '')}）") from e
     return DraftResult(
         blueprint=blueprint,
-        clarifications=[Clarification(**c) for c in payload.get("clarifications", [])],
-        publish_summary=payload.get("publish_summary", []),
-        warnings=payload.get("warnings", []),
+        clarifications=_parse_clarifications(payload.get("clarifications"), warnings),
+        publish_summary=_as_str_list(payload.get("publish_summary")),
+        warnings=warnings + _as_str_list(payload.get("warnings")),
     )
 
 
@@ -108,6 +266,8 @@ def validate_blueprint(blueprint: Blueprint, source_text: str = "") -> list[str]
     返回错误列表；关键错误应阻止发布。
     """
     errors: list[str] = []
+    if not blueprint.fields and not blueprint.slots:
+        errors.append("蓝图没有任何字段或材料槽位，无法发布")
     field_ids = [f.id for f in blueprint.fields]
     rule_ids = [r.id for r in blueprint.rules]
     slot_ids = [s.id for s in blueprint.slots]
@@ -193,13 +353,25 @@ def draft_blueprint(
                 {"role": "user", "content": _build_user_prompt(requirement_text, template, answered, current_draft, instruction)},
             ]
         )
+        result = _parse_draft(payload)
     except LLMUnavailable as e:
         return DraftResult(
             blueprint=current_draft or Blueprint(),
             warnings=[f"需求 Agent 暂不可用（{e}）。已保留当前草案，请手动编辑或稍后重试。"],
         )
-    result = _parse_draft(payload)
-    result.warnings.extend(validate_blueprint(result.blueprint, requirement_text))
+    except LLMError as e:
+        # 网关返回无法解析/结构不合法：保留当前草案并明示，绝不把坏数据当草案
+        return DraftResult(
+            blueprint=current_draft or Blueprint(),
+            warnings=[f"需求 Agent 返回无法解析（{e}）。已保留当前草案，请手动编辑或稍后重试。"],
+        )
+    source_text = requirement_text
+    if instruction and instruction.strip():
+        source_text += "\n【组织者修改意见】\n" + instruction.strip()
+    if answered:
+        qa = "\n".join(f"{q}：{a}" for q, a in answered.items())
+        source_text += "\n【组织者已回答的澄清】\n" + qa
+    result.warnings.extend(validate_blueprint(result.blueprint, source_text))
     return result
 
 

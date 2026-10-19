@@ -262,3 +262,37 @@ def test_api_revise_rejects_other_users_blueprint(client, db_session):
     r = client.post(f"/api/tasks/{t2}/draft/revise",
                     data={"blueprint_version_id": bp_id, "answered": "{}"}, headers=h2)
     assert r.status_code == 404
+
+
+def test_revise_warns_on_unrequested_removal(db_session):
+    """修订删除了未提及内容（真实冒烟曾出现删空草案）→ 显著警告，不静默丢失。"""
+    stub1 = CapturingLLM(responses=[_draft_payload()])
+    task, bp = _make_task_with_draft(db_session, stub1)
+    shrunk = _draft_payload()
+    shrunk["blueprint"]["rules"] = []   # 模型把规则删空
+    shrunk["blueprint"]["fields"] = []  # 字段也删空
+    stub2 = CapturingLLM(responses=[shrunk])
+    result, new_bp, impact = task_service.revise_draft(
+        db_session, task, bp.id, requirement=REQUIREMENT,
+        instruction="把首次提交截止调整为 11 月 9 日 18:00", client=stub2)
+    assert new_bp.version > bp.version  # 仍产生新版本，由组织者决定是否发布
+    assert impact["rules"]["removed"] == ["C-R01"]
+    assert any("修订删除了" in w for w in result.warnings)
+
+
+def test_revise_restores_dropped_check_spec(db_session):
+    """模型修订丢掉同 ID 规则的 check 程序规格时，程序回填（未提及即保留）。"""
+    stub1 = CapturingLLM(responses=[_draft_payload()])
+    task, bp = _make_task_with_draft(db_session, stub1)
+    dropped = _draft_payload(rules_extra=[
+        {"id": "C-R02", "statement": "报告包含姓名", "requirement_source": "包含姓名",
+         "executor": "semantic", "capability": "supported"}])
+    dropped["blueprint"]["rules"][0]["check"] = None
+    stub2 = CapturingLLM(responses=[dropped])
+    result, new_bp, impact = task_service.revise_draft(
+        db_session, task, bp.id, requirement=REQUIREMENT,
+        instruction="补充一条姓名核对规则", client=stub2)
+    rule = next(r for r in result.blueprint.rules if r.id == "C-R01")
+    assert rule.check == {"kind": "slot_constraints", "slot": "report"}
+    assert impact["rules"]["changed"] == []  # check 丢失不算实质变化
+    assert impact["rules"]["added"] == ["C-R02"]

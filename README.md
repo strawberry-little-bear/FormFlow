@@ -125,6 +125,7 @@ python -m pytest tests/ -q
 - `tests/test_demo_seed.py`：演示数据不变量（应交 4、张三已验收、李四待补正、王五待人工）与快照只纳入已验收。
 - `tests/test_notifications.py`：催交名单重查、只标已复制（V24）。
 - `tests/test_business_specs.py`：V16 同名新文件保留、V19 上传不算交、V22 材料注入防护与引用校验。
+- `scripts/smoke_llm.py`：真实网关冒烟（起草 → 澄清/修改意见修订），验证主模型与降级兜底链路；不写数据库，仅打印耗时/降级触发/程序校验/修改影响。
 
 ## 安全说明
 
