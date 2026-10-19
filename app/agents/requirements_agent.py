@@ -9,6 +9,8 @@ from __future__ import annotations
 import json
 import re
 from typing import Optional
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from ..llm import LLMClient, LLMError, LLMUnavailable, get_client
 from pydantic import ValidationError
@@ -18,7 +20,6 @@ from ..schemas import (
     Clarification,
     Executor,
     DraftResult,
-    Executor,
     FieldDef,
     FieldType,
     RuleDef,
@@ -40,6 +41,17 @@ SYSTEM_PROMPT = """你是"收齐啦"平台的需求 Agent。把组织者的自�
 3. 只问高影响澄清问题；已知信息不重复追问；没有歧义就不要编造问题。
 4. 不得自行决定发布；你只产出草案与发布摘要，由组织者确认。
 5. 空输入或信息不足时，不要虚构要求，改用 clarifications 提出澄清。
+6. 每轮最多集中追问 3 个高影响问题，按「对象/材料缺失 → 日期歧义 → 验收/隐私」排序。
+   澄清要用组织者能直接回答的问句，why 简短说明对收集的影响；未回答不代表同意默认值。
+   已明确的原文、当前草案和已有回答必须合并理解，不重复追问。
+7. 程序规则必须包含可执行 check，不能只写一句描述：
+   必填字段 {"kind":"field_required","field":"字段ID"}；材料必交 {"kind":"slot_presence","slot":"槽位ID"}；
+   材料格式/数量/大小/页数 {"kind":"slot_constraints","slot":"槽位ID"}；
+   团队人数 {"kind":"team_size","min":2,"max":5}；联系人在成员中 {"kind":"contact_in_members","field":"联系人字段ID"}；
+   成员一致 {"kind":"members_match","field":"成员字段ID"}。只使用需求明确提出的限制和真实 ID。
+   无法表示为这些规格的确定性规则不得谎称已支持，应标为需澄清或人工项。
+8. 日期必须参考提供的当前日期和时区；含糊或已过期的截止先澄清，不能随意猜年份。
+9. publish_summary 用简明中文写实际采纳的内容和待确认事项，不用模板化口号。
 
 只输出 JSON，格式：
 {
@@ -47,7 +59,7 @@ SYSTEM_PROMPT = """你是"收齐啦"平台的需求 Agent。把组织者的自�
     "task_scope": {"name": "...", "description": "...", "template": "...", "mode": "roster|open", "subject_kind": "individual|team"},
     "fields": [{"id":"...","label":"...","type":"text|enum|date|number","options":[],"required":true,"required_condition":null,"purpose":"...","visibility":"organizer|submitter"}],
     "slots": [{"id":"...","label":"...","formats":["pdf"],"max_count":1,"max_size_mib":10,"max_pages":20,"required_condition":null}],
-    "rules": [{"id":"...","statement":"...","requirement_source":"原文引用","executor":"deterministic|semantic|cross_material|human_only","capability":"supported|needs_human|needs_clarification","severity":"blocking|advisory","depends_on":[],"clarification_question":null}],
+    "rules": [{"id":"...","statement":"...","requirement_source":"原文引用","executor":"deterministic|semantic|cross_material|human_only","capability":"supported|needs_human|needs_clarification","severity":"blocking|advisory","depends_on":[],"clarification_question":null,"check":null}],
     "time_policy": {"timezone":"Asia/Shanghai","open_at":null,"first_deadline":null,"correction_deadline":null},
     "auto_scope": ["规则ID"],
     "manual_acceptance": true,
@@ -98,7 +110,9 @@ def _build_user_prompt(
     current_draft: Optional[Blueprint],
     instruction: str = "",
 ) -> str:
-    parts = [f"【原始要求】\n{requirement_text.strip()}"]
+    now = datetime.now(ZoneInfo("Asia/Shanghai"))
+    parts = [f"【当前日期与时区】{now.strftime('%Y-%m-%d %H:%M')} Asia/Shanghai",
+             f"【原始要求】\n{requirement_text.strip()}"]
     if template:
         parts.append(f"【选用模板】{template}")
     if answered:

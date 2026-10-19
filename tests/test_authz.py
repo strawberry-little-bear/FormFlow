@@ -168,6 +168,8 @@ def test_revoked_credential_rejected_on_all_submitter_paths(client, db_session):
     probes = [
         ("get", "/api/me", None),
         ("post", "/api/me/draft", {"fields": {"name": "x"}, "expected_version": None}),
+        ("get", "/api/me/draft", None),
+        ("delete", "/api/me/files/does-not-matter", None),
         ("get", "/api/me/receipt", None),
         ("get", "/api/me/results", None),
         ("post", "/api/me/submit", {"fields": {}, "slot_file_ids": {},
@@ -247,3 +249,42 @@ def test_foreign_export_download_denied(client, db_session):
     assert client.get(f"/api/exports/{job_id}/zip", headers=hb).status_code == 404
     assert client.get(f"/api/exports/{job_id}/csv", headers=ha).status_code == 200
     assert client.get(f"/api/exports/{job_id}/zip", headers=ha).status_code == 200
+
+
+def test_draft_roundtrip_over_api(client, db_session):
+    """草稿经 API 保存后可恢复字段与文件；删除草稿文件也走同一凭证。"""
+    ha = _register(client, "org-draft")
+    task_id = _mk_task(client, ha)
+    sid, cred = _grant_subject(client, ha, task_id, "张三")
+    hsub = {"Authorization": "Bearer " + cred}
+
+    r = client.post("/api/me/draft", headers=hsub,
+                    json={"fields": {"name": "张三", "term": "第 1 期"},
+                          "expected_version": None})
+    assert r.status_code == 200, r.text
+    v1 = r.json()["draft_version"]
+
+    r = client.get("/api/me/draft", headers=hsub)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["fields"] == {"name": "张三", "term": "第 1 期"}
+    assert body["draft_version"] == v1
+    assert body["slot_file_ids"] == {}
+
+    r = client.post("/api/me/files", headers=hsub,
+                    data={"slot": "report"},
+                    files={"file": ("报告.txt", b"hello", "text/plain")})
+    assert r.status_code == 200, r.text
+    file_id = r.json()["file_id"]
+    r = client.get("/api/me/draft", headers=hsub)
+    assert [f["file_id"] for f in r.json()["slot_file_ids"]["report"]] == [file_id]
+
+    r = client.delete(f"/api/me/files/{file_id}", headers=hsub)
+    assert r.status_code == 200, r.text
+    r = client.get("/api/me/draft", headers=hsub)
+    assert r.json()["slot_file_ids"] == {}
+
+    # 版本冲突仍按 409 保留本地内容
+    r = client.post("/api/me/draft", headers=hsub,
+                    json={"fields": {"name": "李四"}, "expected_version": 99})
+    assert r.status_code == 409

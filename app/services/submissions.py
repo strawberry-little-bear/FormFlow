@@ -61,9 +61,116 @@ def save_draft(db: Session, submission: Submission, fields: dict, expected_versi
     if expected_version is not None and expected_version != submission.draft_version:
         raise SubmitError(f"草稿版本冲突：服务端当前 v{submission.draft_version}，"
                           f"你基于 v{expected_version} 编辑，请核对后重试")
+    submission.draft_fields_json = json.dumps(fields or {}, ensure_ascii=False)
     submission.draft_version += 1
     db.flush()
     return submission.draft_version
+
+
+def draft_view(db: Session, task: Task, submission: Submission) -> dict:
+    """恢复草稿：字段 + 未入正式版本的上传文件 + 版本号。
+
+    文件按槽位分组；已失败的文件不返回（前端看不到即不会被误提交）。
+    正式提交后仍返回最近一次正式版本的字段，便于补正时对照修改。
+    """
+    fields = {}
+    try:
+        fields = json.loads(submission.draft_fields_json or "{}")
+    except (TypeError, ValueError):
+        fields = {}
+    if not fields and submission.current_revision_id:
+        rev = db.get(Revision, submission.current_revision_id)
+        if rev is not None:
+            try:
+                fields = json.loads(rev.fields_json or "{}")
+            except (TypeError, ValueError):
+                fields = {}
+    files = db.scalars(select(FileObject).where(
+        FileObject.submission_id == submission.id,
+        FileObject.status != "failed").order_by(FileObject.id)).all()
+    slot_files: dict[str, list[dict]] = {}
+    for fo in files:
+        slot_files.setdefault(fo.slot, []).append({
+            "file_id": fo.file_id, "name": fo.original_name,
+            "size": fo.size, "mime": fo.mime, "status": fo.status})
+    return {"fields": fields, "slot_file_ids": slot_files,
+            "draft_version": submission.draft_version,
+            "formal_revision": submission.state == SUBMISSION_FORMAL,
+            "updated_at": submission.updated_at.isoformat() if submission.updated_at else ""}
+
+
+def _referenced_file_ids(db: Session, submission: Submission) -> set[str]:
+    """任一正式版本引用过的文件都不能从草稿里删除（历史不可篡改）。"""
+    used: set[str] = set()
+    for rev in db.scalars(select(Revision).where(
+            Revision.submission_id == submission.id)).all():
+        try:
+            mapping = json.loads(rev.slot_file_ids_json or "{}")
+        except (TypeError, ValueError):
+            continue
+        for ids in mapping.values():
+            used.update(ids or [])
+    return used
+
+
+def delete_file(db: Session, submission: Submission, file_id: str) -> None:
+    """删除尚未进入正式版本的上传文件。"""
+    from .. import storage
+
+    task_service.ensure_task_writable(db.get(Task, submission.task_id))  # V24 readonly
+    fo = db.scalar(select(FileObject).where(FileObject.file_id == file_id))
+    if fo is None or fo.submission_id != submission.id:
+        raise SubmitError("文件不存在或不属于当前提交")
+    if file_id in _referenced_file_ids(db, submission):
+        raise SubmitError("该文件已进入正式版本，不能从草稿中删除（历史版本不可篡改）")
+    path = storage.file_dir(file_id) / f"original_{fo.safe_name}"
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
+    db.delete(fo)
+    db.flush()
+
+
+def validate_upload(task: Task, blueprint: Optional[Blueprint], *, slot: str,
+                    original_name: str, size: int) -> None:
+    """按已发布蓝图校验上传：槽位存在、格式、数量上限、单文件大小。
+
+    未发布蓝图时不做业务校验（上传仍受任务只读状态约束）。
+    """
+    if blueprint is None:
+        return
+    slot_def = next((s for s in blueprint.slots if s.id == slot), None)
+    if slot_def is None:
+        raise SubmitError(f"槽位 {slot} 不在当前收集要求中")
+    if slot_def.formats:
+        suffix = original_name.rsplit(".", 1)[-1].lower() if "." in original_name else ""
+        allowed = {f.lower().lstrip(".") for f in slot_def.formats}
+        if suffix not in allowed:
+            raise SubmitError(
+                f"「{slot_def.label}」只接受 {' / '.join(sorted(allowed))} 格式，"
+                f"当前文件是 {suffix or '无扩展名'}")
+    if slot_def.max_size_mib is not None and size > slot_def.max_size_mib * 1024 * 1024:
+        raise SubmitError(
+            f"「{slot_def.label}」单份不能超过 {slot_def.max_size_mib:g} MiB，"
+            f"当前文件 {size / 1024 / 1024:.1f} MiB")
+
+
+def validate_slot_count(db: Session, submission: Submission, blueprint: Optional[Blueprint],
+                        *, slot: str) -> None:
+    """上传前检查该槽位已有文件数是否已达上限。"""
+    if blueprint is None:
+        return
+    slot_def = next((s for s in blueprint.slots if s.id == slot), None)
+    if slot_def is None:
+        return
+    count = len(db.scalars(select(FileObject).where(
+        FileObject.submission_id == submission.id,
+        FileObject.slot == slot,
+        FileObject.status != "failed")).all())
+    if count >= slot_def.max_count:
+        raise SubmitError(f"「{slot_def.label}」最多 {slot_def.max_count} 份，"
+                          f"请先删除多余文件再上传")
 
 
 def attach_file(db: Session, submission: Submission, *, slot: str, original_name: str,

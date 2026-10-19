@@ -19,7 +19,7 @@ import pytest
 from app.agents.requirements_agent import blueprint_advisories, validate_blueprint
 from app.agents.review_agent import CheckContext, run_deterministic
 from app.models import RESULT_FAILED, BlueprintVersion, Task
-from app.schemas import Blueprint, FieldDef, RuleDef, SlotDef
+from app.schemas import Blueprint, DraftResult, FieldDef, RuleDef, SlotDef
 from app.services import tasks as task_service
 from app.services.tasks import PublishBlocked
 
@@ -297,3 +297,37 @@ def test_v04_time_conflict_still_blocked():
     bp.time_policy.first_deadline = datetime(2026, 11, 8, 18, 0)
     errors = validate_blueprint(bp)
     assert any("开放时刻必须早于首次截止" in e for e in errors)
+
+
+# ---------------------------------------------------------------- 发布阻塞/提醒拆分
+def test_publish_allowed_with_advisory_only(db_session):
+    """只有非阻塞提醒（如未设时间）时允许发布，提醒写入审计。"""
+    task = _task(db_session)
+    bp = _class_bp()
+    ver = _save(db_session, task, bp,
+                source_text="11 月 8 日 18:00 前提交 PDF 格式报告一份")
+    out = task_service.publish(db_session, task, ver.id)
+    assert out.status == "published"
+    assert task.status == "collecting"
+
+
+def test_publish_still_blocked_by_hard_error(db_session):
+    """硬校验错误仍然拦截，不会被提醒豁免逻辑放过。"""
+    task = _task(db_session)
+    bp = _class_bp()
+    bp.rules[0].check = {"kind": "magic_compare"}
+    ver = _save(db_session, task, bp, source_text="提交 PDF 格式报告一份")
+    with pytest.raises(PublishBlocked) as ei:
+        task_service.publish(db_session, task, ver.id)
+    assert "magic_compare" in str(ei.value)
+
+
+def test_split_publish_checks_separates_advisory():
+    bp = _class_bp()
+    src = "11 月 8 日 18:00 前提交 PDF 格式报告一份"
+    draft = DraftResult(blueprint=bp, warnings=blueprint_advisories(bp, src))
+    ver = BlueprintVersion(version=1, blueprint_json=bp.model_dump_json(),
+                           source_text=src, status="draft")
+    blocking, advisories = task_service.split_publish_checks(bp, ver, draft)
+    assert blocking == []
+    assert advisories and "截止" in advisories[0]

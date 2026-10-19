@@ -223,6 +223,8 @@ class Submission(Base):
     subject_id: Mapped[int] = mapped_column(ForeignKey("subjects.id"), index=True)
     state: Mapped[str] = mapped_column(String(16), default=SUBMISSION_DRAFT)
     draft_version: Mapped[int] = mapped_column(Integer, default=1)
+    # 未正式提交前的字段草稿；刷新/换设备后可恢复。正式版本仍只存于 Revision。
+    draft_fields_json: Mapped[str] = mapped_column(Text, default="{}")
     current_revision_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("revisions.id"), nullable=True
     )
