@@ -143,6 +143,8 @@ def run_deterministic(rule: RuleDef, ctx: CheckContext) -> RuleResultOut:
         return _check_contact(rule, ctx, check)
     if kind == "field_required":
         return _check_field_required(rule, ctx, check)
+    if kind == "members_match":
+        return _check_members_match(rule, ctx, check)
     return RuleResultOut(
         rule_id=rule.id, result=RESULT_FAILED,
         explanation=f"确定性规则 {rule.id} 缺少可执行的 check 规格，未执行",
@@ -255,6 +257,48 @@ def _check_field_required(rule: RuleDef, ctx: CheckContext, check: dict) -> Rule
                              explanation=f"字段 {fid} 已填写")
     return RuleResultOut(rule_id=rule.id, result=RESULT_ISSUE,
                          explanation=f"必填字段 {fid} 为空", next_step=f"填写{ctx.blueprint.task_scope.get('name','')}要求的 {fid}")
+
+
+def _split_names(raw) -> list[str]:
+    """成员名单输入规整：列表或逗号/顿号/分号/斜杠/空白分隔的字符串。"""
+    if raw is None:
+        return []
+    if isinstance(raw, (list, tuple)):
+        items = [str(x) for x in raw]
+    else:
+        s = str(raw)
+        for sep in (",", "，", "、", ";", "；", "/", "|"):
+            s = s.replace(sep, " ")
+        items = s.split()
+    return [x.strip() for x in items if x and x.strip()]
+
+
+def _check_members_match(rule: RuleDef, ctx: CheckContext, check: dict) -> RuleResultOut:
+    """V10：申报成员 vs 登记成员逐项对照，产出逐字段差异；无登记名单不猜一致。"""
+    fid = check.get("field", "members")
+    declared = _split_names(ctx.fields.get(fid))
+    registered = _split_names(ctx.members)
+    if not registered:
+        return RuleResultOut(rule_id=rule.id, result=RESULT_UNKNOWN,
+                             explanation="该主体没有登记成员名单，无法逐项核对（不猜测一致）",
+                             next_step="请组织者登记团队成员名单后重试，或转为人工核对")
+    if not declared:
+        return RuleResultOut(rule_id=rule.id, result=RESULT_ISSUE,
+                             explanation="未申报团队成员，无法与登记名单核对",
+                             next_step="在提交字段中填写团队成员名单后重新正式提交")
+    only_declared = sorted(set(declared) - set(registered))
+    only_registered = sorted(set(registered) - set(declared))
+    if not only_declared and not only_registered:
+        return RuleResultOut(rule_id=rule.id, result=RESULT_SATISFIED,
+                             explanation=f"申报成员与登记名单一致（{len(registered)} 人）")
+    parts = []
+    if only_declared:
+        parts.append("仅申报未登记：" + "、".join(only_declared))
+    if only_registered:
+        parts.append("仅登记未申报：" + "、".join(only_registered))
+    return RuleResultOut(rule_id=rule.id, result=RESULT_ISSUE,
+                         explanation="申报成员与登记名单不一致——" + "；".join(parts),
+                         next_step="核对成员名单：修正申报内容或更新登记名单后重新正式提交")
 
 
 # ---------------------------------------------------------------- 语义检查
