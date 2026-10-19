@@ -327,13 +327,22 @@ def run_semantic_rule(
                              explanation="没有可读取的材料文本，无法核验",
                              next_step="上传材料后重新正式提交")
 
-    # 覆盖缺口：存在未读/失败页时，语义结论必须 unknown
+    # 覆盖缺口（V08）：存在未读/失败页时，语义结论必须 unknown，
+    # 且不得把“没读到”表述为“确认缺失/未填写”。
     for f in ctx.files:
         if f.parse and not f.parse.coverage_complete:
+            p = f.parse
+            gap = (f"共 {p.total_pages} 页：已读 {p.text_pages} 页、"
+                   f"未读 {p.unread_pages} 页、失败 {p.failed_pages} 页")
             return RuleResultOut(
                 rule_id=rule.id, result=RESULT_UNKNOWN,
-                explanation=f"文件 {f.original_name} 存在未读/失败页（覆盖不完整），按规则输出 unknown",
-                next_step="补充清晰可读的材料，或申请人工复核")
+                explanation=(f"文件 {f.original_name} 有关键页未读到（{gap}，覆盖不完整），"
+                             f"无法确认要素是否缺失，按规则输出 unknown"
+                             f"（不判未填写、不确认缺失）"),
+                next_step="补充清晰可读的材料后重新正式提交，或申请人工复核（结论可申诹）",
+                evidence=[EvidenceOut(file_id=f.file_id,
+                                      locator=f"pages 1-{p.total_pages}",
+                                      quote=gap, method="coverage")])
 
     material = "\n\n".join(
         f"<file id={fid}>\n{text}\n</file>" for fid, text in file_texts.items()
@@ -425,5 +434,7 @@ def run_checks(ctx: CheckContext, client: Optional[LLMClient] = None) -> CheckOu
                 "text": f.parse.text_pages,
                 "unread": f.parse.unread_pages,
                 "failed": f.parse.failed_pages,
+                "method": f.parse.method,
+                "name": f.original_name,
             }
     return outcome

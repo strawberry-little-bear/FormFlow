@@ -62,7 +62,8 @@ from ..services import notifications as notif_service
 from ..services import export as export_service
 from ..services import submissions as sub_service
 from ..services import tasks as task_service
-from ..services.checks import create_run, current_summary, execute_run, retry_run
+from ..services.checks import (create_run, current_summary, execute_run,
+                             retry_run, run_coverage)
 from ..agents.requirements_agent import validate_blueprint
 from ..schemas import Blueprint
 from fastapi import APIRouter
@@ -615,7 +616,11 @@ def findings(task_id: int, subject_id: int, db: Session = Depends(get_db),
                      ManualDecision.subject_id == subject.id).order_by(ManualDecision.id)).all()]
     return {"subject": {"id": subject.id, "name": subject.display_name},
             "revision": {"id": rev.id, "version": rev.version, "receipt": rev.receipt},
-            "run": {"id": run.id, "status": run.status} if run else None,
+            "run": ({"id": run.id, "status": run.status,
+                     "pages_read": run.pages_read,
+                     "llm_calls_used": run.llm_calls_used,
+                     "budget_exhausted": run.budget_exhausted,
+                     "coverage": run_coverage(run)} if run else None),
             "rules": rules, "decisions": decisions,
             "same_name_subjects": same_name, "same_name_hint": same_name_hint}
 
