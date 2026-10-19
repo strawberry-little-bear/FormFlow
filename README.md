@@ -50,7 +50,7 @@ app/
 │   ├── export.py              # 交付快照 / CSV / ZIP 导出
 │   └── demo_seed.py           # BP-C-001 演示种子（可重复执行）
 ├── api/routes.py              # REST API
-└── static/                    # 组织者前端 SPA（P01-P05，无需构建）
+└── static/                    # 组织者前端 SPA（P01-P05，无需构建；P02 任务状态/生命周期操作/失败重试，P03 复核页重试入口，P04 只读态提示）
 scripts/seed_demo.py           # 演示数据 CLI
 scripts/push_via_api.py        # git 协议被网络阻断时，经 GitHub REST API 推送提交
 tests/                         # pytest（隔离临时 DB + StubLLM，不打真实网关）
