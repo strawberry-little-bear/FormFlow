@@ -466,6 +466,77 @@ async function revokeDecision(taskId, sid, did) {
 }
 
 /* ---------------------------------------------------------------- P04 提交空间 */
+/* ---------------------------------------------------------------- 槽位条件预览 */
+/* 与后端 app/agents/review_agent._eval_condition 同一语法：
+   字段==值 / 字段!=值 及 and/or 连接；返回 true/false，
+   形式不受支持时返回 null（不静默当成不满足——提示转人工核验，判定以服务端为准）。 */
+function evalSlotCondition(expr, values) {
+  if (!expr || !expr.trim()) return true;
+  const e = expr.trim();
+  if (e.includes(" or ")) {
+    const parts = e.split(" or ").map(p => evalSlotCondition(p, values));
+    if (parts.some(p => p === null)) return null;
+    return parts.some(Boolean);
+  }
+  if (e.includes(" and ")) {
+    const parts = e.split(" and ").map(p => evalSlotCondition(p, values));
+    if (parts.some(p => p === null)) return null;
+    return parts.every(Boolean);
+  }
+  let op = null, idx = -1;
+  for (const cand of ["==", "!="]) {
+    const i = e.indexOf(cand);
+    if (i > 0 && (idx < 0 || i < idx)) { idx = i; op = cand; }
+  }
+  if (!op) return null;
+  const fid = e.slice(0, idx).trim();
+  let val = e.slice(idx + 2).trim();
+  if (val.length >= 2 && ((val[0] === "'" && val[val.length - 1] === "'") ||
+                          (val[0] === '"' && val[val.length - 1] === '"'))) {
+    val = val.slice(1, -1);
+  }
+  const c0 = fid.charCodeAt(0);
+  const idOk = fid.length > 0 &&
+    ((c0 >= 65 && c0 <= 90) || (c0 >= 97 && c0 <= 122) || c0 === 95) &&
+    fid.split("").slice(1).every(ch => {
+      const x = ch.charCodeAt(0);
+      return (x >= 48 && x <= 57) || (x >= 65 && x <= 90) ||
+             (x >= 97 && x <= 122) || x === 95;
+    });
+  if (!idOk) return null;
+  const actual = String(values[fid] ?? "").trim();
+  return op === "==" ? actual === val : actual !== val;
+}
+
+/* 按当前字段填写刷新槽位条件提示：不适用则禁用上传；不受支持则提示转人工。 */
+function refreshSlotConditions(slots) {
+  const values = {};
+  document.querySelectorAll("[data-field]").forEach(el => {
+    values[el.dataset.field] = el.value.trim();
+  });
+  (slots || []).forEach(s => {
+    if (!s.required_condition) return;
+    const note = document.getElementById("slot-cond-" + s.id);
+    if (!note) return;
+    const input = document.getElementById("file-" + s.id);
+    const btn = document.getElementById("upload-" + s.id);
+    const r = evalSlotCondition(s.required_condition, values);
+    if (r === true) {
+      note.innerHTML = `<span class="badge ok">当前填写下需要提交</span>`;
+      if (input) input.disabled = false;
+      if (btn) btn.disabled = false;
+    } else if (r === false) {
+      note.innerHTML = `<span class="badge">当前填写下不适用</span>`;
+      if (input) input.disabled = true;
+      if (btn) btn.disabled = true;
+    } else {
+      note.innerHTML = `<span class="badge warn">条件「${esc(s.required_condition)}」暂不支持自动判定，将转人工核验</span>`;
+      if (input) input.disabled = false;
+      if (btn) btn.disabled = false;
+    }
+  });
+}
+
 async function viewSubmit() {
   document.getElementById("app").innerHTML = `<div id="flash"></div><div id="sub"><p class="muted">加载中…</p></div>`;
   try {
@@ -493,9 +564,10 @@ async function viewSubmit() {
       </div>
       <div class="card"><h3>材料槽位</h3>
         ${slots.map(s => `<div style="margin-bottom:10px">
-          <label>${esc(s.label)}（${esc((s.formats || []).join("/"))}，最多 ${s.max_count} 个）</label>
+          <label>${esc(s.label)}（${esc((s.formats || []).join("/"))}，最多 ${s.max_count} 个）${s.required_condition ? `<span class="muted">｜条件：${esc(s.required_condition)}</span>` : ""}</label>
           <input type="file" id="file-${esc(s.id)}">
-          <button class="ghost" onclick="uploadSlot('${esc(s.id)}')"${ro ? " disabled" : ""}>上传到该槽位</button>
+          <button class="ghost" id="upload-${esc(s.id)}" onclick="uploadSlot('${esc(s.id)}')"${ro ? " disabled" : ""}>上传到该槽位</button>
+          <div id="slot-cond-${esc(s.id)}"></div>
           <div id="slot-files-${esc(s.id)}"></div>
         </div>`).join("") || '<p class="muted">无材料槽位</p>'}
       </div>
@@ -509,6 +581,9 @@ async function viewSubmit() {
       </div>
       <div class="card"><h3>我的检查结果</h3><div id="my-results"><p class="muted">—</p></div></div>`;
     document.getElementById("sub").innerHTML = html;
+    document.querySelectorAll("[data-field]").forEach(el =>
+      el.addEventListener("input", () => refreshSlotConditions(slots)));
+    refreshSlotConditions(slots);
     loadMyResults();
   } catch (e) {
     document.getElementById("sub").innerHTML =
