@@ -297,7 +297,7 @@ def _check_spec_errors(rule: RuleDef, field_ids: list[str],
     errors: list[str] = []
     check = rule.check or {}
     kind = check.get("kind")
-    if kind in ("field_required", "contact_in_members"):
+    if kind in ("field_required", "contact_in_members", "members_match"):
         ref = check.get("field")
         if ref is not None and ref not in field_ids:
             errors.append(f"规则 {rule.id} 的检查规格引用了不存在的字段 {ref}")

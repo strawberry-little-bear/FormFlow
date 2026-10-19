@@ -291,13 +291,36 @@ def import_roster(task_id: int, entries: list[dict], db: Session = Depends(get_d
     return {"imported": len(entries)}
 
 @router.post("/tasks/{task_id}/grants")
-def issue_grant(task_id: int, subject_name: str = Form(...), db: Session = Depends(get_db),
+def issue_grant(task_id: int, subject_name: str = Form(...),
+                members: str = Form(""),
+                db: Session = Depends(get_db),
                 acct: Account = Depends(current_account)):
+    """发放提交凭证。members 为可选 JSON 字符串数组：团队主体按名登记成员（V10）。
+
+    同名主体按名复用提交空间（补发凭证场景），但只在响应中提示待核，不自动合并。
+    """
     task = _owned_task(db, acct, task_id)
     subject = task_service.ensure_subject(db, task, subject_name)
+    added: list[str] = []
+    if members.strip():
+        try:
+            names = json.loads(members)
+        except ValueError:
+            raise HTTPException(422, "members 不是合法 JSON（应为字符串数组）")
+        if not isinstance(names, list) or not all(isinstance(x, str) for x in names):
+            raise HTTPException(422, "members 应为字符串数组")
+        if subject.kind == "team":
+            added = task_service.add_members(db, subject, names)
+    had_valid = task_service.has_valid_grant(db, subject)
     token = task_service.issue_grant(db, task, subject)
     db.commit()
-    return {"subject_id": subject.id, "credential": token}
+    resp = {"subject_id": subject.id, "credential": token}
+    if added:
+        resp["members_added"] = added
+    if had_valid:
+        resp["warning"] = ("该主体此前已有有效凭证（同名主体仅提示待核，不自动合并）；"
+                           "如非重发请核对主体 ID")
+    return resp
 
 @router.get("/tasks/{task_id}/workbench")
 def workbench(task_id: int, db: Session = Depends(get_db), acct: Account = Depends(current_account)):
@@ -478,7 +501,11 @@ def make_decision(task_id: int, subject_id: int, decision: str = Form(...),
     except decision_service.DecisionError as e:
         raise HTTPException(422, str(e))
     db.commit()
-    return {"decision_id": d.id, "decision": d.decision}
+    same_name = task_service.same_name_subjects(db, task, subject)
+    return {"decision_id": d.id, "decision": d.decision,
+            "same_name_subjects": same_name,
+            "same_name_hint": ("存在同名主体：只提示待核、不自动合并，请以主体 ID 为准人工核对"
+                               if same_name else "")}
 
 @router.post("/tasks/{task_id}/subjects/{subject_id}/decisions/{decision_id}/revoke")
 def revoke_decision(task_id: int, subject_id: int, decision_id: int, reason: str = Form(...),
@@ -548,11 +575,15 @@ def findings(task_id: int, subject_id: int, db: Session = Depends(get_db),
     subject = db.get(Subject, subject_id)
     if subject is None or subject.task_id != task.id:
         raise HTTPException(404, "主体不存在或不属于该任务")
+    same_name = task_service.same_name_subjects(db, task, subject)
+    same_name_hint = ("存在同名主体：只提示待核、不自动合并，请以主体 ID 为准人工核对"
+                      if same_name else "")
     submission = db.scalar(select(Submission).where(Submission.task_id == task.id,
                                              Submission.subject_id == subject.id))
     if submission is None or submission.current_revision_id is None:
         return {"subject": {"id": subject.id, "name": subject.display_name},
-                "revision": None, "run": None, "rules": [], "decisions": []}
+                "revision": None, "run": None, "rules": [], "decisions": [],
+                "same_name_subjects": same_name, "same_name_hint": same_name_hint}
     rev = db.get(Revision, submission.current_revision_id)
     run = db.scalar(select(CheckRun).where(
         CheckRun.revision_id == rev.id,
@@ -585,7 +616,8 @@ def findings(task_id: int, subject_id: int, db: Session = Depends(get_db),
     return {"subject": {"id": subject.id, "name": subject.display_name},
             "revision": {"id": rev.id, "version": rev.version, "receipt": rev.receipt},
             "run": {"id": run.id, "status": run.status} if run else None,
-            "rules": rules, "decisions": decisions}
+            "rules": rules, "decisions": decisions,
+            "same_name_subjects": same_name, "same_name_hint": same_name_hint}
 
 # ---------------------------------------------------------------- 交付
 @router.post("/tasks/{task_id}/snapshots")
