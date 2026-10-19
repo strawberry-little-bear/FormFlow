@@ -43,6 +43,7 @@ from ..models import (
 from ..parsing import ParseError, parse_file
 from ..schemas import Blueprint
 from .. import storage
+from . import tasks as task_service
 
 
 def _load_files(db: Session, revision: Revision) -> list[FileInfo]:
@@ -70,6 +71,7 @@ def _load_files(db: Session, revision: Revision) -> list[FileInfo]:
 
 def create_run(db: Session, task: Task, revision: Revision) -> CheckRun:
     """为当前正式版本创建检查运行；同一版本旧运行标记为被取代。"""
+    task_service.ensure_task_writable(task)  # V24 readonly guard
     if task.current_blueprint_id is None:
         raise ValueError("任务尚未发布蓝图")
     old_runs = db.scalars(select(CheckRun).where(

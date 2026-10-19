@@ -191,6 +191,8 @@ def revise_draft_view(task_id: int, blueprint_version_id: int = Form(...),
         result, bp, impact = task_service.revise_draft(
             db, task, blueprint_version_id, requirement=requirement,
             answered=answered_map, instruction=instruction)
+    except task_service.TaskNotWritable as e:
+        raise HTTPException(409, str(e))
     except ValueError as e:
         raise HTTPException(404, str(e))
     db.commit()
@@ -204,10 +206,65 @@ def publish(task_id: int, bp_id: int, db: Session = Depends(get_db),
     task = _owned_task(db, acct, task_id)
     try:
         bp = task_service.publish(db, task, bp_id)
+    except task_service.TaskNotWritable as e:
+        raise HTTPException(409, str(e))
     except task_service.PublishBlocked as e:
         raise HTTPException(422, f"发布被阻止：{e}")
     db.commit()
     return {"published_version": bp.version, "task_status": task.status}
+
+
+# ---------------------------------------------------------------- 任务生命周期（V24 / 表 6）
+@router.post("/tasks/{task_id}/close")
+def close_task(task_id: int, db: Session = Depends(get_db),
+               acct: Account = Depends(current_account)):
+    """关闭任务：停止占用提交入口，历史数据与审核结果保留（非删除）。"""
+    task = _owned_task(db, acct, task_id)
+    try:
+        task_service.close_task(db, task, actor=f"account:{acct.id}")
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+    db.commit()
+    return {"task_id": task.id, "status": task.status}
+
+
+@router.post("/tasks/{task_id}/reopen")
+def reopen_task(task_id: int, db: Session = Depends(get_db),
+                acct: Account = Depends(current_account)):
+    """恢复收集：仅已关闭任务可恢复；归档/取消为终态。"""
+    task = _owned_task(db, acct, task_id)
+    try:
+        task_service.reopen_task(db, task, actor=f"account:{acct.id}")
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+    db.commit()
+    return {"task_id": task.id, "status": task.status}
+
+
+@router.post("/tasks/{task_id}/archive")
+def archive_task(task_id: int, db: Session = Depends(get_db),
+                 acct: Account = Depends(current_account)):
+    """归档：关闭后的长期留存状态；存在未完成检查时拒绝归档。"""
+    task = _owned_task(db, acct, task_id)
+    try:
+        task_service.archive_task(db, task, actor=f"account:{acct.id}")
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+    db.commit()
+    return {"task_id": task.id, "status": task.status}
+
+
+@router.post("/tasks/{task_id}/cancel")
+def cancel_task(task_id: int, db: Session = Depends(get_db),
+                acct: Account = Depends(current_account)):
+    """取消：中止收集并释放名册/授权；数据保留，归档后不可取消。"""
+    task = _owned_task(db, acct, task_id)
+    try:
+        task_service.cancel_task(db, task, actor=f"account:{acct.id}")
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+    db.commit()
+    return {"task_id": task.id, "status": task.status}
 
 @router.get("/tasks")
 def list_tasks(db: Session = Depends(get_db), acct: Account = Depends(current_account)):
@@ -277,6 +334,8 @@ def save_draft(body: DraftIn,
     submission = sub_service.get_or_create_draft(db, task, subject.id)
     try:
         version = sub_service.save_draft(db, submission, body.fields, body.expected_version)
+    except task_service.TaskNotWritable as e:
+        raise HTTPException(409, str(e))
     except sub_service.SubmitError as e:
         raise HTTPException(409, str(e))
     db.commit()
@@ -290,9 +349,12 @@ async def upload_file(slot: str = Form(...), file: UploadFile = File(...),
     task = db.get(Task, grant.task_id)
     submission = sub_service.get_or_create_draft(db, task, subject.id)
     content = await file.read()
-    fo = sub_service.attach_file(db, submission, slot=slot,
-                                 original_name=file.filename or "unnamed",
-                                 content=content, sha256="", mime=file.content_type or "")
+    try:
+        fo = sub_service.attach_file(db, submission, slot=slot,
+                                     original_name=file.filename or "unnamed",
+                                     content=content, sha256="", mime=file.content_type or "")
+    except task_service.TaskNotWritable as e:
+        raise HTTPException(409, str(e))
     db.commit()
     return {"file_id": fo.file_id, "status": fo.status, "size": fo.size}
 
@@ -307,12 +369,19 @@ def formal_submit(body: SubmitIn,
                                         slot_file_ids=body.slot_file_ids,
                                         idempotency_key=body.idempotency_key,
                                         is_correction=body.is_correction)
+    except task_service.TaskNotWritable as e:
+        raise HTTPException(409, str(e))
     except sub_service.IdempotencyConflict as e:
         raise HTTPException(409, str(e))
     except sub_service.SubmitError as e:
         raise HTTPException(422, str(e))
     # 正式版本与检查意图在同一可靠边界记录（W4/W5）
-    run = create_run(db, task, rev)
+    try:
+        run = create_run(db, task, rev)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    except task_service.TaskNotWritable as e:
+        raise HTTPException(409, str(e))
     db.commit()
     return {"receipt": rev.receipt, "revision": rev.version,
             "formal_submitted_at": rev.formal_submitted_at, "run_id": run.id}
@@ -348,7 +417,12 @@ def trigger_check(task_id: int, subject_id: int, db: Session = Depends(get_db),
     if submission is None or submission.current_revision_id is None:
         raise HTTPException(422, "该主体没有正式提交")
     rev = db.get(Revision, submission.current_revision_id)
-    run = create_run(db, task, rev)
+    try:
+        run = create_run(db, task, rev)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    except task_service.TaskNotWritable as e:
+        raise HTTPException(409, str(e))
     execute_run(db, run)
     db.commit()
     return {"run_id": run.id, "status": run.status}
