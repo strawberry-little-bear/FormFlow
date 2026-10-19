@@ -93,6 +93,7 @@ python -m pytest tests/ -q
 | 组织者 | `GET /tasks`、`POST /tasks/{id}/subjects/{sid}/checks`（发起审核）、`POST .../decisions`（决定）、`POST .../decisions/{did}/revoke`（撤销）、`GET .../findings`（证据复核：规则结论+证据 quote+决定历史）、`POST /tasks/{id}/snapshots`、`POST /snapshots/{sid}/export` |
 | 导出下载 | `GET /exports/{job_id}/csv`、`GET /exports/{job_id}/zip`（均校验快照归属） |
 | 通知（V24） | `GET /tasks/{id}/notifications`（催交视图每次重算 + 历史）、`POST /tasks/{id}/notifications`（生成意图，目标为创建时快照）、`POST /notifications/{nid}/copy`（标记已复制；无发送/送达状态） |
+| 任务生命周期（V24 / 表 6） | `POST /tasks/{id}/close`（关闭：停止占用提交入口，历史保留）、`POST /tasks/{id}/reopen`（恢复收集，仅关闭可恢复）、`POST /tasks/{id}/archive`（归档：长期留存态，有未完成检查时拒绝）、`POST /tasks/{id}/cancel`（取消：中止收集，归档后不可取消） |
 
 ## 关卡路线（方案第 19 节）
 
@@ -102,7 +103,7 @@ python -m pytest tests/ -q
 | G1 无模型业务闭环 | 真实权限、上传、版本、名单、人工验收与导出；重启不丢 | **主体功能完成**：端到端冒烟 24 项通过 |
 | G2 需求 Agent | 澄清与编辑同步，不暗加要求 | **主体功能完成（当前）**：澄清轮次闭环（回答/修改意见 → 修订为新草案版本，历史不篡改，返回修改影响） |
 | G3 审核 Agent | 真实解析、证据、预算和人工转交；样本可重复检查 | **已完成**：PyMuPDF+RapidOCR 真实解析（扫描件/图片 OCR，失败记未读不臆造）、真实类型检测防扩展名伪装、OCR 噪声引用容忍、6 场景真实冒烟（V05/V06/V07/V12/预算） |
-| G4 鲁棒性 | 补交、申诉、晚作业、并发、快照、降级与恢复 | 未开始 |
+| G4 任务生命周期 | 关闭/恢复/归档/取消、只读拦截（V24 / 表 6） | **已验证**：关闭后草稿/上传/提交/检查/修订/发布全部 409 拦截，归档前校验无未完成检查，终态规则与操作全部落审计；全量 117 测试通过 |
 | G5 外部试用 | 授权脱敏试点，记录收益与错误后再扩展 | 未开始 |
 
 ## 大模型网关与降级
@@ -125,6 +126,7 @@ python -m pytest tests/ -q
 - `tests/test_authz.py`：会话持久化与过期、越权访问（他人任务/主体）统一 404/401。
 - `tests/test_demo_seed.py`：演示数据不变量（应交 4、张三已验收、李四待补正、王五待人工）与快照只纳入已验收。
 - `tests/test_notifications.py`：催交名单重查、只标已复制（V24）。
+- `tests/test_task_lifecycle.py`：任务生命周期（关闭/归档/取消规则、只读拦截、审计留痕）、API 409/404。
 - `tests/test_business_specs.py`：V16 同名新文件保留、V19 上传不算交、V22 材料注入防护与引用校验。
 - `scripts/smoke_review.py`：审核链路真实冒烟（真实解析样本 + 确定性/语义规则 + 证据定位 + 预算 + V05/V06/V07/V12/预算耗尽场景；`--stub` 用本地桩不调网关）
 - `scripts/smoke_llm.py`：真实网关冒烟（起草 → 澄清/修改意见修订），验证主模型与降级兜底链路；不写数据库，仅打印耗时/降级触发/程序校验/修改影响。

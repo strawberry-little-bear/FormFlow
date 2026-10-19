@@ -57,6 +57,7 @@ def get_or_create_draft(db: Session, task: Task, subject_id: int) -> Submission:
 
 def save_draft(db: Session, submission: Submission, fields: dict, expected_version: Optional[int] = None) -> int:
     """保存草稿。expected_version 不匹配 → 冲突，保留本地内容（V14）。"""
+    task_service.ensure_task_writable(db.get(Task, submission.task_id))  # V24 readonly
     if expected_version is not None and expected_version != submission.draft_version:
         raise SubmitError(f"草稿版本冲突：服务端当前 v{submission.draft_version}，"
                           f"你基于 v{expected_version} 编辑，请核对后重试")
@@ -68,6 +69,8 @@ def save_draft(db: Session, submission: Submission, fields: dict, expected_versi
 def attach_file(db: Session, submission: Submission, *, slot: str, original_name: str,
                 content: bytes, sha256: str, mime: str) -> FileObject:
     from .. import storage
+
+    task_service.ensure_task_writable(db.get(Task, submission.task_id))  # V24 readonly
 
     file_id = storage.new_file_id()
     path, digest = storage.save_original(file_id, original_name, content)
@@ -126,6 +129,7 @@ def formal_submit(db: Session, task: Task, submission: Submission, *, fields: di
             return existing  # 超时重试：恢复同一回执，不重复报名
         raise IdempotencyConflict("同一幂等键提交了不同内容")
 
+    task_service.ensure_task_writable(task)  # V24 readonly
     _check_window(task, has_formal=has_formal, now=_now_utc())
 
     # 文件就绪校验：未就绪/失败的文件不进入正式快照

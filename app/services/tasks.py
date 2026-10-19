@@ -11,11 +11,17 @@ from sqlalchemy.orm import Session
 from ..agents.requirements_agent import blueprint_diff, draft_blueprint, template_blueprint, validate_blueprint
 from ..llm import LLMClient
 from ..models import (
+    RUN_QUEUED,
+    RUN_RUNNING,
+    TASK_ARCHIVED,
+    TASK_CANCELLED,
+    TASK_CLOSED,
     TASK_COLLECTING,
     AccessGrant,
     Account,
     AuditEvent,
     BlueprintVersion,
+    CheckRun,
     RosterEntry,
     Subject,
     Task,
@@ -107,6 +113,7 @@ def revise_draft(db: Session, task: Task, blueprint_version_id: int, *,
     bp = db.get(BlueprintVersion, blueprint_version_id)
     if bp is None or bp.task_id != task.id:
         raise ValueError("蓝图版本不存在")
+    ensure_task_writable(task)  # V24 readonly guard
     current = Blueprint.model_validate_json(bp.blueprint_json)
     result = draft_blueprint(requirement, answered=answered or {},
                              current_draft=current, instruction=instruction,
@@ -136,6 +143,7 @@ def publish(db: Session, task: Task, blueprint_version_id: int) -> BlueprintVers
     bp = db.get(BlueprintVersion, blueprint_version_id)
     if bp is None or bp.task_id != task.id:
         raise ValueError("蓝图版本不存在")
+    ensure_task_writable(task)  # V24 readonly guard
     blueprint = Blueprint.model_validate_json(bp.blueprint_json)
     errors = validate_blueprint(blueprint)
     if errors:
@@ -151,6 +159,72 @@ def publish(db: Session, task: Task, blueprint_version_id: int) -> BlueprintVers
 
 class PublishBlocked(Exception):
     """发布被阻止：配置错误或关键歧义。"""
+
+
+# ---------------------------------------------------------------- 任务生命周期（V24 / 表 6）
+# 只读语义：关闭=停止收集但数据完整可查；归档=关闭后的长期保留态；
+# 取消=中止任务。三者都不删数据；删除数据是另一条显式路径（本版不提供）。
+_READONLY_STATUSES = (TASK_CLOSED, TASK_ARCHIVED, TASK_CANCELLED)
+_STATUS_LABEL = {TASK_CLOSED: "关闭", TASK_ARCHIVED: "归档", TASK_CANCELLED: "取消"}
+
+
+class TaskNotWritable(Exception):
+    """任务处于只读状态（关闭/归档/取消），拒绝一切写入。"""
+
+
+def ensure_task_writable(task: Task) -> None:
+    """写操作前置校验：只读状态下拒绝提交/上传/检查/改蓝图（表 6：关闭后只读）。"""
+    if task.status in _READONLY_STATUSES:
+        raise TaskNotWritable(
+            f"任务已{_STATUS_LABEL.get(task.status, task.status)}，处于只读状态")
+
+
+def close_task(db: Session, task: Task, actor: str = "organizer") -> None:
+    """关闭任务：停止收集，历史数据完整保留、可查可导出（V24）。"""
+    if task.status in _READONLY_STATUSES:
+        raise ValueError(f"任务已{_STATUS_LABEL.get(task.status, task.status)}，不能重复关闭")
+    prev = task.status
+    task.status = TASK_CLOSED
+    db.flush()
+    audit(db, "task.close", "task", {"from": prev}, task.id, actor=actor)
+
+
+def reopen_task(db: Session, task: Task, actor: str = "organizer") -> None:
+    """恢复收集：仅已关闭任务可恢复（归档/取消不可逆）。"""
+    if task.status != TASK_CLOSED:
+        raise ValueError("只有已关闭的任务可以恢复收集")
+    task.status = TASK_COLLECTING
+    db.flush()
+    audit(db, "task.reopen", "task", {}, task.id, actor=actor)
+
+
+def archive_task(db: Session, task: Task, actor: str = "organizer") -> None:
+    """归档：关闭后的长期保留态。归档前做真实数据校验——存在未完成检查时拒绝。"""
+    if task.status == TASK_ARCHIVED:
+        raise ValueError("任务已归档")
+    if task.status != TASK_CLOSED:
+        raise ValueError("只有已关闭的任务可以归档")
+    pending = db.scalars(select(CheckRun).where(
+        CheckRun.task_id == task.id,
+        CheckRun.status.in_((RUN_QUEUED, RUN_RUNNING)),
+    )).first()
+    if pending is not None:
+        raise ValueError("存在排队中/运行中的检查，不能归档（先等待或重试完成）")
+    task.status = TASK_ARCHIVED
+    db.flush()
+    audit(db, "task.archive", "task", {}, task.id, actor=actor)
+
+
+def cancel_task(db: Session, task: Task, actor: str = "organizer") -> None:
+    """取消任务：中止收集，数据保留备查。已归档任务不可取消。"""
+    if task.status == TASK_ARCHIVED:
+        raise ValueError("已归档任务不能取消")
+    if task.status == TASK_CANCELLED:
+        raise ValueError("任务已取消")
+    task.status = TASK_CANCELLED
+    db.flush()
+    audit(db, "task.cancel", "task", {}, task.id, actor=actor)
+
 
 
 def add_roster(db: Session, task: Task, entries: list[dict]) -> list[RosterEntry]:
