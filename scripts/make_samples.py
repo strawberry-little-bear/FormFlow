@@ -8,6 +8,7 @@
 - corrupt.pdf   损坏文件（技术原因，非资格拒绝）
 - disguised.pdf 类型伪装（DOCX 内容谎称 .pdf）
 - legacy.doc    旧版 OLE2 文档（不支持）
+- encrypted.pdf 加密 PDF（AES-256，无密码无法读取）
 
 用法：python scripts/make_samples.py
 """
@@ -103,6 +104,13 @@ def main() -> None:
 
     # 7. 旧版 OLE2 文档
     (OUT / "legacy.doc").write_bytes(bytes([0xD0, 0xCF, 0x11, 0xE0]) + b"legacy junk")
+    # 8. 加密 PDF：AES-256，无密码读不出内容（V11 技术原因，非资格拒绝）
+    enc = fitz.open()
+    ep = enc.new_page()
+    ep.insert_text((72, 72), "加密内容", fontsize=14, fontname="china-s")
+    enc.save(str(OUT / "encrypted.pdf"), encryption=fitz.PDF_ENCRYPT_AES_256,
+             owner_pw="owner-secret", user_pw="user-secret")
+    enc.close()
 
     print("samples written to", OUT)
     for f in sorted(OUT.iterdir()):
