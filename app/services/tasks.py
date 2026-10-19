@@ -23,6 +23,7 @@ from ..models import (
     AuditEvent,
     BlueprintVersion,
     CheckRun,
+    Member,
     RosterEntry,
     Subject,
     Task,
@@ -254,6 +255,47 @@ def ensure_subject(db: Session, task: Task, display_name: str) -> Subject:
         db.add(subj)
         db.flush()
     return subj
+
+
+def add_members(db: Session, subject: Subject, names: list[str]) -> list[str]:
+    """登记团队成员（V10）：按名去重，返回新增名单；同名不自动合并任何主体。"""
+    existing = {m.name for m in db.scalars(select(Member).where(
+        Member.subject_id == subject.id)).all()}
+    added: list[str] = []
+    for n in names:
+        n = (n or "").strip()
+        if not n or n in existing:
+            continue
+        db.add(Member(subject_id=subject.id, name=n))
+        existing.add(n)
+        added.append(n)
+    if added:
+        db.flush()
+    return added
+
+
+def same_name_subjects(db: Session, task: Task, subject: Subject) -> list[dict]:
+    """同任务同名主体（V10）：只提示待核，不自动合并（以稳定 ID 区分）。"""
+    rows = db.scalars(select(Subject).where(
+        Subject.task_id == task.id,
+        Subject.display_name == subject.display_name,
+        Subject.id != subject.id)).all()
+    return [{"id": s.id, "name": s.display_name} for s in rows]
+
+
+def has_valid_grant(db: Session, subject: Subject) -> bool:
+    """主体是否已持有未撤销且未过期的凭证（重发提示用）。"""
+    now = utcnow()
+    grants = db.scalars(select(AccessGrant).where(
+        AccessGrant.subject_id == subject.id,
+        AccessGrant.revoked.is_(False))).all()
+    for g in grants:
+        if g.expires_at is None:
+            return True
+        exp = g.expires_at if g.expires_at.tzinfo else g.expires_at.replace(tzinfo=now.tzinfo)
+        if exp > now:
+            return True
+    return False
 
 
 def issue_grant(db: Session, task: Task, subject: Subject,
