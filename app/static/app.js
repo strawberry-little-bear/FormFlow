@@ -8,6 +8,13 @@ const subToken = () => localStorage.getItem(SUB_KEY) || "";
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g,
   c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
+function fmtTime(s) {
+  if (!s) return "未设置";
+  const d = new Date(s);
+  if (isNaN(d)) return String(s);
+  const p = n => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
 async function api(path, opts = {}) {
   const headers = {};
   let body;
@@ -919,15 +926,35 @@ async function viewSubmit() {
       <div class="card"><h3>P04 提交与补正</h3>
         <p class="kv">任务：${esc(me.task.name)} ｜ 身份：${esc(me.subject.name)}
           ｜ 状态：${esc(TASK_STATUS_LABEL[me.task.status] || me.task.status)}
-          ｜ 首次截止：${esc(me.task.first_deadline || "未设置")}
-          ｜ 补正截止：${esc(me.task.correction_deadline || "未设置")}</p>
+          ｜ 首次截止：${esc(fmtTime(me.task.first_deadline))}
+          ｜ 补正截止：${esc(fmtTime(me.task.correction_deadline))}</p>
         ${receipt.formal ? `<p><span class="badge ok">已正式提交 v${receipt.revision}</span>
-          <span class="kv">回执 ${esc(receipt.receipt)} ｜ ${esc(receipt.formal_submitted_at)}</span></p>`
+          <span class="kv">回执 ${esc(receipt.receipt)} ｜ ${esc(fmtTime(receipt.formal_submitted_at))}</span></p>`
           : `<p><span class="badge warn">尚未正式提交</span></p>`}
         ${ro ? `<p><span class="badge warn">任务已${esc(TASK_STATUS_LABEL[me.task.status] || me.task.status)}</span>
              <span class="kv">只读状态：不能保存草稿、上传或正式提交；已提交内容与回执仍可查看、可下载。</span></p>` : ""}
       </div>
-      <div class="card"><h3>登记字段</h3>
+      <div class="card">
+        <h3>怎么填 <span class="sub">对话和表单是同一份草稿，随时可换，答案实时同步</span></h3>
+        <div class="tabs" style="max-width:360px">
+          <button id="submode-chat" onclick="setSubMode('chat')">💬 对话填写</button>
+          <button id="submode-form" onclick="setSubMode('form')">📋 表单填写</button>
+        </div>
+        <p class="kv">第一次填或拿不准怎么答，推荐<b>对话填写</b>：小齐一题一题问你，必填项会提醒，
+          材料会讲清格式和大小要求；熟悉的题目也可以直接<b>表单填写</b>。</p>
+      </div>
+      <div class="card" id="sub-chat-card">
+        <h3>💬 和小齐聊着填 <span class="sub">答案实时同步到下方表单</span></h3>
+        <div class="step-flow">
+          <span class="st on" id="sub-st-1"><span class="dot">1</span>登记信息</span><span class="arw"></span>
+          <span class="st" id="sub-st-2"><span class="dot">2</span>上传材料</span><span class="arw"></span>
+          <span class="st" id="sub-st-3"><span class="dot">3</span>核对提交</span>
+        </div>
+        <div class="chat">
+          <div class="chat-scroll" id="sub-chat-scroll"></div>
+        </div>
+      </div>
+      <div class="card" id="sub-fields-card" hidden><h3>登记字段</h3>
         ${fields.map(f => `<label>${esc(f.label)}${f.required ? " *" : ""}</label>
           <input data-field="${esc(f.id)}" placeholder="${esc(f.id)}">`).join("") || '<p class="muted">无字段</p>'}
       </div>
@@ -951,8 +978,12 @@ async function viewSubmit() {
       <div class="card"><h3>我的检查结果</h3><div id="my-results"><p class="muted">—</p></div></div>`;
     document.getElementById("sub").innerHTML = html;
     document.querySelectorAll("[data-field]").forEach(el =>
-      el.addEventListener("input", () => refreshSlotConditions(slots)));
+      el.addEventListener("input", () => {
+        refreshSlotConditions(slots);
+        if (state.sub && state.sub.mode === "chat") syncSubAnswersFromForm();
+      }));
     refreshSlotConditions(slots);
+    initSubChat(fields, slots, ro, me.subject.name);
     loadMyResults();
   } catch (e) {
     document.getElementById("sub").innerHTML =
@@ -970,10 +1001,13 @@ async function uploadSlot(slot) {
       method: "POST", headers: { Authorization: "Bearer " + subToken() }, body: fd });
     const data = await r.json();
     if (!r.ok) throw new Error(data.detail || ("HTTP " + r.status));
-    (state.files[slot] = state.files[slot] || []).push(data.file_id);
-    document.getElementById("slot-files-" + slot).innerHTML =
-      `<p class="kv">已上传：${state.files[slot].map(esc).join("、")}</p>`;
+    afterSlotUpload(slot, data.file_id);
   });
+}
+function afterSlotUpload(slot, fileId) {
+  (state.files[slot] = state.files[slot] || []).push(fileId);
+  const el = document.getElementById("slot-files-" + slot);
+  if (el) el.innerHTML = `<p class="kv">已上传：${state.files[slot].map(esc).join("、")}</p>`;
 }
 async function saveDraft() {
   await guard(async () => {
@@ -993,7 +1027,7 @@ async function doSubmit() {
     const r = await api("/api/me/submit", { method: "POST", sub: true,
       json: { fields, slot_file_ids: state.files, idempotency_key: key } });
     document.getElementById("receipt-out").innerHTML = `
-      <div class="flash ok">正式提交成功：回执 ${esc(r.receipt)} ｜ 版本 v${r.revision} ｜ 服务端时间 ${esc(r.formal_submitted_at)}</div>`;
+      <div class="flash ok">正式提交成功：回执 ${esc(r.receipt)} ｜ 版本 v${r.revision} ｜ 服务端时间 ${esc(fmtTime(r.formal_submitted_at))}</div>`;
     await loadMyResults();
   });
 }
@@ -1082,6 +1116,230 @@ async function withdrawAppeal(noteId) {
     setFlash(`已撤回解释 #${r.note_id}（只改状态，历史保留）`, "ok");
     await loadMyResults();
   });
+}
+
+/* ------------------------------------------------ P04 对话填写引擎（提交者侧） */
+function initSubChat(fields, slots, ro, subjectName) {
+  state.sub = { fields: fields || [], slots: slots || [], ro: !!ro,
+                mode: "chat", msgs: [], phase: "fields", fIdx: 0, sIdx: 0,
+                answers: {}, doneSlots: {} };
+  document.querySelectorAll("[data-field]").forEach(el => {
+    if (el.value.trim()) state.sub.answers[el.dataset.field] = el.value.trim();
+  });
+  if (ro) { setSubMode("form"); return; }  // 只读任务：对话填写不可用
+  if (!state.sub.fields.length) { state.sub.phase = "slots"; setSubStep(2); }
+  subAgent(`你好${esc(subjectName)}，我是填写助手<b>小齐</b> 👋
+    <div class="mini">这份问卷共 ${state.sub.fields.length} 项登记信息、${state.sub.slots.length} 项材料。
+    我会一题一题问你：必填项会提醒，选填可以跳过；材料题会讲清格式和大小要求。
+    你在这里答的每一题，都会实时写进下方表单——两边永远是同一份草稿。</div>`);
+  renderSubStep();
+}
+function subAgent(html) { state.sub.msgs.push({ role: "agent", html }); paintSubChat(); }
+function subUser(html) { state.sub.msgs.push({ role: "user", html }); }
+function paintSubChat() {
+  const box = document.getElementById("sub-chat-scroll");
+  if (!box) return;
+  box.innerHTML = state.sub.msgs.map(m => `
+    <div class="msg ${m.role}">
+      <div class="avatar">${m.role === "agent" ? "🤖" : "🧑"}</div>
+      <div class="body">${m.html}</div>
+    </div>`).join("");
+  box.scrollTop = box.scrollHeight;
+}
+function setSubStep(n) {
+  [1, 2, 3].forEach(i => {
+    const el = document.getElementById("sub-st-" + i);
+    if (el) el.classList.toggle("on", i <= n);
+  });
+}
+function setSubMode(m) {
+  if (!state.sub) return;
+  state.sub.mode = m;
+  const bc = document.getElementById("submode-chat"), bf = document.getElementById("submode-form");
+  if (bc) bc.classList.toggle("on", m === "chat");
+  if (bf) bf.classList.toggle("on", m === "form");
+  const cc = document.getElementById("sub-chat-card"), fc = document.getElementById("sub-fields-card");
+  if (cc) cc.hidden = m !== "chat";
+  if (fc) fc.hidden = m !== "form";
+  if (m === "chat") { syncSubAnswersFromForm(); renderSubStep(); }
+}
+function syncSubAnswersFromForm() {
+  document.querySelectorAll("[data-field]").forEach(el => {
+    const v = el.value.trim();
+    if (v) state.sub.answers[el.dataset.field] = v;
+    else delete state.sub.answers[el.dataset.field];
+  });
+}
+function formValues() {
+  const v = {};
+  document.querySelectorAll("[data-field]").forEach(el => { v[el.dataset.field] = el.value.trim(); });
+  return v;
+}
+function renderSubStep() {
+  paintSubChat();
+  const box = document.getElementById("sub-chat-scroll");
+  if (!box || !state.sub) return;
+  if (state.sub.phase === "fields") box.insertAdjacentHTML("beforeend", subFieldCard(state.sub.fIdx));
+  else if (state.sub.phase === "slots") box.insertAdjacentHTML("beforeend", subSlotCard(state.sub.sIdx));
+  else box.insertAdjacentHTML("beforeend", subDoneCard());
+  box.scrollTop = box.scrollHeight;
+}
+
+function subFieldReq(f) {
+  if (!f.required) return false;
+  if (!f.required_condition) return true;
+  return evalSlotCondition(f.required_condition, formValues()) !== false;
+}
+function subFieldCard(i) {
+  const f = state.sub.fields[i];
+  const req = subFieldReq(f);
+  const val = state.sub.answers[f.id] || "";
+  const opts = f.options && f.options.length ? `
+    <div class="chips">${f.options.map((o, k) =>
+      `<span class="chip" onclick="subPickOption(${i}, ${k}, this)">${esc(o)}</span>`).join("")}</div>` : "";
+  return `<div class="msg agent"><div class="avatar">🤖</div><div class="body">
+    <b>第 ${i + 1}/${state.sub.fields.length} 题 · ${esc(f.label)}</b>
+    ${req ? '<span class="badge bad">必填</span>' : '<span class="badge">选填</span>'}
+    ${f.purpose ? `<div class="mini">${esc(f.purpose)}</div>` : ""}
+    ${opts}
+    <input id="sub-ans" placeholder="请输入${esc(f.label)}" value="${esc(val)}"
+      onkeydown="if(event.key===String.fromCharCode(13)){event.preventDefault();subAnswerField(${i})}">
+    <div class="row">
+      <button class="sm" onclick="subAnswerField(${i})">${i + 1 === state.sub.fields.length ? "填好了，去上传材料" : "下一题"}</button>
+      ${req ? "" : `<button class="ghost sm" onclick="subSkipField(${i})">跳过</button>`}
+    </div>
+    <div id="sub-ans-err"></div>
+  </div></div>`;
+}
+function subPickOption(i, k, el) {
+  const f = state.sub.fields[i];
+  const input = document.getElementById("sub-ans");
+  if (input) input.value = f.options[k];
+  el.parentElement.querySelectorAll(".chip").forEach(c => c.classList.remove("on"));
+  el.classList.add("on");
+}
+function subAnswerField(i) {
+  const f = state.sub.fields[i];
+  const el = document.getElementById("sub-ans");
+  const v = (el.value || "").trim();
+  const req = subFieldReq(f);
+  if (req && !v) {
+    document.getElementById("sub-ans-err").innerHTML =
+      `<div class="flash err" style="margin:6px 0">这题是必填的，填好才能继续</div>`;
+    return;
+  }
+  state.sub.answers[f.id] = v;
+  const inp = document.querySelector('[data-field="' + f.id + '"]');
+  if (inp) { inp.value = v; refreshSlotConditions(state.sub.slots); }
+  subUser(v ? `${esc(f.label)}：${esc(v)}` : `（${esc(f.label)}：跳过）`);
+  state.sub.fIdx = i + 1;
+  if (state.sub.fIdx < state.sub.fields.length) renderSubStep();
+  else {
+    state.sub.phase = "slots"; state.sub.sIdx = 0;
+    setSubStep(2);
+    if (!state.sub.slots.length) { state.sub.phase = "done"; setSubStep(3); }
+    renderSubStep();
+  }
+}
+function subSkipField(i) {
+  const f = state.sub.fields[i];
+  delete state.sub.answers[f.id];
+  const inp = document.querySelector('[data-field="' + f.id + '"]');
+  if (inp) inp.value = "";
+  subUser(`（${esc(f.label)}：跳过）`);
+  state.sub.fIdx = i + 1;
+  if (state.sub.fIdx < state.sub.fields.length) renderSubStep();
+  else {
+    state.sub.phase = "slots"; state.sub.sIdx = 0; setSubStep(2);
+    if (!state.sub.slots.length) { state.sub.phase = "done"; setSubStep(3); }
+    renderSubStep();
+  }
+}
+
+function subSlotReq(s) {
+  if (!s.required_condition) return true;
+  return evalSlotCondition(s.required_condition, formValues()) !== false;
+}
+function subSlotCard(i) {
+  const s = state.sub.slots[i];
+  const req = subSlotReq(s);
+  const done = (state.files[s.id] || []).length;
+  const limits = [`格式 ${(s.formats || []).join(" / ") || "不限"}`,
+                  `最多 ${s.max_count} 个`,
+                  s.max_size_mib ? `单个 ≤ ${s.max_size_mib} MiB` : "",
+                  s.max_pages ? `≤ ${s.max_pages} 页` : ""].filter(Boolean).join("　");
+  const na = s.required_condition && !req
+    ? `<div class="mini">按你刚才填的内容，这项材料<b>不适用</b>（条件：${esc(s.required_condition)}），可以直接跳过。</div>` : "";
+  return `<div class="msg agent"><div class="avatar">🤖</div><div class="body">
+    <b>第 ${i + 1}/${state.sub.slots.length} 项材料 · ${esc(s.label)}</b>
+    ${req ? '<span class="badge bad">必交</span>' : '<span class="badge">选交</span>'}
+    <div class="mini">${limits}</div>
+    ${na}
+    ${done ? `<p><span class="badge ok">已上传 ${done} 个</span> ${esc((state.files[s.id] || []).join("、"))}</p>` : ""}
+    <div class="row">
+      <input type="file" id="sub-file" style="max-width:260px">
+      <button class="sm" onclick="subUploadSlot(${i})">上传</button>
+      ${req ? `<button class="ghost sm" onclick="setSubMode('form')" title="留到下面表单区再传">稍后传</button>`
+            : `<button class="ghost sm" onclick="subSkipSlot(${i})">跳过</button>`}
+    </div>
+    <div id="sub-slot-msg"></div>
+  </div></div>`;
+}
+async function subUploadSlot(i) {
+  const s = state.sub.slots[i];
+  const input = document.getElementById("sub-file");
+  if (!input.files.length) {
+    document.getElementById("sub-slot-msg").innerHTML =
+      `<div class="flash err" style="margin:6px 0">先选择文件再上传</div>`;
+    return;
+  }
+  const fd = new FormData();
+  fd.append("slot", s.id);
+  fd.append("file", input.files[0]);
+  const msg = document.getElementById("sub-slot-msg");
+  msg.innerHTML = `<span class="muted">上传中…</span>`;
+  try {
+    const r = await fetch("/api/me/files", {
+      method: "POST", headers: { Authorization: "Bearer " + subToken() }, body: fd });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || ("HTTP " + r.status));
+    afterSlotUpload(s.id, data.file_id);
+    subUser(`上传了「${esc(s.label)}」：${esc(input.files[0].name)}`);
+    advanceSlot(i);
+  } catch (e) {
+    msg.innerHTML = `<div class="flash err" style="margin:6px 0">${esc(e.message)}</div>`;
+  }
+}
+function advanceSlot(i) {
+  state.sub.sIdx = i + 1;
+  if (state.sub.sIdx < state.sub.slots.length) renderSubStep();
+  else { state.sub.phase = "done"; setSubStep(3); renderSubStep(); }
+}
+function subSkipSlot(i) {
+  const s = state.sub.slots[i];
+  subUser(`（「${esc(s.label)}」跳过）`);
+  advanceSlot(i);
+}
+function subDoneCard() {
+  const ans = state.sub.fields.map(f =>
+    `<tr><td>${esc(f.label)}</td><td>${esc(state.sub.answers[f.id] || "—")}</td></tr>`).join("");
+  const files = state.sub.slots.map(s =>
+    `<tr><td>${esc(s.label)}</td><td>${(state.files[s.id] || []).length
+      ? `<span class="badge ok">${state.files[s.id].length} 个</span>`
+      : (subSlotReq(s) ? '<span class="badge bad">未上传</span>' : '<span class="muted">未传（不适用/选交）</span>')}</td></tr>`).join("");
+  const missing = state.sub.slots.filter(s => subSlotReq(s) && !(state.files[s.id] || []).length);
+  return `<div class="msg agent"><div class="avatar">🤖</div><div class="body">
+    <b>核对一下再提交 ✅</b>
+    ${state.sub.fields.length ? `<table style="margin-top:8px"><tr><th>登记信息</th><th>内容</th></tr>${ans}</table>` : ""}
+    ${state.sub.slots.length ? `<table style="margin-top:8px"><tr><th>材料</th><th>状态</th></tr>${files}</table>` : ""}
+    ${missing.length ? `<div class="flash err" style="margin-top:8px">还有必交材料没上传：${esc(missing.map(s => s.label).join("、"))}。
+      传好后（或到表单区上传）再提交；未传齐就提交会被系统拦下。</div>` : ""}
+    <div class="row" style="margin-top:8px">
+      <button class="sm" onclick="saveDraft()">保存草稿</button>
+      <button onclick="doSubmit()">正式提交并检查</button>
+    </div>
+    <div class="mini">提交成功会拿到稳定回执；检查结果出来后，我会在这里告诉你要不要改、怎么改。</div>
+  </div></div>`;
 }
 
 /* ---------------------------------------------------------------- P05 交付预览 */

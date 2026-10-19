@@ -149,3 +149,11 @@ a { color:var(--brand); }
 .step-flow .st.on { color:var(--brand-deep); font-weight:600; }
 .step-flow .st.on .dot { background:var(--brand); color:#fff; }
 .step-flow .arw { width:34px; height:1px; background:var(--line); margin:0 8px; }
+
+/* ===== 提交者对话填写 ===== */
+button.sm { padding: 7px 14px; font-size: 13px; border-radius: 9px; }
+button.ghost.sm { padding: 6px 12px; font-size: 13px; }
+#sub-chat-card .chat { height: 480px; margin-top: 10px; }
+#sub-chat-card .msg { max-width: 100%; }
+#sub-chat-card .msg input[type="file"] { padding: 8px; }
+@media (max-width: 700px) { #sub-chat-card .chat { height: 420px; } }
