@@ -511,9 +511,10 @@ def trigger_check(task_id: int, subject_id: int, db: Session = Depends(get_db),
         raise HTTPException(422, str(e))
     except task_service.TaskNotWritable as e:
         raise HTTPException(409, str(e))
-    execute_run(db, run)
+    # 只入队不就地执行：语义检查可能耗时数分钟，请求不应挂起；
+    # 执行由后台 Worker 轮询承担（第 15 节：意图可靠记录，执行异步可靠进行）。
     db.commit()
-    return {"run_id": run.id, "status": run.status}
+    return {"run_id": run.id, "status": run.status, "queued": True}
 
 @router.post("/tasks/{task_id}/subjects/{subject_id}/checks/retry")
 def retry_check(task_id: int, subject_id: int, db: Session = Depends(get_db),
@@ -539,10 +540,10 @@ def retry_check(task_id: int, subject_id: int, db: Session = Depends(get_db),
         raise HTTPException(409, str(e))
     except task_service.TaskNotWritable as e:
         raise HTTPException(409, str(e))
-    execute_run(db, new_run)
+    # 只入队：执行交给后台 Worker，与正式提交流程一致，避免慢速调用挂起请求
     db.commit()
     return {"run_id": new_run.id, "status": new_run.status,
-            "retried_from": run.id}
+            "retried_from": run.id, "queued": True}
 
 @router.post("/tasks/{task_id}/subjects/{subject_id}/decisions")
 def make_decision(task_id: int, subject_id: int, decision: str = Form(...),

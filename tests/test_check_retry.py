@@ -21,6 +21,7 @@ from app.main import app
 from app.models import (
     RESULT_FAILED,
     RESULT_SATISFIED,
+    CheckRun,
     RUN_FAILED,
     RUN_QUEUED,
     RUN_SUPERSEDED,
@@ -233,15 +234,24 @@ def test_api_retry_after_failure(client, db_session, monkeypatch):
     _publish_template(client, headers, task_id)
     assert _submit(client, sub_headers, key="k1").status_code == 200
 
+    # 路由只入队即返回（执行异步化，请求不挂起）；这里模拟 Worker 消费队列
     r = client.post(f"/api/tasks/{task_id}/subjects/1/checks", headers=headers)
-    assert r.status_code == 200 and r.json()["status"] == "failed"
+    assert r.status_code == 200 and r.json()["status"] == "queued"
     first_run = r.json()["run_id"]
+    run_obj = db_session.get(CheckRun, first_run)
+    execute_run(db_session, run_obj)
+    db_session.commit()
+    assert run_obj.status == RUN_FAILED
 
     r = client.post(f"/api/tasks/{task_id}/subjects/1/checks/retry", headers=headers)
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["retried_from"] == first_run
-    assert body["run_id"] != first_run and body["status"] == "success"
+    assert body["status"] == "queued"  # 重试同样只入队
+    run_obj2 = db_session.get(CheckRun, body["run_id"])
+    execute_run(db_session, run_obj2)
+    db_session.commit()
+    assert run_obj2.status == RUN_SUCCESS
 
     # 新运行已成功且无失败项：无需重试
     r = client.post(f"/api/tasks/{task_id}/subjects/1/checks/retry", headers=headers)
