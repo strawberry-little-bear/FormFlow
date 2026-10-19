@@ -159,3 +159,21 @@ def test_run_checks_separates_human_only_and_counts_budget(stub_llm):
     assert results["T-R03"] == RESULT_ISSUE  # 实物赛道缺照片
     assert "H-01" not in results  # 人工项不产出机器结论
     assert outcome.coverage["f1"]["total"] == 1
+
+
+def test_semantic_non_object_json_marks_failed_not_guessed(stub_llm):
+    """模型返回非对象 JSON（如数组）：检查未完成记 failed，绝不臆造结论。"""
+    stub_llm.responses = [json.dumps(["不是对象"])]
+    r = run_semantic_rule(_bp().rules[4], _ctx(), client=stub_llm)
+    assert r.result == RESULT_FAILED
+    assert "无法解析" in r.explanation
+
+
+def test_semantic_non_dict_evidence_items_ignored(stub_llm):
+    """证据项不是对象时忽略，合法证据仍保留（坏数据不变证据）。"""
+    stub_llm.responses = [json.dumps(
+        {"result": "satisfied", "explanation": "x",
+         "evidence": ["不是对象", {"quote": "2026 秋季第 1 期团课报告 姓名：张三"}]})]
+    r = run_semantic_rule(_bp().rules[4], _ctx(), client=stub_llm)
+    assert r.result == RESULT_SATISFIED
+    assert len(r.evidence) == 1
