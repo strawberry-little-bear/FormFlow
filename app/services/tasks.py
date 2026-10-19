@@ -70,6 +70,30 @@ def draft_from_template(db: Session, task: Task, template: str) -> BlueprintVers
     return save_draft(db, task, DraftResult(blueprint=template_blueprint(template)), by_agent=False)
 
 
+def _restore_dropped_check_specs(old: Blueprint, new: Blueprint) -> None:
+    """模型修订时偶尔丢掉同 ID 规则的 check 程序规格；未提及的规格应原样保留。"""
+    old_checks = {r.id: r.check for r in old.rules if r.check}
+    for r in new.rules:
+        if r.check is None and r.id in old_checks:
+            r.check = old_checks[r.id]
+
+
+def _warn_unrequested_removal(result: DraftResult, impact: dict) -> None:
+    """修订若删除了字段/材料/规则，显著提醒组织者核对。
+
+    真实网关冒烟曾出现降级模型把草案删空的情况；历史草案仍保留，
+    组织者可回到旧版本继续修订，但必须看到显式警告而不是静默丢失。
+    """
+    parts = []
+    for key, label in (("fields", "字段"), ("slots", "材料槽位"), ("rules", "规则")):
+        if impact[key]["removed"]:
+            parts.append(f"{label}{impact[key]['removed']}")
+    if parts:
+        result.warnings.append(
+            "修订删除了" + "、".join(parts) +
+            "；如非本意请勿发布（此前的草案版本仍保留，可回退继续修订）")
+
+
 def revise_draft(db: Session, task: Task, blueprint_version_id: int, *,
                  requirement: str = "", answered: Optional[dict] = None,
                  instruction: str = "",
@@ -87,6 +111,7 @@ def revise_draft(db: Session, task: Task, blueprint_version_id: int, *,
     result = draft_blueprint(requirement, answered=answered or {},
                              current_draft=current, instruction=instruction,
                              client=client)
+    _restore_dropped_check_specs(current, result.blueprint)
     if result.blueprint.model_dump() == current.model_dump():
         # 无实质变化（含模型不可用降级保留原草案）：不制造新版本
         audit(db, "blueprint.revise_noop", "blueprint",
@@ -95,6 +120,7 @@ def revise_draft(db: Session, task: Task, blueprint_version_id: int, *,
         return result, bp, blueprint_diff(current, result.blueprint)
     new_bp = save_draft(db, task, result)
     impact = blueprint_diff(current, result.blueprint)
+    _warn_unrequested_removal(result, impact)
     audit(db, "blueprint.revised", "blueprint",
           {"from_version": bp.version, "to_version": new_bp.version,
            "answered": sorted((answered or {}).keys()),
