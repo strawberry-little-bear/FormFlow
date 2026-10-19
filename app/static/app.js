@@ -295,13 +295,25 @@ async function issueGrant(taskId) {
 }
 
 /* ---------------------------------------------------------------- P02 工作台 */
+const TASK_STATUS_LABEL = {draft: "草稿", collecting: "收集中", closed: "已关闭",
+                           archived: "已归档", cancelled: "已取消"};
+const READONLY_STATUSES = ["closed", "archived", "cancelled"];
+
 async function viewWorkbench(taskId) {
   document.getElementById("app").innerHTML = `<div id="flash"></div>
     <div class="card"><h3>P02 任务工作台（任务 #${taskId}）</h3>
     <p class="muted">一行一个主体：谁没交、谁要改、谁等我决定。</p>
+    <div id="wb-lifecycle"></div>
     <div id="wb"><p class="muted">加载中…</p></div></div>`;
   try {
     const data = await api(`/api/tasks/${taskId}/workbench`);
+    const t = data.task || {};
+    const ro = READONLY_STATUSES.includes(t.status);
+    const label = TASK_STATUS_LABEL[t.status] || t.status;
+    document.getElementById("wb-lifecycle").innerHTML = `
+      <p class="kv">任务状态：<span class="badge ${ro ? "warn" : "info"}">${esc(label)}</span>${
+        ro ? ' <span class="kv">（只读：提交/上传/检查/修订已停止，历史数据可查可导出）</span>' : ""}</p>
+      <div class="row">${lifecycleButtons(t.status, taskId)}</div>`;
     const rows = data.rows || [];
     document.getElementById("wb").innerHTML = rows.length ? `
       <table><tr><th>主体</th><th>当前版本</th><th>状态</th><th>待办</th><th>操作</th></tr>
@@ -314,18 +326,57 @@ async function viewWorkbench(taskId) {
           ...(b.incomplete || []).map(x => `<span class="badge bad">失败:${esc(x)}</span>`),
           ...(b.pending_jobs || []).map(x => `<span class="badge info">${esc(x)}</span>`),
         ].join("");
+        const canRetry = !ro && r.run_status === "failed";
         return `<tr><td>${esc(r.name)}</td><td>${r.revision ?? "-"}</td>
           <td>${esc(r.summary)}</td><td>${tags || "-"}</td>
-          <td><button class="ghost" onclick="runCheck(${taskId},${r.subject_id})">检查</button>
+          <td>${ro
+            ? `<button class="ghost" disabled title="任务已${esc(label)}，只读状态不能发起检查">检查</button>`
+            : `<button class="ghost" onclick="runCheck(${taskId},${r.subject_id})">检查</button>`}
+          ${canRetry ? `<button class="ghost" onclick="retryCheck(${taskId},${r.subject_id})" title="上次检查技术失败：重试生成新运行，旧运行标记被取代并保留">重试</button>` : ""}
               <a href="#/review/${taskId}/${r.subject_id}">复核</a></td></tr>`;
       }).join("")}</table>` : `<p class="muted">暂无主体</p>`;
   } catch (e) { setFlash(e.message); }
+}
+
+function lifecycleButtons(status, taskId) {
+  if (status === "closed") {
+    return `<button class="ghost" onclick="taskLifecycle(${taskId},'reopen')">恢复收集</button>
+      <button class="ghost" onclick="taskLifecycle(${taskId},'archive')">归档</button>
+      <button class="ghost" onclick="taskLifecycle(${taskId},'cancel')">取消任务</button>`;
+  }
+  if (status === "archived" || status === "cancelled") {
+    return `<span class="muted">终态：数据保留备查，不再恢复或取消。</span>`;
+  }
+  return `<button class="ghost" onclick="taskLifecycle(${taskId},'close')">关闭任务</button>`;
+}
+
+async function taskLifecycle(taskId, action) {
+  await guard(async () => {
+    const confirms = {
+      close: "关闭后停止提交/上传/检查（历史数据保留，之后可恢复），确定关闭？",
+      reopen: "恢复收集后提交入口重新开放，确定恢复？",
+      archive: "归档为长期保留态（须无未完成检查），确定归档？",
+      cancel: "取消将中止收集并释放名册/授权（数据保留备查），确定取消？",
+    };
+    if (!window.confirm(confirms[action] || "确定执行该操作？")) return;
+    await api(`/api/tasks/${taskId}/${action}`, { method: "POST" });
+    setFlash("任务状态已更新", "ok");
+    await viewWorkbench(taskId);
+  });
 }
 async function runCheck(taskId, sid) {
   await guard(async () => {
     await api(`/api/tasks/${taskId}/subjects/${sid}/checks`, { method: "POST" });
     setFlash("检查已发起", "ok");
     await viewWorkbench(taskId);
+  });
+}
+async function retryCheck(taskId, sid, back) {
+  await guard(async () => {
+    const r = await api(`/api/tasks/${taskId}/subjects/${sid}/checks/retry`, { method: "POST" });
+    setFlash(`已重试：新运行 #${r.run_id}（${r.status}），旧运行 #${r.retried_from} 已标记被取代、历史保留`, "ok");
+    if (back === "review") await viewReview(taskId, sid);
+    else await viewWorkbench(taskId);
   });
 }
 
@@ -345,7 +396,12 @@ async function viewReview(taskId, sid) {
     }[r] || esc(r));
     let html = `<p class="kv">主体：${esc(d.subject.name)}`;
     if (d.revision) html += ` · 当前版本 v${d.revision.version} · 回执 ${esc(d.revision.receipt)}`;
-    if (d.run) html += ` · 运行 #${d.run.id}（${esc(d.run.status)}）`;
+    if (d.run) {
+      html += ` · 运行 #${d.run.id}（${esc(d.run.status)}）`;
+      if (d.run.status === "failed") {
+        html += ` <button class="ghost" onclick="retryCheck(${taskId},${sid},'review')" title="上次检查技术失败：重试生成新运行，旧运行标记被取代并保留">重试检查</button>`;
+      }
+    }
     html += `</p>`;
     html += (d.rules || []).map(r => `
       <div class="card">
@@ -418,14 +474,18 @@ async function viewSubmit() {
     const fields = (me.blueprint && me.blueprint.fields) || [];
     const slots = (me.blueprint && me.blueprint.slots) || [];
     const receipt = await api("/api/me/receipt", { sub: true });
+    const ro = READONLY_STATUSES.includes(me.task.status);
     let html = `
       <div class="card"><h3>P04 提交与补正</h3>
         <p class="kv">任务：${esc(me.task.name)} ｜ 身份：${esc(me.subject.name)}
+          ｜ 状态：${esc(TASK_STATUS_LABEL[me.task.status] || me.task.status)}
           ｜ 首次截止：${esc(me.task.first_deadline || "未设置")}
           ｜ 补正截止：${esc(me.task.correction_deadline || "未设置")}</p>
         ${receipt.formal ? `<p><span class="badge ok">已正式提交 v${receipt.revision}</span>
           <span class="kv">回执 ${esc(receipt.receipt)} ｜ ${esc(receipt.formal_submitted_at)}</span></p>`
           : `<p><span class="badge warn">尚未正式提交</span></p>`}
+        ${ro ? `<p><span class="badge warn">任务已${esc(TASK_STATUS_LABEL[me.task.status] || me.task.status)}</span>
+             <span class="kv">只读状态：不能保存草稿、上传或正式提交；已提交内容与回执仍可查看、可下载。</span></p>` : ""}
       </div>
       <div class="card"><h3>登记字段</h3>
         ${fields.map(f => `<label>${esc(f.label)}${f.required ? " *" : ""}</label>
@@ -435,14 +495,14 @@ async function viewSubmit() {
         ${slots.map(s => `<div style="margin-bottom:10px">
           <label>${esc(s.label)}（${esc((s.formats || []).join("/"))}，最多 ${s.max_count} 个）</label>
           <input type="file" id="file-${esc(s.id)}">
-          <button class="ghost" onclick="uploadSlot('${esc(s.id)}')">上传到该槽位</button>
+          <button class="ghost" onclick="uploadSlot('${esc(s.id)}')"${ro ? " disabled" : ""}>上传到该槽位</button>
           <div id="slot-files-${esc(s.id)}"></div>
         </div>`).join("") || '<p class="muted">无材料槽位</p>'}
       </div>
       <div class="card">
         <div class="row">
-          <button class="ghost" onclick="saveDraft()">保存草稿</button>
-          <button onclick="doSubmit()">正式提交并检查</button>
+          <button class="ghost" onclick="saveDraft()"${ro ? " disabled" : ""}>保存草稿</button>
+          <button onclick="doSubmit()"${ro ? " disabled" : ""}>正式提交并检查</button>
         </div>
         <p class="muted">草稿与正式提交是不同操作；正式提交后展示稳定回执与服务端时间。</p>
         <div id="receipt-out" style="margin-top:10px"></div>
