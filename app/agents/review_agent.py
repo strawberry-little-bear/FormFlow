@@ -265,11 +265,16 @@ def run_semantic_rule(
                              explanation=f"模型输出无法解析，检查未完成：{e}",
                              next_step="重试或转人工复核")
 
+    if not isinstance(payload, dict):
+        payload = {}  # 模型返回了非对象 JSON：无结论可用，按 unknown 处理
     result = str(payload.get("result", "unknown"))
     if result not in {RESULT_SATISFIED, RESULT_ISSUE, RESULT_UNKNOWN}:
         result = RESULT_UNKNOWN
+    raw_evidence = payload.get("evidence")
     evidence: list[EvidenceOut] = []
-    for ev in payload.get("evidence", [])[:10]:
+    for ev in (raw_evidence if isinstance(raw_evidence, list) else [])[:10]:
+        if not isinstance(ev, dict):
+            continue  # 证据项不是对象：忽略，绝不让坏数据变成证据
         quote = str(ev.get("quote", ""))
         hit = _verify_quote(quote, file_texts)
         if hit:
