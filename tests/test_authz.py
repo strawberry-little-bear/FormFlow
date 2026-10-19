@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.db import Base, engine
 from app.main import app
-from app.models import Account, AuthSession, Task
+from app.models import AccessGrant, Account, AuthSession, Subject, Task
 from app.security import utcnow
 from app.schemas import Blueprint, FieldDef
 from tests.conftest import publish_blueprint
@@ -140,3 +140,110 @@ def test_export_snapshot_requires_ownership(client, db_session):
     assert r.status_code == 404  # 他人快照不可导出
     r = client.post(f"/api/snapshots/{snap_id}/export", headers=ha)
     assert r.status_code == 200
+
+
+# ---------------------------------------------------------------- V21 越权回归
+def _grant_subject(client, headers, task_id, name):
+    r = client.post(f"/api/tasks/{task_id}/grants",
+                    data={"subject_name": name}, headers=headers)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    return body["subject_id"], body["credential"]
+
+
+def test_revoked_credential_rejected_on_all_submitter_paths(client, db_session):
+    """V21：凭证撤销后，提交者全部路径拒绝访问（401），不是静默可用。"""
+    ha = _register(client, "org-r")
+    task_id = _mk_task(client, ha)
+    sid, cred = _grant_subject(client, ha, task_id, "张三")
+    hsub = {"Authorization": "Bearer " + cred}
+    assert client.get("/api/me", headers=hsub).status_code == 200
+
+    s = Session(engine)
+    grant = s.scalars(select(AccessGrant)).one()
+    grant.revoked = True
+    s.commit()
+    s.close()
+
+    probes = [
+        ("get", "/api/me", None),
+        ("post", "/api/me/draft", {"fields": {"name": "x"}, "expected_version": None}),
+        ("get", "/api/me/receipt", None),
+        ("get", "/api/me/results", None),
+        ("post", "/api/me/submit", {"fields": {}, "slot_file_ids": {},
+                                    "idempotency_key": "k-revoked"}),
+    ]
+    for method, path, body in probes:
+        r = client.request(method, path, headers=hsub, json=body)
+        assert r.status_code == 401, f"{path} -> {r.status_code}: {r.text}"
+
+
+def test_expired_credential_rejected(client, db_session):
+    """V21：过期凭证同样拒绝（401）。"""
+    ha = _register(client, "org-e")
+    task_id = _mk_task(client, ha)
+    sid, cred = _grant_subject(client, ha, task_id, "李四")
+    hsub = {"Authorization": "Bearer " + cred}
+    assert client.get("/api/me", headers=hsub).status_code == 200
+
+    s = Session(engine)
+    grant = s.scalars(select(AccessGrant)).one()
+    grant.expires_at = utcnow() - timedelta(hours=1)
+    s.commit()
+    s.close()
+    assert client.get("/api/me", headers=hsub).status_code == 401
+
+
+def test_cross_task_subject_id_guessing_denied(client, db_session):
+    """V21：猜主体 ID 访问别的地盘——checks/retry/findings/decisions 全部 404。"""
+    ha = _register(client, "owner-a")
+    hb = _register(client, "owner-b")
+    task_a = _mk_task(client, ha, "任务A")
+    task_b = _mk_task(client, hb, "任务B")
+    sid_a, _ = _grant_subject(client, ha, task_a, "甲")
+    sid_b, _ = _grant_subject(client, hb, task_b, "乙")
+
+    probes = [
+        ("post", f"/api/tasks/{task_a}/subjects/{sid_b}/checks", None, None),
+        ("post", f"/api/tasks/{task_a}/subjects/{sid_b}/checks/retry", None, None),
+        ("get", f"/api/tasks/{task_a}/subjects/{sid_b}/findings", None, None),
+        ("post", f"/api/tasks/{task_a}/subjects/{sid_b}/decisions",
+         None, {"decision": "confirm_issue", "reason": "越权试探"}),
+        ("post", f"/api/tasks/{task_a}/subjects/{sid_a}/decisions/99999/revoke",
+         None, {"reason": "越权试探"}),
+        ("post", f"/api/tasks/{task_a}/subjects/999999/checks", None, None),
+    ]
+    for method, path, json_body, form in probes:
+        kwargs = {"headers": hb}
+        if json_body is not None:
+            kwargs["json"] = json_body
+        if form is not None:
+            kwargs["data"] = form
+        r = client.request(method, path, **kwargs)
+        assert r.status_code == 404, f"{path} -> {r.status_code}: {r.text}"
+    # 自己的路径不受影响
+    r = client.get(f"/api/tasks/{task_b}/subjects/{sid_b}/findings", headers=hb)
+    assert r.status_code == 200
+
+
+def test_foreign_export_download_denied(client, db_session):
+    """V21：猜导出作业 ID 下载他人的 CSV/ZIP —— 404，不泄露存在性。"""
+    from app.schemas import FieldDef
+    ha = _register(client, "owner-a")
+    hb = _register(client, "owner-b")
+    task_id = _mk_task(client, ha)
+    task = db_session.get(Task, task_id)
+    publish_blueprint(db_session, task,
+                      Blueprint(fields=[FieldDef(id="name", label="姓名")], rules=[]))
+    db_session.commit()
+    r = client.post(f"/api/tasks/{task_id}/snapshots", headers=ha)
+    assert r.status_code == 200, r.text
+    snap_id = r.json()["snapshot_id"]
+    r = client.post(f"/api/snapshots/{snap_id}/export", headers=ha)
+    assert r.status_code == 200, r.text
+    job_id = r.json()["job_id"]
+
+    assert client.get(f"/api/exports/{job_id}/csv", headers=hb).status_code == 404
+    assert client.get(f"/api/exports/{job_id}/zip", headers=hb).status_code == 404
+    assert client.get(f"/api/exports/{job_id}/csv", headers=ha).status_code == 200
+    assert client.get(f"/api/exports/{job_id}/zip", headers=ha).status_code == 200
