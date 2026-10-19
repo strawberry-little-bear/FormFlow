@@ -32,6 +32,7 @@ from app.services import submissions as sub
 from app.services.checks import create_run, current_summary, execute_run
 from app.storage import file_dir
 from tests.conftest import StubLLM, make_task, publish_blueprint
+from tests.test_authz import _grant_subject
 
 SAMPLES = Path(__file__).resolve().parent.parent / "data" / "samples"
 
@@ -393,3 +394,111 @@ def test_v08_api_findings_shows_coverage_gap_to_organizer(client, db_session, mo
     assert "\u4e0d\u786e\u8ba4\u7f3a\u5931" in by_id["C-R02"]["explanation"]
     assert [e["method"] for e in by_id["C-R02"]["evidence"]] == ["coverage"]
     assert all(x["result"] != "issue" for x in body["rules"])
+
+# ---------------------------------------------------------------- P03/P04 规则明细
+def _setup_api_task(client, db_session, monkeypatch, org, name, disable_ocr=True):
+    """组织者建任务 + 登记主体 + 发布蓝图，返回 (task, subject, submission, headers)。"""
+    from app.models import Task
+
+    if disable_ocr:
+        monkeypatch.setattr(settings, "max_ocr_pages_per_file", 0)
+    headers = _register(client, org)
+    task_id = _mk_task(client, headers)
+    task = db_session.get(Task, task_id)
+    now = datetime.now(timezone.utc)
+    task.status = "collecting"
+    task.open_at = now - timedelta(days=1)
+    task.first_deadline = now + timedelta(days=7)
+    task.correction_deadline = now + timedelta(days=14)
+    publish_blueprint(db_session, task, _blueprint())
+    subject = Subject(task_id=task.id, kind="individual", display_name=name)
+    db_session.add(subject)
+    db_session.flush()
+    submission = sub.get_or_create_draft(db_session, task, subject.id)
+    return task, subject, submission, headers
+
+
+def test_p04_submitter_sees_rule_details_with_coverage_gap(client, db_session, monkeypatch):
+    """P04：提交者拿到规则明细（哪里有问题/怎么改/引用证据），覆盖缺口显式提示。
+
+    一页未读时结论只能是 unknown：绝不把“没读到”写成“确认缺失”。
+    """
+    task, subject, submission, headers = _setup_api_task(
+        client, db_session, monkeypatch, "org-p04a", "\u5f20\u4e09")
+    f = _attach(db_session, submission, "partial.pdf")
+    _run(db_session, task, submission,
+         {"name": "\u5f20\u4e09", "term": "2026 \u79cb\u5b63\u7b2c 1 \u671f", "class_name": "\u4e00\u73ed"},
+         "k-p04-gap", [f.file_id], StubLLM())
+    db_session.commit()
+
+    sid, cred = _grant_subject(client, headers, task.id, "\u5f20\u4e09")
+    assert sid == subject.id
+    hsub = {"Authorization": "Bearer " + cred}
+    r = client.get("/api/me/results", headers=hsub)
+    assert r.status_code == 200, r.text
+    body = r.json()
+
+    assert body["summary"] == "\u5f85\u4eba\u5de5"
+    assert body["coverage"]["complete"] is False
+    assert body["coverage"]["unread_pages"] == 1
+    assert body["coverage"]["files"][0]["name"] == "partial.pdf"
+    assert body["coverage"]["files"][0]["total"] == 2
+
+    details = {d["rule_id"]: d for d in body["details"]}
+    assert set(details) == {"C-R01", "C-R02", "C-R03"}
+    r02 = details["C-R02"]
+    assert r02["result"] == "unknown"
+    assert "\u4e0d\u5224\u672a\u586b\u5199" in r02["explanation"]
+    assert "\u4e0d\u786e\u8ba4\u7f3a\u5931" in r02["explanation"]
+    # \u7edd\u4e0d\u628a\u201c\u6ca1\u8bfb\u5230\u201d\u5199\u6210\u201c\u786e\u8ba4\u7f3a\u5931\u201d
+    assert "\u786e\u8ba4\u7f3a\u5931" not in r02["explanation"].replace(
+        "\u4e0d\u786e\u8ba4\u7f3a\u5931", "")
+    assert r02["next_step"]
+    evs = r02["evidence"]
+    assert [e["method"] for e in evs] == ["coverage"]
+    assert "\u672a\u8bfb 1 \u9875" in evs[0]["quote"]
+    assert details["C-R01"]["result"] == "satisfied"
+    assert details["C-R03"]["result"] == "unknown"
+    # human_only \u89c4\u5219\u4e0d\u4ea7\u751f\u89c4\u5219\u7ed3\u679c\uff0c\u53ea\u8fdb\u201c\u4eba\u5de5\u201d\u5f85\u529e
+    assert "C-R04" not in details
+    assert "C-R04" in body["buckets"]["human"]
+
+
+def test_p04_blocking_issue_shows_next_step_and_shared_details(client, db_session):
+    """P04\uff1a\u963b\u585e\u89c4\u5219\u7ed9\u51fa\u54ea\u91cc\u6709\u95ee\u9898\u3001\u600e\u4e48\u6539\u3001\u5f15\u7528\u8bc1\u636e\uff1b
+    \u4e0e P03 \u7ec4\u7ec7\u8005\u89c6\u89d9\u540c\u6e90\uff0c\u4e0d\u51fa\u73b0\u4e24\u5957\u8bf4\u6cd5\u3002"""
+    task, subject, submission, headers = _setup_api_task(
+        client, db_session, None, "org-p04b", "\u5f20\u4e09\u4e30", disable_ocr=False)
+    f = _attach(db_session, submission, "normal.pdf")
+    _run(db_session, task, submission,
+         {"name": "\u5f20\u4e09\u4e30", "term": "2026 \u79cb\u5b63\u7b2c 1 \u671f", "class_name": "\u4e00\u73ed"},
+         "k-p04-issue", [f.file_id],
+         StubLLM(responses=[
+             {"result": "issue",
+              "explanation": "\u62a5\u544a\u5c01\u9762\u59d3\u540d\u4e0e\u767b\u8bb0\u59d3\u540d\u4e0d\u4e00\u81f4",
+              "next_step": "\u6838\u5bf9\u62a5\u544a\u5c01\u9762\u59d3\u540d\uff0c\u4e0e\u767b\u8bb0\u59d3\u540d\u4e00\u81f4\u540e\u91cd\u65b0\u6b63\u5f0f\u63d0\u4ea4",
+              "evidence": [{"quote": NAME_QUOTE, "locator": "p.1"}]},
+             {"result": "satisfied", "explanation": "\u671f\u6b21\u4e00\u81f4",
+              "evidence": [{"quote": TERM_QUOTE, "locator": "p.1"}]},
+         ]))
+    db_session.commit()
+
+    sid, cred = _grant_subject(client, headers, task.id, "\u5f20\u4e09\u4e30")
+    hsub = {"Authorization": "Bearer " + cred}
+    body = client.get("/api/me/results", headers=hsub).json()
+    assert body["summary"] == "\u5f85\u8865\u6b63"
+    assert body["buckets"]["blocking"] == ["C-R02"]
+    d = {x["rule_id"]: x for x in body["details"]}["C-R02"]
+    assert d["result"] == "issue"
+    assert d["severity"] == "blocking"
+    assert d["explanation"] == "\u62a5\u544a\u5c01\u9762\u59d3\u540d\u4e0e\u767b\u8bb0\u59d3\u540d\u4e0d\u4e00\u81f4"
+    assert d["next_step"] == "\u6838\u5bf9\u62a5\u544a\u5c01\u9762\u59d3\u540d\uff0c\u4e0e\u767b\u8bb0\u59d3\u540d\u4e00\u81f4\u540e\u91cd\u65b0\u6b63\u5f0f\u63d0\u4ea4"
+    assert d["evidence"][0]["quote"] == NAME_QUOTE
+    assert d["evidence"][0]["method"] == "llm"
+    assert d["requirement"]["statement"] == "\u62a5\u544a\u9875\u5199\u660e\u59d3\u540d\u5e76\u4e0e\u767b\u8bb0\u59d3\u540d\u4e00\u81f4"
+    assert d["requirement"]["requirement_source"] == "\u539f\u59cb\u8981\u6c42\uff1a\u59d3\u540d\u4e0e\u540d\u518c\u4e00\u81f4"
+
+    org_view = client.get(f"/api/tasks/{task.id}/subjects/{sid}/findings",
+                          headers=headers).json()
+    assert {x["rule_id"]: x for x in org_view["rules"]} == {
+        x["rule_id"]: x for x in body["details"]}
