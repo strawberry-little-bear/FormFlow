@@ -7,6 +7,7 @@ from app.agents.review_agent import (
     CheckContext,
     FileInfo,
     _eval_condition,
+    _verify_quote,
     run_checks,
     run_deterministic,
     run_semantic_rule,
@@ -194,3 +195,11 @@ def test_semantic_non_dict_evidence_items_ignored(stub_llm):
     r = run_semantic_rule(_bp().rules[4], _ctx(), client=stub_llm)
     assert r.result == RESULT_SATISFIED
     assert len(r.evidence) == 1
+
+def test_verify_quote_tolerates_ocr_punctuation_noise():
+    """OCR 把全角标点识别成半角、文字加空格碎片时，合理引用仍应通过验证（V07）。"""
+    ocr_text = "期次 : 2 0 2 6 秋季第 1 期团课报告"
+    assert _verify_quote("期次：2026", {"f1": ocr_text}) == "f1"
+    assert _verify_quote("期次:2026秋季第1期", {"f1": ocr_text}) == "f1"
+    # 内容不存在时仍然拒绝（噪声容忍不等于放行臆造）
+    assert _verify_quote("期次：2027", {"f1": ocr_text}) is None
