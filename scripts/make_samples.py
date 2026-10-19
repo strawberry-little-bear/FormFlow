@@ -3,8 +3,10 @@
 样本集对应方案第 13/16 节与 V01-V24 附录 A：
 - normal.pdf    正常文字层 PDF（要素齐全）
 - scanned.pdf   扫描件（图片页、无文字层，需 OCR）
+- blur_name.pdf 姓名区域高斯模糊（V07：OCR 误识别不出姓名，其余可读）
 - report.docx   DOCX（段落 + 表格）
 - photo.png     图片材料（实物赛道照片，需 OCR）
+- partial.pdf   2 页 PDF：第 1 页文字层、第 2 页图片页（V08 覆盖缺口）
 - corrupt.pdf   损坏文件（技术原因，非资格拒绝）
 - disguised.pdf 类型伪装（DOCX 内容谎称 .pdf）
 - legacy.doc    旧版 OLE2 文档（不支持）
@@ -95,6 +97,60 @@ def main() -> None:
     d2[0].get_pixmap(dpi=150).save(str(OUT / "photo.png"))
     d2.close()
     tmp2.unlink()
+
+    # 4b. 姓名区域模糊的 PDF（V07）：其余要素可读，姓名行被高斯模糊，
+    #     OCR 误识别辨不出姓名——模拟“匿名字缺失”的真实场景。
+    tmp3 = OUT / "_tmp_text3.pdf"
+    _write_pdf_text(tmp3)
+    _d3 = fitz.open(str(tmp3))
+    _pix3 = _d3[0].get_pixmap(dpi=150)
+    _d3.close()
+    tmp3.unlink()
+    from PIL import Image, ImageFilter
+
+    _im = Image.frombytes("RGB", (_pix3.width, _pix3.height), _pix3.samples).copy()
+    _scale = 150 / 72
+    _box = (int(70 * _scale), int(106 * _scale),
+            int(340 * _scale), int(140 * _scale))
+    _im.paste(_im.crop(_box).filter(ImageFilter.GaussianBlur(6)), _box)
+    _blurred = OUT / "_tmp_blur.png"
+    _im.save(str(_blurred))
+    _bd = fitz.open()
+    _bd.new_page(width=_pix3.width, height=_pix3.height).insert_image(
+        fitz.Rect(0, 0, _pix3.width, _pix3.height), filename=str(_blurred))
+    _bd.save(str(OUT / "blur_name.pdf"))
+    _bd.close()
+    _blurred.unlink()
+
+    # 4c. partial.pdf（V08）：2 页——第 1 页文字层要素齐全（但无“个人收获”），
+    #     第 2 页为图片页（无文字层，承载“个人收获”）。
+    #     关键页未读时不得输出“确认缺失”，覆盖缺口必须可见。
+    _one = fitz.open()
+    _one.new_page().insert_text((72, 72), f"{TERM}团课报告", fontsize=18, fontname="china-s")
+    _one[0].insert_text((72, 120), f"姓名：{NAME}", fontsize=14, fontname="china-s")
+    _one[0].insert_text((72, 150), f"期次：{TERM}", fontsize=14, fontname="china-s")
+    _one[0].insert_text((72, 180), CONTENT, fontsize=12, fontname="china-s")
+    _one.save(str(OUT / "_tmp_p1.pdf"))
+    _one.close()
+    _two = fitz.open()
+    _two.new_page().insert_text((72, 72), "个人收获", fontsize=14, fontname="china-s")
+    _two[0].insert_text((72, 100), GAIN, fontsize=12, fontname="china-s")
+    _two.save(str(OUT / "_tmp_p2.pdf"))
+    _two.close()
+    _pix2 = fitz.open(str(OUT / "_tmp_p2.pdf"))[0].get_pixmap(dpi=150)
+    _img2 = OUT / "_tmp_p2.png"
+    _pix2.save(str(_img2))
+    _merged = fitz.open()
+    _src1 = fitz.open(str(OUT / "_tmp_p1.pdf"))
+    _merged.insert_pdf(_src1)
+    _src1.close()
+    _merged.new_page(width=_pix2.width, height=_pix2.height).insert_image(
+        fitz.Rect(0, 0, _pix2.width, _pix2.height), filename=str(_img2))
+    _merged.save(str(OUT / "partial.pdf"))
+    _merged.close()
+    _img2.unlink()
+    (OUT / "_tmp_p1.pdf").unlink()
+    (OUT / "_tmp_p2.pdf").unlink()
 
     # 5. 损坏 PDF：合法头 + 垃圾
     (OUT / "corrupt.pdf").write_bytes(b"%PDF-1.4" + bytes(range(256)) * 8)
