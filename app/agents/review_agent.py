@@ -339,7 +339,7 @@ def run_semantic_rule(
                 explanation=(f"文件 {f.original_name} 有关键页未读到（{gap}，覆盖不完整），"
                              f"无法确认要素是否缺失，按规则输出 unknown"
                              f"（不判未填写、不确认缺失）"),
-                next_step="补充清晰可读的材料后重新正式提交，或申请人工复核（结论可申诹）",
+                next_step="补充清晰可读的材料后重新正式提交，或申请人工复核（结论可申诉）",
                 evidence=[EvidenceOut(file_id=f.file_id,
                                       locator=f"pages 1-{p.total_pages}",
                                       quote=gap, method="coverage")])
