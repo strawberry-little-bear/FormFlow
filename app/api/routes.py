@@ -250,15 +250,23 @@ def revise_draft_view(task_id: int, blueprint_version_id: int = Form(...),
 
 
 @router.post("/tasks/{task_id}/blueprints/{bp_id}/publish")
-def publish(task_id: int, bp_id: int, db: Session = Depends(get_db),
+def publish(task_id: int, bp_id: int, expected_published_id: Optional[int] = Form(None),
+            db: Session = Depends(get_db),
             acct: Account = Depends(current_account)):
     task = _owned_task(db, acct, task_id)
     try:
-        bp = task_service.publish(db, task, bp_id)
+        task_service.ensure_task_writable(task)
+        if expected_published_id is None or expected_published_id < 0:
+            raise HTTPException(422, "缺少已核对的发布基线，请刷新设计台并重新打开发布核对窗口")
+        bp = task_service.publish(db, task, bp_id, expected_published_id=expected_published_id)
     except task_service.TaskNotWritable as e:
+        raise HTTPException(409, str(e))
+    except task_service.PublishConflict as e:
         raise HTTPException(409, str(e))
     except task_service.PublishBlocked as e:
         raise HTTPException(422, f"发布被阻止：{e}")
+    except ValueError as e:
+        raise HTTPException(404, str(e))
     db.commit()
     return {"published_version": bp.version, "task_status": task.status}
 

@@ -5,7 +5,7 @@ import json
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from ..agents.requirements_agent import (blueprint_diff, build_source_text, draft_blueprint,
@@ -83,18 +83,22 @@ def get_design(db: Session, task: Task) -> dict:
     latest = db.scalar(select(BlueprintVersion).where(BlueprintVersion.task_id == task.id)
                        .order_by(BlueprintVersion.version.desc()))
     result = {"task": {"id": task.id, "name": task.name, "status": task.status,
-                       "mode": task.mode, "subject_kind": task.subject_kind},
-              "blueprint_version_id": None}
+                       "mode": task.mode, "subject_kind": task.subject_kind, "owner_id": task.created_by,
+                       "timezone": task.timezone}, "blueprint_version_id": None}
     versions = db.scalars(select(BlueprintVersion).where(BlueprintVersion.task_id == task.id)
                           .order_by(BlueprintVersion.version.desc())).all()
     result["versions"] = [{"id": v.id, "version": v.version, "status": v.status,
                            "created_at": _iso(v.created_at),
                            "published_at": _iso(v.published_at)}
                           for v in versions]
+    published = db.get(BlueprintVersion, task.current_blueprint_id) if task.current_blueprint_id else None
+    result["published"] = ({"id": published.id, "version": published.version,
+        "blueprint": Blueprint.model_validate_json(published.blueprint_json).model_dump(mode="json")} if published else None)
     if latest is None:
         result["history"] = []
         return result
     bp = Blueprint.model_validate_json(latest.blueprint_json)
+    result["publish_impact"] = blueprint_diff(Blueprint.model_validate_json(published.blueprint_json), bp) if published else None
     context = db.scalar(select(AuditEvent).where(
         AuditEvent.task_id == task.id, AuditEvent.action == "blueprint.design_context",
         AuditEvent.entity == str(latest.id)).order_by(AuditEvent.id.desc()))
@@ -239,15 +243,29 @@ def revise_draft(db: Session, task: Task, blueprint_version_id: int, *,
     return result, new_bp, impact
 
 
-def publish(db: Session, task: Task, blueprint_version_id: int) -> BlueprintVersion:
+def publish(db: Session, task: Task, blueprint_version_id: int, *,
+            expected_published_id: Optional[int] = None) -> BlueprintVersion:
     """发布：程序校验 → 固定蓝图版本 → 任务进入收集中。
 
     关键歧义或非法配置阻止发布（第 3 节）。
     """
+    if expected_published_id is not None:
+        db.execute(update(Task).where(Task.id == task.id).values(status=Task.status))
+        db.refresh(task)
+        if (task.current_blueprint_id or 0) != expected_published_id:
+            raise PublishConflict("已发布版本已变化，发布未保存，请刷新后重新核对差异")
     bp = db.get(BlueprintVersion, blueprint_version_id)
     if bp is None or bp.task_id != task.id:
         raise ValueError("蓝图版本不存在")
     ensure_task_writable(task)  # V24 readonly guard
+    if bp.status == "published":
+        if task.current_blueprint_id == bp.id:
+            return bp
+        raise PublishBlocked("历史已发布版本不能再次发布，请先修订为新草案")
+    latest = db.scalar(select(BlueprintVersion).where(BlueprintVersion.task_id == task.id)
+                       .order_by(BlueprintVersion.version.desc()))
+    if latest.id != bp.id:
+        raise PublishConflict("草案已有新版本，请刷新并核对最新草案后发布")
     blueprint = Blueprint.model_validate_json(bp.blueprint_json)
     context = db.scalar(select(AuditEvent).where(
         AuditEvent.task_id == task.id, AuditEvent.action == "blueprint.design_context",
@@ -280,6 +298,10 @@ def publish(db: Session, task: Task, blueprint_version_id: int) -> BlueprintVers
 
 class PublishBlocked(Exception):
     """发布被阻止：配置错误或关键歧义。"""
+
+
+class PublishConflict(PublishBlocked):
+    """The reviewed draft or published baseline has changed."""
 
 
 # ---------------------------------------------------------------- 任务生命周期（V24 / 表 6）

@@ -3531,3 +3531,8 @@ button.validation-link { border: 0; background: none; color: var(--bad); box-sha
 .wb-summary.open-qualification { grid-template-columns:repeat(4,minmax(0,1fr)); }
 @media (max-width:900px) { .wb-summary.open-qualification { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 .review-layout.no-rule-layout { grid-template-columns:minmax(0,1fr); }
+
+#design-input-hint { margin:8px 0 0; line-height:1.6; }
+#design-recovery { margin-bottom:16px; }
+#design-recovery pre, .publish-diff li { white-space:pre-wrap; overflow-wrap:anywhere; }
+.publish-diff { border-left:3px solid var(--accent, #7160b5); padding-left:16px; }

@@ -13,6 +13,7 @@ function storage() {
 function element(value = '') {
   return {value, innerHTML: '', textContent: '', dataset: {}, disabled: false, isConnected: true,
     classList: {toggle() {}}, attributes: {}, listeners: {},
+    toggleAttribute(k, on) {this.attributes[k]=on;this.disabled=!!on;}, remove() {},
     setAttribute(k, v) {this.attributes[k] = v;}, addEventListener(k, fn) {this.listeners[k] = fn;},
     querySelectorAll() {return [];}, scrollIntoView() {this.scrolled = true;},
     insertAdjacentHTML(_, html) {this.innerHTML = html + this.innerHTML;},
@@ -30,7 +31,7 @@ function setup() {
     window: {addEventListener() {}}, location: {hash:'#/submit'}, Intl, URLSearchParams, FormData,
     setTimeout, clearTimeout, confirm: () => true, console,
     fetch: async () => {throw new Error('Unexpected request');}});
-  vm.runInContext(source + '\nthis.app = {state, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, draftFingerprint, collectDraftFields, cacheSubmissionDraft, setSubMode, refreshSlotConditions, wbMatches, api, submitDecision, saveDraft, doSubmit, uploadSlot, cacheReviewDraft, selectReviewRule, viewReview, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, submissionIssues, showSubmissionIssues, initSubChat};', context);
+  vm.runInContext(source + '\nthis.app = {state, useVersionAsBase, loadDesignVersion, cacheDesignInputs, restoreDesignInputs, recoverDesignInput, paintChat, runAgent, canPublishDesign, publishDiffHtml, publishBp, confirmPublish, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, draftFingerprint, collectDraftFields, cacheSubmissionDraft, setSubMode, refreshSlotConditions, wbMatches, api, submitDecision, saveDraft, doSubmit, uploadSlot, cacheReviewDraft, selectReviewRule, viewReview, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, submissionIssues, showSubmissionIssues, initSubChat};', context);
   Object.assign(context.app.state, {routeEpoch: 1, me:{task:{id:1, status:'collecting', timezone:'Asia/Shanghai'},subject:{id:2}},
     draftVersion:1, fileMeta:{}, sub:{mode:'chat',phase:'fields',fIdx:0, fields:[{id:'name'}],slots:[],answers:{}}});
   context.localStorage.setItem('ff_sub_token', 'test-only-credential');
@@ -448,4 +449,97 @@ test('a no-rule review shows qualification directly rather than an empty mobile 
   assert.match(els.rv.innerHTML,/独立核实资格/);
   assert.match(els.rv.innerHTML,/当前登记成员：甲、乙/);
   assert.doesNotMatch(els.rv.innerHTML,/可能尚未检查/);
+});
+
+
+function designSetup() {
+  const test=setup(), {app,els,context}=test;
+  for(const id of ['chat-in','clar-0','clar-extra','chat-scroll','design-input-hint','design-recovery','draft-state','publish-summary','publish-consent','publish-confirm','publish-error','publish-dialog'])els[id]=element();
+  els['publish-dialog'].showModal=()=>els['publish-dialog'].open=true;
+  els['publish-dialog'].close=()=>els['publish-dialog'].open=false;
+  context.localStorage.setItem('ff_org_token','test-org');
+  Object.assign(app.state,{designToken:'test-org',designOwnerId:7,designTaskId:1,taskId:1,designBaseId:10,
+    designEpoch:1,designQuestions:[{question:'截止？'}],designRenderedBase:10,bpId:10,draftStatus:'draft',
+    designDirty:false,designBlocking:[],agentBusy:false,chat:[],draft:{blueprint:{fields:[{id:'name',label:'姓名'}],slots:[],rules:[]},clarifications:[{question:'截止？'}]}});
+  return test;
+}
+function savedDesign(context) { return JSON.parse(context.sessionStorage.getItem('ff_design:7:1')); }
+function updatedDesign() { return {blueprint_version_id:11,version:2,status:'draft',draft:{blueprint:{fields:[{id:'name',label:'姓名'}],slots:[],rules:[]},clarifications:[],warnings:[]}}; }
+
+test('unsent design inputs restore by owner, task and base version and block publication', () => {
+  const {app,els,context}=designSetup(); els['chat-in'].value='未发送要求';els['clar-0'].value='11 月';
+  app.cacheDesignInputs(); assert.equal(app.canPublishDesign(),false);
+  els['chat-in'].value='';els['clar-0'].value='';app.restoreDesignInputs();
+  assert.equal(els['chat-in'].value,'未发送要求');assert.equal(els['clar-0'].value,'11 月');
+  app.state.designOwnerId=8;app.restoreDesignInputs();assert.equal(els['chat-in'].value,'');
+  app.state.designOwnerId=7;app.state.designTaskId=2;app.restoreDesignInputs();assert.equal(els['clar-0'].value,'');
+  assert.equal(savedDesign(context).versions['10'].composer,'未发送要求');
+});
+test('new blueprint does not silently inherit old clarification answers and offers explicit recovery', () => {
+  const {app,els}=designSetup();els['chat-in'].value='旧要求';els['clar-0'].value='旧答案';app.cacheDesignInputs();
+  app.state.designBaseId=11;app.state.designQuestions=[{question:'新的问题？'}];app.restoreDesignInputs();
+  assert.equal(els['chat-in'].value,'');assert.equal(els['clar-0'].value,'');
+  assert.match(els['design-recovery'].innerHTML,/旧答案/);
+  app.recoverDesignInput('10');assert.match(els['chat-in'].value,/旧要求/);assert.match(els['chat-in'].value,/截止？：旧答案/);
+  assert.equal(els['clar-0'].value,'');
+});
+test('repainting agent messages preserves partially entered clarification answers', () => {
+  const {app,els}=designSetup();els['clar-0'].value='只回答了一半';app.paintChat();
+  assert.equal(els['clar-0'].value,'只回答了一半');
+});
+test('design storage failure retains memory input and tells the user refresh is risky', () => {
+  const {app,els,context}=designSetup();context.sessionStorage.setItem=()=>{throw new Error('quota');};
+  els['chat-in'].value='内存要求';app.cacheDesignInputs();els['chat-in'].value='';app.restoreDesignInputs();
+  assert.equal(els['chat-in'].value,'内存要求');assert.equal(app.state.designCacheFailed,true);
+  assert.match(els['design-input-hint'].textContent,/刷新或关闭前请复制/);
+});
+test('successful composer request preserves clarification input it did not send', async () => {
+  const {app,els,context}=designSetup();els['chat-in'].value='新增字段';els['clar-0'].value='还没发送的答案';
+  context.fetch=async()=>response(updatedDesign());await app.runAgent('新增字段',{},'新增字段');
+  const old=savedDesign(context).versions['10'];assert.equal(old.composer,'');assert.equal(old.answers['截止？'],'还没发送的答案');
+  assert.match(els['design-recovery'].innerHTML,/还没发送的答案/);
+});
+test('successful clarification request preserves an unrelated unsent composer', async () => {
+  const {app,els,context}=designSetup();els['chat-in'].value='另外的修改';els['clar-0'].value='11 月';
+  context.fetch=async()=>response(updatedDesign());await app.runAgent('截止？：11 月',{'截止？':'11 月'},'','clarifications');
+  const old=savedDesign(context).versions['10'];assert.equal(old.composer,'另外的修改');assert.deepEqual(old.answers,{});
+  assert.match(els['design-recovery'].innerHTML,/另外的修改/);
+});
+test('failed and late design requests cannot lose edits or overwrite a new page', async () => {
+  const {app,els,context}=designSetup();els['chat-in'].value='重试要求';els['clar-0'].value='未完答案';
+  context.fetch=async()=>response({detail:'模型不可用'},503);await app.runAgent('重试要求',{},'重试要求');
+  assert.equal(els['chat-in'].value,'重试要求');assert.equal(els['clar-0'].value,'未完答案');
+  const pending=deferred();context.fetch=async()=>pending.promise;
+  const save=app.runAgent('重试要求',{},'重试要求');app.state.designEpoch++;app.state.bpId=77;els['chat-in'].value='另一页面';
+  pending.resolve(response(updatedDesign()));await save;
+  assert.equal(app.state.bpId,77);assert.equal(els['chat-in'].value,'另一页面');
+});
+test('publication diff shows removed requirements and safely escapes descriptions', () => {
+  const {app}=designSetup();const html=app.publishDiffHtml({published:{version:1,blueprint:{fields:[{id:'old',label:'<旧字段>',required:true}],slots:[],rules:[]}},
+    draft:{blueprint:{fields:[],slots:[],rules:[],eligibility_required:true}},publish_impact:{fields:{removed:['old']},eligibility_required_changed:true}});
+  assert.match(html,/相对已发布 v1/);assert.match(html,/移除字段/);assert.match(html,/&lt;旧字段&gt;/);assert.match(html,/资格前提：启用/);
+});
+test('publication submits reviewed baseline and locks the dialog after a competing publish', async () => {
+  const {app,els,context}=designSetup();const fresh={...updatedDesign(),blueprint_version_id:10,published:{id:3,version:1,blueprint:{fields:[],slots:[],rules:[]}},publish_impact:{fields:{added:['name']}}};
+  context.fetch=async()=>response(fresh);await app.publishBp(1);
+  assert.equal(els['publish-dialog'].open,true);assert.equal(app.state.publishReview.publishedId,3);
+  els['publish-consent'].checked=true;let sent;
+  context.fetch=async(_,opts)=>{sent=opts.body;return response({detail:'已发布版本已变化'},409);};await app.confirmPublish();
+  assert.equal(sent.get('expected_published_id'),'3');assert.equal(app.state.publishReview,null);
+  assert.equal(els['publish-confirm'].disabled,true);assert.match(els['publish-error'].textContent,/已变化/);
+});
+test('viewing or reusing history cannot directly publish a frozen blueprint', () => {
+  const {app}=designSetup();app.state.viewingVersion={id:3};assert.equal(app.canPublishDesign(),false);
+  app.state.viewingVersion=null;app.state.designNeedsRevision=true;assert.equal(app.canPublishDesign(),false);
+});
+
+
+test('loading historical preview locks agent edits until the version response settles', async () => {
+  const {app,context}=designSetup();const pending=deferred();let requests=0;
+  context.fetch=async()=>{requests++;return pending.promise;};
+  const loading=app.loadDesignVersion(1);assert.equal(app.state.agentBusy,true);
+  await app.runAgent('不应与读版本并发',{},'修改');assert.equal(requests,1);
+  pending.resolve(response({...updatedDesign(),blueprint_version_id:1,version:1,status:'published',source_text:'历史原始要求'}));await loading;
+  assert.equal(app.state.agentBusy,false);assert.equal(app.state.viewingVersion.id,1);assert.equal(app.canPublishDesign(),false);
+  app.useVersionAsBase();assert.equal(app.state.requirement,'历史原始要求');assert.equal(app.canPublishDesign(),false);
 });

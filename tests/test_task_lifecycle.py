@@ -223,7 +223,10 @@ def _publish_template(client, headers, task_id, template="class_report"):
                     data={"template": template}, headers=headers)
     assert r.status_code == 200, r.text
     bp_id = r.json()["blueprint_version_id"]
-    r = client.post(f"/api/tasks/{task_id}/blueprints/{bp_id}/publish", headers=headers)
+    design = client.get(f"/api/tasks/{task_id}/design", headers=headers).json()
+    baseline = (design.get("published") or {}).get("id", 0)
+    r = client.post(f"/api/tasks/{task_id}/blueprints/{bp_id}/publish", headers=headers,
+                    data={"expected_published_id": baseline})
     assert r.status_code == 200, r.text
 
 
