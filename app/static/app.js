@@ -60,6 +60,7 @@ const RESULT_BADGE = {
   unknown: '<span class="badge warn">待确认</span>',
   not_applicable: '<span class="badge">不适用</span>',
   failed: '<span class="badge bad">失败</span>',
+  manual_pending: '<span class="badge info">人工核对</span>',
 };
 const resultBadge = (r) => RESULT_BADGE[r] || esc(r);
 const METHOD_LABEL = {
@@ -97,13 +98,15 @@ const ruleCard = (r) => `
 /* ---------------------------------------------------------------- 路由 */
 function route() {
   cacheSubmissionDraft();
+  cacheReviewDraft();
   state.routeEpoch = (state.routeEpoch || 0) + 1;
   state.reviewConflict = false;
   state.reviewDraft = null;
   state.designEpoch++;
   state.agentBusy = false;
   clearTimeout(_wbTimer);
-  state.reviewData = null; state.reviewRule = null;
+  clearTimeout(_resultsTimer);
+  state.reviewData = null; state.reviewRule = null; state.reviewContext = null;
   document.querySelectorAll("dialog[open]").forEach(d => d.close());
   const h = (location.hash || "#/login").replace(/^#/, "");
   const parts = h.split("/").filter(Boolean);
@@ -141,21 +144,25 @@ function renderNav() {
   const nav = document.getElementById("nav");
   const org = !!orgToken(), sub = !!subToken();
   const parts = location.hash.replace(/^#\//, "").split("/");
-  document.getElementById("role-label").textContent = org ? "组织者" : sub ? "提交者" : "访客";
+  const submitting = parts[0] === "submit";
+  document.getElementById("role-label").textContent = submitting && sub ? "提交者" : org ? "组织者" : sub ? "提交者" : "访客";
+  document.getElementById("btn-logout").textContent = org && sub ? "退出所有身份" : "退出";
   document.getElementById("btn-logout").hidden = !org && !sub;
-  let items = org ? [["#/tasks", "我的任务", "tasks"]] : [];
+  let items = org && !submitting ? [["#/tasks", "我的任务", "tasks"]] : [];
   const taskId = /^\d+$/.test(parts[1] || "") ? Number(parts[1]) : null;
-  if (org && taskId) items.push(
+  if (org && !submitting && taskId) items.push(
     [`#/design/${taskId}`, "需求设计", "design"], [`#/roster/${taskId}`, "名单与凭证", "roster"],
     [`#/workbench/${taskId}`, "收集工作台", "workbench"], [`#/delivery/${taskId}`, "交付与归档", "delivery"]);
-  if (sub) items.push(["#/submit", "我的提交", "roster"]);
+  if (sub) items.push(["#/submit", submitting ? "我的提交" : "切换到提交者", "roster"]);
+  if (submitting && org) items.push(["#/tasks", "切换到组织者", "tasks"]);
+  const activeHash = parts[0] === "review" ? `#/workbench/${taskId}` : location.hash;
   nav.innerHTML = '<span class="nav-caption">工作空间</span>' + items.map(([href, label, ic], i) =>
-    `${i === 1 && taskId ? '<span class="nav-caption task-caption">当前任务</span>' : ''}<a href="${href}" ${location.hash === href ? 'aria-current="page"' : ''} class="${location.hash === href ? "active" : ""}">${icon(ic)}${label}</a>`).join("");
+    `${i === 1 && taskId ? '<span class="nav-caption task-caption">当前任务</span>' : ''}<a href="${href}" ${activeHash === href ? 'aria-current="page"' : ''} class="${activeHash === href ? "active" : ""}">${icon(ic)}${label}</a>`).join("");
 }
 
 function logout() {
   localStorage.removeItem(ORG_KEY); localStorage.removeItem(SUB_KEY);
-  state.chat = []; state.draft = null;
+  state.chat = []; state.draft = null; state.reviewDrafts = {}; state.reviewContext = null; state.reminder = null;
   navigate("#/login");
 }
 
@@ -703,6 +710,7 @@ const WB_BADGE = {
   "已验收": "ok", "规则通过": "ok", "规则通过（待人工验收）": "info",
 };
 function viewWorkbench(taskId) {
+  if (state.wbTaskId !== taskId) state.reminder = null;
   state.wbTaskId = taskId; state.wbFilter = state.wbFilter || "all";
   state.wbQuery = "";
   document.getElementById("app").innerHTML = `
@@ -742,18 +750,23 @@ async function refreshWorkbench() {
     if (state.wbTaskId !== taskId || epoch !== state.routeEpoch) return;
     state.wbCounts = data.counts || {};
     state.wbTask = data.task || {}; state.wbRows = data.rows || [];
+    const previous = state.reminder;
+    const content = document.getElementById("remind-content");
+    const eligible = new Set((notif.view?.targets || []).map(x => x.subject_id));
     state.reminder = {
+      ...previous,
+      draftContent: content ? content.value : previous?.draftContent,
       view: notif.view || { targets: [], exempt: [], submitted: [], overdue: [] },
       notifications: notif.notifications || [],
       created: state.reminder?.created || null,
-      selected: null,
+      selected: previous?.selected == null ? null : previous.selected.filter(id => eligible.has(id)),
     };
     paintWorkbench();
     paintReminder();
     const pending = state.wbRows.some(r => ["queued", "running", "retry_wait"].includes(r.run_status));
     clearTimeout(_wbTimer);
     if (pending) _wbTimer = setTimeout(refreshWorkbench, 3000);
-  } catch (e) { setFlash(e.message); }
+  } catch (e) { if (epoch === state.routeEpoch) setFlash(e.message); }
 }
 
 function wbMatches(r, filter) {
@@ -809,7 +822,7 @@ function paintWorkbench() {
         ...(b.unknown || []).map(x => `<span class="badge warn">待确认 ${esc(x)}</span>`),
         ...(b.human || []).map(x => `<span class="badge info">人工 ${esc(x)}</span>`),
         ...(b.incomplete || []).map(x => `<span class="badge bad">失败 ${esc(x)}</span>`),
-        ...(b.pending_jobs || []).map(x => `<span class="badge info">${esc(x)}</span>`),
+        ...(b.pending_jobs || []).map(x => `<span class="badge info">${esc(RUN_LABEL[x] || x)}</span>`),
       ].join("");
       const canRetry = !ro && r.run_status === "failed";
       return `<article class="wb-row">
@@ -830,6 +843,8 @@ function paintReminder() {
   const box = document.getElementById("remind-body"), badge = document.getElementById("remind-count");
   const rem = state.reminder; if (!box || !rem) return;
   const v = rem.view, targets = v.targets || [];
+  const currentContent = document.getElementById("remind-content");
+  if (currentContent) rem.draftContent = currentContent.value;
   if (badge) badge.textContent = `可催交 ${targets.length}`;
   const selected = rem.selected === null ? targets.map(x => x.subject_id) : rem.selected;
   const chosen = new Set(selected);
@@ -840,6 +855,7 @@ function paintReminder() {
     ...(v.exempt || []).map(x => `${esc(x.name)}（免交）`),
   ];
   const created = rem.created;
+  const focus = captureTextFocus(["remind-content"]);
   box.innerHTML = `
     <div class="remind-groups">
       <div class="remind-stat"><b>${targets.length}</b><span>可催交</span></div>
@@ -850,10 +866,11 @@ function paintReminder() {
     ${targets.length ? `<div class="target-list" role="group" aria-label="选择催交对象">${chips}</div>` : `<p class="muted">当前没有可催交对象：已提交、免交或已过首次截止的主体不再催交。</p>`}
     ${muted.length ? `<details class="remind-muted"><summary>不催交的 ${muted.length} 位</summary><p>${muted.join('、')}</p></details>` : ""}
     ${targets.length ? `<label for="remind-content">通知内容</label>
-      <textarea id="remind-content" placeholder="例如：请在本周五 18:00 前完成提交，材料要求见任务说明。">${esc(rem.draftContent || defaultRemindText())}</textarea>
+      <textarea id="remind-content" placeholder="例如：请在本周五 18:00 前完成提交，材料要求见任务说明。">${esc(rem.draftContent ?? defaultRemindText())}</textarea>
       <button class="sm" onclick="createReminder()" ${chosen.size ? "" : "disabled"}>生成催交通知（${chosen.size} 人）</button>` : ""}
     ${created ? `<div class="remind-created"><div class="eyebrow">READY TO COPY</div><p class="remind-content-text">${esc(created.content)}</p><div class="target-tags">${(created.targets || []).map(x => `<span class="pill">${esc(x.name)}</span>`).join("")}</div><div class="row-actions"><button class="sm" onclick="copyReminder(${created.id})">复制并标记已复制</button><span class="muted" id="remind-copy-state">${created.status === "copied" ? "已复制" : "尚未复制"}</span></div></div>` : ""}
     ${(rem.notifications || []).length ? `<details class="remind-history"><summary>历史通知意图（${rem.notifications.length}）</summary>${rem.notifications.map(n => `<div class="remind-history-row"><span class="badge ${n.status === "copied" ? "ok" : ""}">${n.status === "copied" ? "已复制" : "待复制"}</span><span>${(n.targets || []).length} 人 · ${esc(fmtTime(n.created_at))}</span><p>${esc(n.content)}</p></div>`).join("")}</details>` : ""}`;
+  restoreTextFocus(focus);
 }
 function defaultRemindText() {
   const t = state.wbTask || {};
@@ -952,9 +969,34 @@ async function retryCheck(taskId, sid, back) {
 }
 
 /* ---------------------------------------------------------------- P03 证据复核 */
+const RUN_LABEL = {queued: "排队中", running: "检查中", retry_wait: "等待重试", success: "检查完成", failed: "检查失败"};
+const DECISION_LABEL = {confirm_issue: "确认问题", correct_false_positive: "纠正误报",
+  approve_exception: "批准例外", exempt: "免交", accept_current: "验收本版本", revoke: "撤销决定"};
+const severityLabel = value => ({blocking: "阻塞验收", advisory: "提醒项"}[value] || value || "未标级别");
+// Background refreshes must not move the cursor while someone is writing.
+function captureTextFocus(ids) {
+  const el = document.activeElement;
+  return el && ids.includes(el.id) ? {id: el.id, start: el.selectionStart, end: el.selectionEnd} : null;
+}
+function restoreTextFocus(saved) {
+  const el = saved && document.getElementById(saved.id);
+  if (!el) return;
+  el.focus({preventScroll: true});
+  if (typeof saved.start === "number") el.setSelectionRange(saved.start, saved.end);
+}
+function cacheReviewDraft() {
+  if (!state.reviewContext || !document.getElementById("dc-reason")) return;
+  state.reviewDrafts ||= {};
+  const draft = state.reviewDrafts[state.reviewContext] ||= {rules: {}};
+  draft.rules[state.reviewRule || ""] = Object.fromEntries(["dc-type", "dc-rule", "dc-exp", "dc-reason"]
+    .map(id => [id, document.getElementById(id)?.value || ""]));
+  draft.acceptanceReason = document.getElementById("acceptance-reason")?.value || "";
+}
 async function viewReview(taskId, sid) {
-  const epoch = state.routeEpoch;
-  state.reviewDraft = null; state.reviewConflict = false;
+  cacheReviewDraft();
+  const epoch = state.routeEpoch, requestId = (state.reviewRequestId || 0) + 1;
+  state.reviewRequestId = requestId;
+  state.reviewConflict = false;
   document.getElementById("app").innerHTML = `
     <div class="breadcrumb"><a href="#/tasks">我的任务</a><span>/</span><a href="#/workbench/${taskId}">收集工作台</a><span>/</span><span id="rv-name">证据复核</span></div>
     <div class="page-heading"><div><div class="eyebrow">EVIDENCE REVIEW</div><h1>逐条核对证据<span class="heading-dot">.</span></h1><p>每处判断都附原文位置。解释不改变机器结论，最终由你决定。</p></div><div id="review-retry"></div></div>
@@ -962,51 +1004,58 @@ async function viewReview(taskId, sid) {
     <div id="rv"><p class="empty">正在读取检查结果…</p></div>`;
   try {
     const d = await api(`/api/tasks/${taskId}/subjects/${sid}/findings`);
-    if (epoch !== state.routeEpoch) return;
-    state.reviewData = d; state.reviewRule = state.reviewRule || null;
+    if (epoch !== state.routeEpoch || requestId !== state.reviewRequestId) return;
+    const context = `${taskId}:${sid}:${d.revision?.id || 0}`;
+    if (context !== state.reviewContext) state.reviewRule = null;
+    state.reviewContext = context;
+    state.reviewData = d;
     document.getElementById("rv-name").textContent = d.subject.name;
     paintReview(taskId, sid);
-  } catch (e) { setFlash(e.message); }
+    return true;
+  } catch (e) {
+    if (epoch === state.routeEpoch && requestId === state.reviewRequestId) setFlash(e.message);
+    return false;
+  }
 }
 
 function paintReview(taskId, sid) {
   const d = state.reviewData; if (!d) return;
-  if (document.getElementById("dc-reason")) {
-    state.reviewDraft = Object.fromEntries(["dc-type", "dc-rule", "dc-exp", "dc-reason"]
-      .map(id => [id, document.getElementById(id).value]));
-  }
-  const rules = d.rules || [];
-  if (!state.reviewRule && rules.length) state.reviewRule = rules.find(r => r.result !== "satisfied" && r.result !== "not_applicable")?.rule_id || rules[0].rule_id;
+  const rules = [...(d.rules || [])].sort((a, b) => {
+    const priority = r => r.decision ? 2 : ["satisfied", "not_applicable"].includes(r.result) ? 1 : 0;
+    return priority(a) - priority(b);
+  });
+  if (!rules.some(r => r.rule_id === state.reviewRule)) state.reviewRule = rules[0]?.rule_id || null;
   const active = rules.find(r => r.rule_id === state.reviewRule) || null;
   const run = d.run, notes = d.notes || [];
   const retry = document.getElementById("review-retry");
   if (retry) retry.innerHTML = run && run.status === "failed"
     ? `<button class="ghost" onclick="retryCheck(${taskId},${sid},'review')" title="上次检查技术失败：重试生成新运行，旧运行标记被取代并保留">${icon("arrow")} 重试检查</button>` : "";
 
-  const counts = { issue: 0, unknown: 0, failed: 0, satisfied: 0 };
-  rules.forEach(r => { if (r.result === "issue") counts.issue++; else if (r.result === "unknown") counts.unknown++; else if (r.result === "failed") counts.failed++; else if (r.result === "satisfied") counts.satisfied++; });
+  const counts = { issue: 0, unknown: 0, failed: 0, satisfied: 0, manual: 0 };
+  rules.forEach(r => { if (r.decision) return; if (r.result === "manual_pending") counts.manual++; if (r.result === "issue") counts.issue++; else if (r.result === "unknown") counts.unknown++; else if (r.result === "failed") counts.failed++; else if (r.result === "satisfied") counts.satisfied++; });
   const cov = run && run.coverage ? run.coverage : null;
   const gap = cov ? (cov.unread_pages || 0) + (cov.failed_pages || 0) : 0;
 
   const meta = `<section class="review-summary card">
-    <div class="review-subject"><span class="wb-avatar">${esc((d.subject.name || "?").slice(0, 1))}</span><div><h2>${esc(d.subject.name)}</h2><span>主体 #${d.subject.id}${d.revision ? ` · 当前版本 v${d.revision.version} · 回执 ${esc(d.revision.receipt)}` : ""}${run ? ` · 运行 #${run.id}（${esc(run.status)}）` : ""}</span></div></div>
-    <div class="review-metrics">${[["问题", counts.issue, "bad"], ["待确认", counts.unknown, "warn"], ["失败", counts.failed, "bad"], ["满足", counts.satisfied, "ok"]].map(([l, n, c]) => `<div class="review-metric"><strong class="${c}">${n}</strong><span>${l}</span></div>`).join("")}</div>
+    <div class="review-subject"><span class="wb-avatar">${esc((d.subject.name || "?").slice(0, 1))}</span><div><h2>${esc(d.subject.name)}</h2><span>主体 #${d.subject.id}${d.revision ? ` · 当前版本 v${d.revision.version} · 回执 ${esc(d.revision.receipt)}` : ""}${run ? ` · 运行 #${run.id}（${esc(RUN_LABEL[run.status] || run.status)}）` : ""}</span></div></div>
+    <div class="review-metrics">${[["问题", counts.issue, "bad"], ["待人工核对", counts.unknown + counts.manual, "warn"], ["失败", counts.failed, "bad"], ["满足", counts.satisfied, "ok"]].map(([l, n, c]) => `<div class="review-metric"><strong class="${c}">${n}</strong><span>${l}</span></div>`).join("")}</div>
     ${gap ? `<div class="notice-warn">材料共 ${gap} 页未能读取。这些页不构成「确认缺失」，相关规则按待确认处理；请让提交者补充清晰材料，或人工核对。</div>` : ""}
   </section>`;
 
   const list = rules.length ? `<div class="review-rules" role="list">${rules.map(r => {
     const on = r.rule_id === state.reviewRule;
-    return `<button role="listitem" class="review-rule-item ${on ? "on" : ""}" aria-current="${on}" onclick="selectReviewRule('${esc(r.rule_id)}',${taskId},${sid})">
+    return `<button class="review-rule-item ${on ? "on" : ""}" aria-current="${on}" data-review-rule="${esc(r.rule_id)}">
       <span class="review-rule-id">${esc(r.rule_id)}</span>
       <span class="review-rule-text">${esc((r.requirement && r.requirement.statement) || r.explanation || r.rule_id)}</span>
-      <span class="review-rule-side">${resultBadge(r.result)}<span class="badge">${esc(r.severity || "")}</span></span>
+      <span class="review-rule-side">${r.decision ? '<span class="badge info">已有人工决定</span>' : resultBadge(r.result)}<span class="badge">${esc(severityLabel(r.severity))}</span></span>
     </button>`;
   }).join("")}</div>` : `<div class="empty-state"><div class="empty-icon">${icon("workbench")}</div><h3>暂无规则结果</h3><p>可能尚未检查。回到工作台发起检查，或稍后刷新。</p><p><a class="ghost sm" href="#/workbench/${taskId}">返回工作台</a></p></div>`;
 
   const evidence = active ? `
     <article class="evidence-detail">
       <header><div><span class="eyebrow">RULE ${esc(active.rule_id)}</span><h2>${esc((active.requirement && active.requirement.statement) || active.rule_id)}</h2></div>${resultBadge(active.result)}</header>
-      <div class="evidence-meta">${(active.requirement && active.requirement.executor) ? `<span class="badge">${esc(EXECUTOR_LABEL[active.requirement.executor] || active.requirement.executor)}</span>` : ""}${(active.requirement && active.requirement.capability) ? (CAP_BADGE[active.requirement.capability] || "") : ""}<span class="badge">${esc(active.severity || "未标级别")}</span>${(active.requirement && active.requirement.requirement_source) ? `<span class="source-quote">来源：${esc(active.requirement.requirement_source)}</span>` : ""}</div>
+      <div class="evidence-meta">${(active.requirement && active.requirement.executor) ? `<span class="badge">${esc(EXECUTOR_LABEL[active.requirement.executor] || active.requirement.executor)}</span>` : ""}${(active.requirement && active.requirement.capability) ? (CAP_BADGE[active.requirement.capability] || "") : ""}<span class="badge">${esc(severityLabel(active.severity))}</span>${(active.requirement && active.requirement.requirement_source) ? `<span class="source-quote">来源：${esc(active.requirement.requirement_source)}</span>` : ""}</div>
+      ${active.decision ? `<div class="notice-warn"><b>${esc(DECISION_LABEL[active.decision.decision] || active.decision.decision)}</b><p>${esc(active.decision.reason)}</p><span class="muted">人工决定不改写原始检查结果；撤销后可重新核对。</span></div>` : ""}
       ${active.explanation ? `<p class="evidence-explanation">${esc(active.explanation)}</p>` : ""}
       ${(active.evidence || []).length ? `<div class="evidence-list">${active.evidence.map(e => `<blockquote class="evidence"><span class="evidence-loc">${esc(e.locator || "未标注位置")} · ${esc(e.method || "-")}</span>${esc(e.quote || "")}</blockquote>`).join("")}</div>` : `<p class="muted">这条规则没有可引用的原文证据。</p>`}
       ${active.next_step ? `<div class="evidence-next"><b>下一步</b><p>${esc(active.next_step)}</p></div>` : ""}
@@ -1019,19 +1068,26 @@ function paintReview(taskId, sid) {
         <option value="confirm_issue">确认问题</option>
         <option value="correct_false_positive">纠正误报</option>
         <option value="approve_exception">批准例外</option>
-        <option value="exempt">免交</option>
-        <option value="accept_current">验收当前版本</option></select></div>
-        <div><label for="dc-rule">作用域规则（可空）</label><input id="dc-rule" value="${esc(active ? active.rule_id : "")}" placeholder="rule_id"></div></div>
+        <option value="exempt">主体免交（不等于验收）</option></select></div>
+        <div><label for="dc-rule">当前规则 · 决定不扩大到其他项</label><input id="dc-rule" value="${esc(active ? active.rule_id : "")}" readonly></div></div>
       <label for="dc-exp">过期时间（可空，ISO）</label><input id="dc-exp" placeholder="2026-12-31T23:59:59+08:00">
       <label for="dc-reason">理由（必填）</label><textarea id="dc-reason" placeholder="为什么这样做决定；提交者解释会显示在上方"></textarea>
+      <p class="muted">切换规则或页面会暂存理由；浏览器刷新或关闭后不保留。</p>
       <div id="review-conflict" role="alert"></div>
       <button id="decision-submit" ${state.reviewConflict ? "disabled" : ""} onclick="submitDecision(${taskId},${sid})">提交决定 ${icon("arrow")}</button>
     </div>
     <div class="decision-history"><h3>决定历史</h3>
-      ${(d.decisions || []).map(x => `<div class="decision-row"><div><span class="badge ${x.revoked ? "" : "info"}">${esc(x.decision)}${x.revoked ? "（已撤销）" : ""}</span><span class="muted">${x.scope_rule_id ? "规则 " + esc(x.scope_rule_id) + " · " : ""}${esc(fmtTime(x.created_at))}</span></div><p>${esc(x.reason)}</p>${x.revoked ? "" : `<button class="link" onclick="revokeDecision(${taskId},${sid},${x.id})">撤销</button>`}</div>`).join("") || `<p class="muted">还没有人工决定。</p>`}
+      ${(d.decisions || []).map(x => `<div class="decision-row"><div><span class="badge ${x.revoked ? "" : "info"}">${esc(DECISION_LABEL[x.decision] || x.decision)}${x.revoked ? "（已撤销）" : x.expires_at && Date.parse(x.expires_at) <= Date.now() ? "（已过期）" : ""}</span><span class="muted">${x.revision_id ? (x.revision_id === d.revision?.id ? "本版本" : "历史版本（修订 #" + x.revision_id + "）") : "名单级"} · ${x.scope_rule_id ? "规则 " + esc(x.scope_rule_id) + " · " : ""}${esc(fmtTime(x.created_at))}</span></div><p>${esc(x.reason)}</p>${x.revoked ? "" : `<button class="link" onclick="revokeDecision(${taskId},${sid},${x.id})">撤销</button>`}</div>`).join("") || `<p class="muted">还没有人工决定。</p>`}
     </div>
   </section>`;
 
+  const acceptance = d.acceptance || {ready: false, blockers: ["请刷新复核状态"]};
+  const acceptPanel = `<section class="card acceptance-panel" aria-label="验收本版本">
+    <h2>${acceptance.accepted ? "本版本已验收" : "验收本版本"}</h2>
+    <p>验收只针对${d.revision ? ` v${d.revision.version}` : "当前版本"}，不豁免尚未处置的规则，也不自动验收后续补交。</p>
+    ${acceptance.blockers.length ? `<div class="notice-warn"><b>验收前还需处理</b><ul>${acceptance.blockers.map(x => `<li>${esc(x)}</li>`).join("")}</ul></div>` : ""}
+    ${acceptance.accepted ? '<span class="badge ok">已记录验收决定</span>' : `<label for="acceptance-reason">验收依据（必填）</label><textarea id="acceptance-reason" placeholder="核对了哪些材料，为什么可以验收"></textarea><button id="acceptance-submit" ${!acceptance.ready || state.reviewConflict ? "disabled" : ""} onclick="submitDecision(${taskId},${sid},'accept_current')">确认验收${d.revision ? ` v${d.revision.version}` : "本版本"}</button>`}
+  </section>`;
   const notesHtml = notes.length ? `<section class="card notes-panel"><div class="section-heading"><div><div class="eyebrow">FROM SUBMITTER</div><h2>提交者解释 / 申诉</h2></div><span class="badge warn">${notes.filter(n => !n.handled).length} 项待处理</span></div>
     ${notes.map(n => `<div class="note-row"><div><b>${esc(n.rule_id || "整体提交")}</b><span class="badge ${n.handled ? "ok" : "warn"}">${n.handled ? "已处理" : "待处理"}</span><span class="muted">${esc(fmtTime(n.created_at))}</span></div><p>${esc(n.content)}</p></div>`).join("")}
     <p class="muted">解释不改变机器结论；请核对原文后再做决定，可确认问题、纠正误报或批准有范围的例外。</p></section>` : "";
@@ -1040,10 +1096,14 @@ function paintReview(taskId, sid) {
   const covHtml = coverageCard(run);
 
   document.getElementById("rv").innerHTML = `${meta}${sameName}
-    <div class="review-layout"><div class="review-list-col">${list}</div><div class="review-detail-col">${evidence}${notesHtml}${decision}${covHtml}</div></div>`;
-  if (state.reviewDraft) Object.entries(state.reviewDraft).forEach(([id, value]) => {
+    <div class="review-layout"><div class="review-list-col">${list}</div><div class="review-detail-col">${evidence}${notesHtml}${decision}${acceptPanel}${covHtml}</div></div>`;
+  document.querySelectorAll("[data-review-rule]").forEach(el => el.addEventListener("click", () =>
+    selectReviewRule(el.dataset.reviewRule, taskId, sid)));
+  const draft = state.reviewDrafts?.[state.reviewContext];
+  if (draft?.rules[state.reviewRule || ""]) Object.entries(draft.rules[state.reviewRule || ""]).forEach(([id, value]) => {
     const el = document.getElementById(id); if (el) el.value = value;
   });
+  if (document.getElementById("acceptance-reason")) document.getElementById("acceptance-reason").value = draft?.acceptanceReason || "";
   if (!d.revision) {
     document.querySelectorAll("#dc-type option").forEach(o => { o.disabled = o.value !== "exempt"; });
     document.getElementById("dc-type").value = "exempt";
@@ -1051,54 +1111,72 @@ function paintReview(taskId, sid) {
   if (state.reviewConflict) showReviewConflict(taskId, sid);
 }
 function selectReviewRule(ruleId, taskId, sid) {
+  if (state.deciding) return;
+  cacheReviewDraft();
   state.reviewRule = ruleId;
   paintReview(taskId, sid);
   const box = document.querySelector(".review-layout"); if (box) box.scrollIntoView({block: "nearest"});
 }
 function showReviewConflict(taskId, sid) {
   document.getElementById("decision-submit").disabled = true;
+  if (document.getElementById("acceptance-submit")) document.getElementById("acceptance-submit").disabled = true;
   document.getElementById("review-conflict").innerHTML = `<div class="notice-warn">提交版本已变化，决定未保存。下方理由与当前证据已保留；请先核对新版本。<button class="ghost sm" onclick="refreshReview(${taskId},${sid})">刷新并核对最新版本</button></div>`;
 }
 async function refreshReview(taskId, sid) {
-  if (document.getElementById("dc-reason")?.value.trim() &&
-      !confirm("刷新将清空尚未提交的决定。请先复制需要保留的理由，再核对最新版本。")) return;
-  await viewReview(taskId, sid);
-}
-async function submitDecision(taskId, sid) {
-  if (state.reviewConflict || state.deciding) return;
+  cacheReviewDraft();
   const epoch = state.routeEpoch;
+  if (await viewReview(taskId, sid) && epoch === state.routeEpoch)
+    setFlash("已核对最新版本。旧理由按原版本暂存在本标签页，不自动套用到新版本。", "ok");
+}
+async function submitDecision(taskId, sid, action = null) {
+  if (state.reviewConflict || state.deciding) return;
+  const epoch = state.routeEpoch, context = state.reviewContext, requestId = state.reviewRequestId;
+  const isCurrent = () => epoch === state.routeEpoch && context === state.reviewContext && requestId === state.reviewRequestId;
   state.deciding = true;
-  const btn = document.getElementById("decision-submit"); btn.disabled = true;
+  const controls = [...document.querySelectorAll("#rv button, #rv input, #rv textarea, #rv select")]
+    .map(el => ({el, disabled: el.disabled}));
+  controls.forEach(({el}) => { el.disabled = true; });
+  const btn = document.getElementById(action === "accept_current" ? "acceptance-submit" : "decision-submit"); btn.disabled = true;
   try {
     const form = {
-      decision: document.getElementById("dc-type").value,
-      reason: document.getElementById("dc-reason").value.trim(),
-      scope_rule_id: document.getElementById("dc-rule").value.trim(),
+      decision: action || document.getElementById("dc-type").value,
+      reason: document.getElementById(action === "accept_current" ? "acceptance-reason" : "dc-reason").value.trim(),
+      scope_rule_id: action === "accept_current" || document.getElementById("dc-type").value === "exempt" ? "" : document.getElementById("dc-rule").value.trim(),
       expected_current_revision: state.reviewData?.revision?.id || 0,
     };
     const exp = document.getElementById("dc-exp").value.trim();
-    if (exp) form.expires_at = exp;
+    if (exp && !action) form.expires_at = exp;
+    if (!form.reason) throw new Error("请先填写决定理由或验收依据");
+    if (form.decision === "exempt" && !confirm("免交作用于整个主体，会移出应交和催交名单，但不代表材料已验收。确认免交？")) return;
     await api(`/api/tasks/${taskId}/subjects/${sid}/decisions`, { method: "POST", form });
-    if (epoch !== state.routeEpoch) return;
-    await viewReview(taskId, sid);
-    setFlash("决定已记录", "ok");
+    if (!isCurrent()) return;
+    document.getElementById(action === "accept_current" ? "acceptance-reason" : "dc-reason").value = "";
+    if (await viewReview(taskId, sid) && epoch === state.routeEpoch)
+      setFlash(action === "accept_current" ? "本版本已验收" : "决定已记录", "ok");
   } catch (e) {
-    if (epoch !== state.routeEpoch) return;
+    if (!isCurrent()) return;
     if (e.status === 409) { state.reviewConflict = true; showReviewConflict(taskId, sid); }
     else setFlash(e.message);
   } finally {
     state.deciding = false;
-    if (epoch === state.routeEpoch && !state.reviewConflict && btn.isConnected) btn.disabled = false;
+    if (epoch === state.routeEpoch) {
+      controls.forEach(({el, disabled}) => { if (el.isConnected) el.disabled = disabled; });
+      if (btn.isConnected) btn.disabled = state.reviewConflict;
+      if (state.reviewConflict) showReviewConflict(taskId, sid);
+    }
   }
 }
 async function revokeDecision(taskId, sid, did) {
-  await guard(async () => {
-    const reason = prompt("撤销理由（必填）：");
-    if (!reason) return;
+  if (state.deciding) return;
+  const epoch = state.routeEpoch, context = state.reviewContext;
+  const isCurrent = () => epoch === state.routeEpoch && context === state.reviewContext;
+  const reason = prompt("撤销理由（必填）：");
+  if (!reason) return;
+  try {
     await api(`/api/tasks/${taskId}/subjects/${sid}/decisions/${did}/revoke`,
               { method: "POST", form: { reason } });
-    await viewReview(taskId, sid);
-  });
+    if (isCurrent()) await viewReview(taskId, sid);
+  } catch (e) { if (isCurrent()) setFlash(e.message); }
 }
 
 /* ---------------------------------------------------------------- P04 提交空间 */
@@ -1328,7 +1406,7 @@ async function viewSubmit() {
         <div class="submit-layout">
           <section class="card submit-form-card">
             <div class="submit-card-head"><div><div class="eyebrow">FORM</div><h2>填写与上传</h2></div>
-              <div class="tabs" role="tablist" aria-label="填写方式"><button role="tab" id="submode-chat" onclick="setSubMode('chat')" ${ro ? "disabled" : ""}>✧ 逐步填写</button><button role="tab" id="submode-form" onclick="setSubMode('form')">表单填写</button></div></div>
+              <div class="tabs" role="tablist" aria-label="填写方式"><button role="tab" id="submode-form" onclick="setSubMode('form')">完整表单</button><button role="tab" id="submode-chat" onclick="setSubMode('chat')" ${ro ? "disabled" : ""}>需要帮助？逐步填写</button></div></div>
             <div class="card" id="sub-chat-card">
               <div class="step-flow"><span class="st on" id="sub-st-1"><span class="dot">1</span>登记信息</span><span class="arw"></span><span class="st" id="sub-st-2"><span class="dot">2</span>上传材料</span><span class="arw"></span><span class="st" id="sub-st-3"><span class="dot">3</span>核对提交</span></div>
               <div class="chat"><div class="chat-scroll" id="sub-chat-scroll"></div></div>
@@ -1382,7 +1460,7 @@ async function viewSubmit() {
       }));
     refreshSlotConditions(slots);
     initSubChat(fields, slots, ro, me.subject.name, draft.fields || {});
-    setSubMode(ro ? "form" : "chat");
+    setSubMode("form");
     if (local) {
       document.getElementById("draft-hint").textContent = localConflict
         ? "服务端已有更新，已保留本地填写；请先核对，旧版本保存会被拦截。"
@@ -1500,19 +1578,24 @@ async function doSubmit() {
     }, current);
   } finally { state.submitting = false; }
 }
+let _resultsTimer = 0;
 async function loadMyResults() {
+  clearTimeout(_resultsTimer);
   const epoch = state.routeEpoch, token = subToken();
+  const requestId = (state.resultsRequestId || 0) + 1;
+  state.resultsRequestId = requestId;
   try {
     const r = await api("/api/me/results", { sub: true });
-    if (epoch !== state.routeEpoch || token !== subToken()) return;
+    if (epoch !== state.routeEpoch || token !== subToken() || requestId !== state.resultsRequestId) return;
     const b = r.buckets || {};
     let html = `
       <p>状态：<b>${esc(r.summary)}</b>${r.revision ? `（v${r.revision}）` : ""}</p>
       <p>${[
         ...(b.blocking || []).map(x => `<span class="badge bad">阻塞:${esc(x)}</span>`),
-        ...(b.unknown || []).map(x => `<span class="badge warn">unknown:${esc(x)}</span>`),
+        ...(b.unknown || []).map(x => `<span class="badge warn">待确认:${esc(x)}</span>`),
         ...(b.human || []).map(x => `<span class="badge info">人工:${esc(x)}</span>`),
         ...(b.incomplete || []).map(x => `<span class="badge bad">失败:${esc(x)}</span>`),
+        ...(b.pending_jobs || []).map(x => `<span class="badge info">${esc(RUN_LABEL[x] || x)}</span>`),
       ].join("") || '<span class="muted">暂无待办</span>'}</p>`;
     // 覆盖缺口：读不到的页不能算缺失，必须显式告知提交者
     const cov = r.coverage || {};
@@ -1564,18 +1647,39 @@ async function loadMyResults() {
             `<button class="link" onclick="withdrawAppeal(${a.id})">撤回</button>` : ""}</p>`).join("")}
       </div>`;
     }
-    document.getElementById("my-results").innerHTML = html;
-  } catch (e) { /* 结果加载失败不打断页面 */ }
+    const box = document.getElementById("my-results"); if (!box) return;
+    const reason = document.getElementById("ap-content")?.value || "";
+    const rule = document.getElementById("ap-rule")?.value || "";
+    const focus = captureTextFocus(["ap-content"]);
+    box.innerHTML = html;
+    if (document.getElementById("ap-content")) document.getElementById("ap-content").value = reason;
+    if (document.getElementById("ap-rule")) document.getElementById("ap-rule").value = rule;
+    restoreTextFocus(focus);
+    if ((b.pending_jobs || []).length || ["queued", "running", "retry_wait"].includes(r.run_status)) {
+      _resultsTimer = setTimeout(loadMyResults, 3000);
+    }
+  } catch (e) {
+    if (epoch !== state.routeEpoch || token !== subToken() || requestId !== state.resultsRequestId) return;
+    const box = document.getElementById("my-results");
+    if (box) {
+      const notice = `<div class="notice-warn" id="results-load-error">检查结果暂时无法更新，已有回执和填写不受影响。<button class="ghost sm" onclick="loadMyResults()">重试加载结果</button></div>`;
+      if (!document.getElementById("results-load-error")) box.insertAdjacentHTML("afterbegin", notice);
+    }
+  }
 }
 
 async function submitAppeal() {
   await guard(async () => {
+    const epoch = state.routeEpoch, token = subToken();
     const ruleId = document.getElementById("ap-rule").value;
     const content = document.getElementById("ap-content").value.trim();
     if (!content) throw new Error("解释/复核理由不能为空");
     const key = "web-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8);
     const r = await api("/api/me/appeals", { method: "POST", sub: true,
       json: { rule_id: ruleId, content, idempotency_key: key } });
+    if (epoch !== state.routeEpoch || token !== subToken()) return;
+    const input = document.getElementById("ap-content");
+    if (input && input.value.trim() === content) input.value = "";
     setFlash(`已提交解释 #${r.note_id}（待组织者处理）；`
       + `解释不改变机器结论`, "ok");
     await loadMyResults();
@@ -1808,10 +1912,7 @@ function subDoneCard() {
     ${state.sub.slots.length ? `<table style="margin-top:8px"><tr><th>材料</th><th>状态</th></tr>${files}</table>` : ""}
     ${missing.length ? `<div class="flash err" style="margin-top:8px">还有必交材料没上传：${esc(missing.map(s => s.label).join("、"))}。
       传好后（或到表单区上传）再提交；未传齐就提交会被系统拦下。</div>` : ""}
-    <div class="row" style="margin-top:8px">
-      <button class="sm" onclick="saveDraft()">保存草稿</button>
-      <button onclick="doSubmit()">正式提交并检查</button>
-    </div>
+    <p class="mini">请在下方统一操作区保存草稿或正式提交，避免重复提交。</p>
     <div class="mini">提交成功会拿到稳定回执；检查结果出来后，我会在这里告诉你要不要改、怎么改。</div>
   </div></div>`;
 }

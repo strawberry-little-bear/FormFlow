@@ -12,11 +12,14 @@ function storage() {
 }
 function element(value = '') {
   return {value, innerHTML: '', textContent: '', dataset: {}, disabled: false, isConnected: true,
-    classList: {toggle() {}}, setAttribute() {}, addEventListener() {}};
+    classList: {toggle() {}}, setAttribute() {}, addEventListener() {},
+    insertAdjacentHTML(_, html) {this.innerHTML = html + this.innerHTML;},
+    focus() {this.focused = true;}, setSelectionRange(start, end) {this.selectionStart = start; this.selectionEnd = end;}};
 }
 function setup() {
   const els = Object.fromEntries(['sub', 'draft-hint', 'flash', 'receipt-out', 'decision-submit',
-    'review-conflict', 'dc-type', 'dc-rule', 'dc-reason', 'dc-exp'].map(id => [id, element()]));
+    'review-conflict', 'dc-type', 'dc-rule', 'dc-reason', 'dc-exp', 'acceptance-reason', 'acceptance-submit',
+    'app', 'rv', 'rv-name', 'my-results', 'nav', 'role-label', 'btn-logout'].map(id => [id, element()]));
   const fields = [Object.assign(element('old'), {dataset: {field:'name'}})];
   const document = {getElementById: id => els[id] || null,
     querySelectorAll: sel => sel === '[data-field]' ? fields : [], querySelector: () => null};
@@ -24,7 +27,7 @@ function setup() {
     window: {addEventListener() {}}, location: {hash:'#/submit'}, Intl, URLSearchParams, FormData,
     setTimeout, clearTimeout, confirm: () => true, console,
     fetch: async () => {throw new Error('Unexpected request');}});
-  vm.runInContext(source + '\nthis.app = {state, fmtTime, draftFingerprint, collectDraftFields, cacheSubmissionDraft, setSubMode, refreshSlotConditions, wbMatches, api, submitDecision, saveDraft, doSubmit, uploadSlot};', context);
+  vm.runInContext(source + '\nthis.app = {state, fmtTime, draftFingerprint, collectDraftFields, cacheSubmissionDraft, setSubMode, refreshSlotConditions, wbMatches, api, submitDecision, saveDraft, doSubmit, uploadSlot, cacheReviewDraft, selectReviewRule, viewReview, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder};', context);
   Object.assign(context.app.state, {routeEpoch: 1, me:{task:{id:1, status:'collecting', timezone:'Asia/Shanghai'},subject:{id:2}},
     draftVersion:1, fileMeta:{}, sub:{mode:'chat',phase:'fields',fIdx:0, fields:[{id:'name'}],slots:[],answers:{}}});
   context.localStorage.setItem('ff_sub_token', 'test-only-credential');
@@ -125,4 +128,95 @@ test('storage failure retains an in-memory route cache and warns on reload risk'
   const {app,context} = setup(); context.sessionStorage.setItem=()=>{throw new Error('full');};
   app.cacheSubmissionDraft();assert.equal(app.state.cacheFailed,true);
   assert.equal(JSON.parse(app.state.localDrafts['ff_draft:1:2']).fields.name,'old');
+});
+
+test('review reasons are isolated by rule, subject and formal revision', () => {
+  const {app,els} = setup();
+  app.state.reviewData = {subject:{id:2,name:'A'},revision:{id:41,version:1},rules:[
+    {rule_id:'A',result:'manual_pending'}, {rule_id:'B',result:'unknown'}],acceptance:{ready:false,blockers:[]}};
+  app.state.reviewContext='1:2:41';app.state.reviewRule='A';
+  els['dc-reason'].value='only A';els['acceptance-reason'].value='separate acceptance';
+  app.selectReviewRule('B',1,2);els['dc-reason'].value='only B';
+  app.selectReviewRule('A',1,2);
+  assert.equal(els['dc-reason'].value,'only A');
+  assert.equal(els['acceptance-reason'].value,'separate acceptance');
+  assert.equal(app.state.reviewDrafts['1:2:41'].rules.B['dc-reason'],'only B');
+  app.state.reviewContext='1:3:42';app.state.reviewRule='A';els['dc-reason'].value='other subject';
+  app.cacheReviewDraft();
+  assert.equal(app.state.reviewDrafts['1:2:41'].rules.A['dc-reason'],'only A');
+  assert.equal(app.state.reviewDrafts['1:3:42'].rules.A['dc-reason'],'other subject');
+});
+test('acceptance has its own reason, no rule scope or rule expiry, and locks on conflict', async () => {
+  const {app,context,els} = setup();app.state.reviewData={revision:{id:41}};
+  els['dc-type'].value='approve_exception';els['dc-rule'].value='A';
+  els['dc-reason'].value='rule reason';els['dc-exp'].value='2026-12-31';
+  els['acceptance-reason'].value='acceptance evidence';let sent;
+  context.fetch=async(_,opts)=>{sent=new URLSearchParams(opts.body);return response({detail:'stale'},409);};
+  await app.submitDecision(1,2,'accept_current');
+  assert.equal(sent.get('decision'),'accept_current');assert.equal(sent.get('scope_rule_id'),'');
+  assert.equal(sent.get('reason'),'acceptance evidence');assert.equal(sent.has('expires_at'),false);
+  assert.equal(els['dc-reason'].value,'rule reason');
+  assert.equal(els['acceptance-reason'].value,'acceptance evidence');
+  assert.equal(els['acceptance-submit'].disabled,true);
+});
+test('a pending decision cannot switch rule or erase another review context', async () => {
+  const {app,context,els} = setup();app.state.reviewData={revision:{id:41}};
+  app.state.reviewContext='1:2:41';app.state.reviewRule='A';
+  els['dc-type'].value='confirm_issue';els['dc-reason'].value='original';
+  const pending=deferred();context.fetch=()=>pending.promise;
+  const saving=app.submitDecision(1,2);app.selectReviewRule('B',1,2);
+  assert.equal(app.state.reviewRule,'A');
+  app.state.reviewContext='1:3:45';els['dc-reason'].value='other context';
+  pending.resolve(response({}));await saving;
+  assert.equal(els['dc-reason'].value,'other context');
+});
+test('a late review failure cannot flash an error onto a different page', async () => {
+  const {app,context,els}=setup();const pending=deferred();context.fetch=()=>pending.promise;
+  const loading=app.viewReview(1,2);app.state.routeEpoch++;
+  pending.resolve(response({detail:'old failure'},500));await loading;
+  assert.equal(els.flash.innerHTML,'');
+});
+test('dual identity navigation reflects the current role and review highlights workbench', () => {
+  const {app,context,els}=setup();context.localStorage.setItem('ff_org_token','org-test');
+  app.renderNav();assert.equal(els['role-label'].textContent,'提交者');
+  assert.match(els.nav.innerHTML,/切换到组织者/);assert.doesNotMatch(els.nav.innerHTML,/需求设计/);
+  context.location.hash='#/review/1/2';app.renderNav();
+  assert.equal(els['role-label'].textContent,'组织者');
+  assert.match(els.nav.innerHTML, /href="#\/workbench\/1" aria-current="page"/);
+});
+test('results poll only while pending, preserve explanation and ignore stale responses', async () => {
+  const {app,context,els}=setup();let next,clears=0;
+  context.setTimeout=fn=>{next=fn;return 1;};context.clearTimeout=()=>{clears++;next=null;};
+  els['ap-content']=element('unfinished explanation');els['ap-content'].id='ap-content';
+  els['ap-content'].selectionStart=3;els['ap-content'].selectionEnd=7;
+  context.document.activeElement=els['ap-content'];els['ap-rule']=element('A');
+  context.fetch=async()=>response({summary:'检查中',run_status:'queued',details:[{rule_id:'A',result:'unknown'}]});
+  await app.loadMyResults();assert.equal(typeof next,'function');
+  assert.equal(els['ap-content'].value,'unfinished explanation');assert.equal(els['ap-content'].focused,true);
+  assert.equal(els['ap-content'].selectionStart,3);
+  context.fetch=async()=>response({summary:'待人工',run_status:'success',details:[{rule_id:'A',result:'unknown'}]});
+  await next();assert.equal(next,null);assert.ok(clears>=2);
+  const before=els['my-results'].innerHTML,pending=deferred();context.fetch=()=>pending.promise;
+  const loading=app.loadMyResults();app.state.routeEpoch++;
+  pending.resolve(response({summary:'old context'}));await loading;
+  assert.equal(els['my-results'].innerHTML,before);
+});
+test('result load failure is visible and does not replace existing results', async () => {
+  const {app,context,els}=setup();els['my-results'].innerHTML='existing receipt and results';
+  context.fetch=async()=>response({detail:'offline'},503);await app.loadMyResults();
+  assert.match(els['my-results'].innerHTML,/重试加载结果/);
+  assert.match(els['my-results'].innerHTML,/existing receipt and results/);
+});
+test('workbench refresh preserves even an empty reminder and prunes only ineligible selections', async () => {
+  const {app,context,els}=setup();context.location.hash='#/workbench/1';
+  app.state.wbTaskId=1;app.state.reminder={selected:[2,3],view:{targets:[]},created:null};
+  els['remind-content']=element('');els['remind-body']=element();
+  context.fetch=async url=>response(url.endsWith('/workbench') ? {task:{},rows:[],counts:{}} : {
+    view:{targets:[{subject_id:2,name:'A'},{subject_id:4,name:'B'}]},notifications:[]});
+  await app.refreshWorkbench();
+  assert.equal(app.state.reminder.draftContent,'');
+  assert.deepEqual([...app.state.reminder.selected],[2]);
+  assert.doesNotMatch(els['remind-body'].innerHTML,/你好/);
+  els['remind-content'].value='newly edited notice';app.paintReminder();
+  assert.equal(app.state.reminder.draftContent,'newly edited notice');
 });
