@@ -1,7 +1,7 @@
 """Roster denominators and subject state are separate from check/acceptance state."""
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from ..models import Exemption, RosterEntry, Submission, Subject, Task
+from ..models import Exemption, Revision, RosterEntry, Submission, Subject, Task
 from .checks import current_summary
 
 
@@ -12,9 +12,10 @@ def exempt_subject_ids(db: Session, task: Task) -> set[int]:
 
 def workbench_data(db: Session, task: Task) -> dict:
     exempt = exempt_subject_ids(db, task)
-    formal = set(db.scalars(select(Submission.subject_id).where(
-        Submission.task_id == task.id, Submission.state == "formal",
-        Submission.current_revision_id.is_not(None))))
+    formal_revisions = dict(db.execute(select(Submission.subject_id, Revision.version).join(
+        Revision, Revision.id == Submission.current_revision_id).where(
+        Submission.task_id == task.id, Submission.state == "formal")).all())
+    formal = set(formal_revisions)
     entries = db.scalars(select(RosterEntry).where(RosterEntry.task_id == task.id)).all()
     linked = {e.subject_id for e in entries if e.subject_id is not None}
     subjects = db.scalars(select(Subject).where(Subject.task_id == task.id)).all()
@@ -22,7 +23,8 @@ def workbench_data(db: Session, task: Task) -> dict:
     for subject in subjects:
         summary = current_summary(db, task, subject.id)
         rows.append({"subject_id": subject.id, "name": subject.display_name,
-                     **summary, "exempt": subject.id in exempt,
+                     **summary, "revision": formal_revisions.get(subject.id),
+                     "exempt": subject.id in exempt,
                      "formal": subject.id in formal,
                      "in_roster": subject.id in linked})
     if task.mode == "roster":
