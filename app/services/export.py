@@ -58,6 +58,9 @@ def create_snapshot(db: Session, task: Task, *, kind: str = "formal",
         rev: Optional[Revision] = None
         if submission and submission.current_revision_id:
             rev = db.get(Revision, submission.current_revision_id)
+        from .checks import current_summary
+        summary = current_summary(db, task, s.id)
+        qualification = summary["eligibility"]
         accepted = False
         decisions: list[int] = []
         if rev is not None:
@@ -66,14 +69,16 @@ def create_snapshot(db: Session, task: Task, *, kind: str = "formal",
                 ManualDecision.revision_id == rev.id,
                 ManualDecision.decision == DECISION_ACCEPT_CURRENT,
                 ManualDecision.revoked == False)).all()  # noqa: E712
-            from .checks import current_summary
-            accepted = current_summary(db, task, s.id)["acceptance"] == "accepted"
+            accepted = summary["acceptance"] == "accepted"
             decisions = [d.id for d in ds] if accepted else []
         excluded_reason = ""
         if rev is None:
             excluded_reason = "无正式提交版本"
         elif not accepted:
             excluded_reason = "当前版本未验收" if kind == "formal" else "当前版本未验收（整理预览仍列出）"
+        if rev is not None and not accepted and qualification["required"] and qualification["status"] != "eligible":
+            label = {"pending": "待核实", "not_assessed": "未评估", "ineligible": "不符合"}.get(qualification["status"], "待核实")
+            excluded_reason = f"资格{label}：{qualification['status_reason']}"
         exempt = s.id in exempt_ids
         included = kind != "formal" or (accepted and not exempt)
         if exempt:
@@ -94,6 +99,7 @@ def create_snapshot(db: Session, task: Task, *, kind: str = "formal",
             "receipt": rev.receipt if rev else None,
             "formal_submitted_at": _utc(rev.formal_submitted_at) if rev else None,
             "accepted": accepted, "decision_ids": decisions,
+            "eligibility": qualification,
             "exempt": exempt, "included": included,
             "excluded_reason": "" if included else excluded_reason,
             "files": files,
@@ -130,12 +136,15 @@ def _csv_safe(value) -> str:
 def _build_csv(manifest: dict) -> bytes:
     buf = io.StringIO()
     writer = csv.writer(buf)
-    writer.writerow(["主体ID", "名称", "正式版本", "回执", "收件时间", "是否纳入", "排除原因"])
+    writer.writerow(["主体ID", "名称", "正式版本", "回执", "收件时间", "是否纳入", "排除原因", "资格结论", "资格说明"])
     for e in manifest["entries"]:
         writer.writerow([_csv_safe(e["subject_id"]), _csv_safe(e["name"]),
                          _csv_safe(e["revision"]), _csv_safe(e["receipt"]),
                          _csv_safe(e["formal_submitted_at"]),
-                         "是" if e["included"] else "否", _csv_safe(e["excluded_reason"])])
+                         "是" if e["included"] else "否", _csv_safe(e["excluded_reason"]),
+                         _csv_safe({"eligible": "符合", "ineligible": "不符合", "pending": "待核实",
+                                    "not_assessed": "未评估"}.get(e.get("eligibility", {}).get("status"), "")),
+                         _csv_safe(e.get("eligibility", {}).get("status_reason", ""))])
     return buf.getvalue().encode("utf-8-sig")
 
 

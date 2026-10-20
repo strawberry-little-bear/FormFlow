@@ -62,6 +62,8 @@ def init_db() -> None:
 _SQLITE_COLUMNS = {
     "submissions": [("draft_fields_json", "TEXT DEFAULT '{}'")],
     "exemptions": [("decision_id", "INTEGER REFERENCES manual_decisions(id)")],
+    "manual_decisions": [("eligibility", "VARCHAR(16)"), ("eligibility_members_hash", "VARCHAR(64)"),
+                         ("revokes_decision_id", "INTEGER REFERENCES manual_decisions(id)")],
 }
 
 
@@ -72,6 +74,8 @@ def _add_missing_columns() -> None:
         for table, columns in _SQLITE_COLUMNS.items():
             existing = {row[1] for row in conn.execute(
                 text(f"PRAGMA table_info({table})")).fetchall()}
+            if not existing:
+                continue
             for name, ddl in columns:
                 if name not in existing:
                     conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))

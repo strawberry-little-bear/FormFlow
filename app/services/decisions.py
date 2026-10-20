@@ -43,6 +43,7 @@ from ..security import utcnow
 from ..timeutils import as_utc
 from . import tasks as task_service
 from .decision_state import RULE_DECISIONS, effective_rules
+from .eligibility import eligibility_view, members_hash
 
 VALID_DECISIONS = {
     DECISION_CONFIRM_ISSUE, DECISION_CONFIRM_PASS, DECISION_CORRECT_FALSE_POSITIVE, DECISION_APPROVE_EXCEPTION,
@@ -63,7 +64,8 @@ def record_decision(db: Session, task: Task, subject: Subject, *, decision: str,
                     scope_rule_id: str = "", revision_id: Optional[int] = None,
                     expected_current_revision: Optional[int] = None,
                     expires_at: Optional[datetime] = None,
-                    eligibility: Optional[str] = None) -> ManualDecision:
+                    eligibility: Optional[str] = None,
+                    expected_members_hash: Optional[str] = None) -> ManualDecision:
     if decision not in VALID_DECISIONS:
         raise DecisionError(f"未知决定类型 {decision}")
     if not reason or not reason.strip():
@@ -71,6 +73,10 @@ def record_decision(db: Session, task: Task, subject: Subject, *, decision: str,
     if decision == DECISION_ELIGIBILITY and eligibility not in {ELIG_ELIGIBLE, "ineligible", ELIG_PENDING}:
         raise DecisionError("资格决定必须给出明确结论")
 
+    if decision == DECISION_ELIGIBILITY and scope_rule_id:
+        raise DecisionError("资格决定独立于材料规则，不能限定单条规则")
+    if decision != DECISION_ELIGIBILITY and eligibility is not None:
+        raise DecisionError("仅资格决定可以填写资格结论")
     if subject.task_id != task.id:
         raise DecisionError("主体不属于该任务")
     expires_at = as_utc(expires_at, task.timezone)
@@ -93,6 +99,9 @@ def record_decision(db: Session, task: Task, subject: Subject, *, decision: str,
     if revision_id is not None and revision_id != current_rev:
         raise DecisionConflict("决定只能作用于已核对的当前版本，请刷新后重新核对")
 
+    qualification_scope = members_hash(db, subject) if decision == DECISION_ELIGIBILITY else None
+    if expected_members_hash is not None and qualification_scope != expected_members_hash:
+        raise DecisionConflict("登记成员已变化，资格决定未保存，请刷新后重新核对")
     if decision in RULE_DECISIONS:
         if not current_rev or not scope_rule_id:
             raise DecisionError("规则决定必须绑定当前正式版本和具体规则")
@@ -113,6 +122,9 @@ def record_decision(db: Session, task: Task, subject: Subject, *, decision: str,
         task_id=task.id, subject_id=subject.id, revision_id=None if decision == DECISION_EXEMPT else (revision_id or current_rev),
         decision=decision, scope_rule_id=scope_rule_id, operator_id=operator_id,
         reason=reason.strip(), expires_at=expires_at,
+        eligibility=eligibility if decision == DECISION_ELIGIBILITY else None,
+        eligibility_members_hash=qualification_scope,
+        expected_current_revision=expected_current_revision or None,
     )
     db.add(d)
     db.flush()
@@ -123,7 +135,9 @@ def record_decision(db: Session, task: Task, subject: Subject, *, decision: str,
     if decision == DECISION_ELIGIBILITY and eligibility:
         subject.eligibility = eligibility
     task_service.audit(db, f"decision.{decision}", "subject",
-                       {"subject_id": subject.id, "scope": scope_rule_id, "reason": reason},
+                       {"subject_id": subject.id, "scope": scope_rule_id, "reason": reason,
+                        "decision_id": d.id, "revision_id": d.revision_id, "eligibility": d.eligibility,
+                        "expected_current_revision": expected_current_revision},
                        task.id)
     return d
 
@@ -144,11 +158,13 @@ def revoke_decision(db: Session, task: Task, decision_id: int, reason: str,
     if d.decision == DECISION_EXEMPT:
         for exemption in db.scalars(select(Exemption).where(Exemption.decision_id == d.id)):
             exemption.status = "revoked"
+    if d.decision == DECISION_ELIGIBILITY:
+        db.get(Subject, d.subject_id).eligibility = ELIG_PENDING
     db.flush()
     rev = ManualDecision(
         task_id=task.id, subject_id=d.subject_id, revision_id=d.revision_id,
         decision=DECISION_REVOKE, scope_rule_id=d.scope_rule_id,
-        operator_id=operator_id, reason=reason.strip())
+        operator_id=operator_id, reason=reason.strip(), revokes_decision_id=d.id)
     db.add(rev)
     db.flush()
     task_service.audit(db, "decision.revoke", "decision",
@@ -188,6 +204,7 @@ def _acceptance_blockers(db: Session, task: Task, subject: Subject) -> list[str]
         if rid not in effects:
             problems.append(f"人工项 {rid} 尚未处置")
     if blueprint.eligibility_required:
-        if getattr(subject, "eligibility", "not_assessed") != ELIG_ELIGIBLE:
-            problems.append("资格前提未确认符合（资格不能被材料通过自动推导）")
+        qualification = eligibility_view(db, task, subject, rev.id, run.blueprint_version_id)
+        if qualification["status"] != ELIG_ELIGIBLE:
+            problems.append("资格前提未确认符合：" + qualification["status_reason"])
     return problems

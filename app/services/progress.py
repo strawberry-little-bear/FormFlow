@@ -51,4 +51,8 @@ def workbench_data(db: Session, task: Task) -> dict:
         counts = {"registered": len(subjects), "submitted": len(formal)}
     counts["accepted"] = sum(r.get("acceptance") == "accepted" and not r["exempt"]
                              and (task.mode != "roster" or r["in_roster"]) for r in rows)
+    if any(r.get("eligibility", {}).get("required") for r in rows):
+        counts["eligibility_pending"] = sum(bool(r.get("eligibility", {}).get("required"))
+            and r["eligibility"]["status"] in {"not_assessed", "pending"} and not r["exempt"]
+            and (task.mode != "roster" or r["in_roster"]) for r in rows)
     return {"rows": rows, "counts": counts}

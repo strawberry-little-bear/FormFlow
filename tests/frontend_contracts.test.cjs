@@ -388,3 +388,64 @@ test('human resolution moves raw unknown out of submitter todo without hiding ev
   assert.match(els['my-results'].innerHTML,/人工核对原文通过/);
   assert.match(els['my-results'].innerHTML,/机器原先未读到/);
 });
+
+
+test('eligibility submit uses its own conclusion, reason, expiry and reviewed member scope', async () => {
+  const {app,context,els} = setup();
+  for (const id of ['eligibility-result','eligibility-reason','eligibility-exp','eligibility-submit']) els[id]=element();
+  app.state.reviewContext='1:2:9'; app.state.reviewData={revision:{id:9},eligibility:{members_hash:'verified-members'}};
+  els['eligibility-result'].value='eligible'; els['eligibility-reason'].value='独立资格依据';
+  els['eligibility-exp'].value='2099-01-01T00:00:00Z';
+  els['dc-rule'].value='rule-A'; els['dc-reason'].value='其他规则理由';
+  let sent; context.fetch=async(_,options)=>{sent=options.body;return response({detail:'登记成员已变化'},409);};
+  await app.submitDecision(1,2,'eligibility');
+  assert.equal(sent.get('decision'),'eligibility'); assert.equal(sent.get('eligibility'),'eligible');
+  assert.equal(sent.get('reason'),'独立资格依据'); assert.equal(sent.get('scope_rule_id'),'');
+  assert.equal(sent.get('expected_members_hash'),'verified-members'); assert.equal(sent.get('expected_current_revision'),'9');
+  assert.equal(sent.get('expires_at'),'2099-01-01T00:00:00Z');
+  assert.equal(els['eligibility-reason'].value,'独立资格依据'); assert.equal(els['dc-reason'].value,'其他规则理由');
+  assert.equal(els['eligibility-submit'].disabled,true);
+});
+test('qualification reasons are cached independently and a late save cannot erase another review', async () => {
+  const {app,context,els} = setup();
+  for (const id of ['eligibility-result','eligibility-reason','eligibility-exp','eligibility-submit']) els[id]=element();
+  app.state.reviewContext='1:2:9'; app.state.reviewData={revision:{id:9},eligibility:{members_hash:'members'}};
+  els['eligibility-result'].value='pending'; els['eligibility-reason'].value='还需核实';
+  app.cacheReviewDraft(); assert.equal(app.state.reviewDrafts['1:2:9'].eligibility['eligibility-reason'],'还需核实');
+  const pending=deferred(); context.fetch=async()=>pending.promise;
+  const save=app.submitDecision(1,2,'eligibility'); app.state.reviewContext='1:3:10';
+  els['eligibility-reason'].value='另一主体的理由'; pending.resolve(response({decision_id:1})); await save;
+  assert.equal(els['eligibility-reason'].value,'另一主体的理由');
+});
+test('qualification filters separate pending verification from a completed negative conclusion', () => {
+  const {app}=setup(); app.state.wbTask={mode:'open'};
+  assert.equal(app.wbMatches({formal:true,summary:'规则通过',eligibility:{required:true,status:'pending'}},'todo'),true);
+  assert.equal(app.wbMatches({eligibility:{required:true,status:'ineligible'}},'eligibility'),false);
+  assert.equal(app.wbMatches({eligibility:{required:true,status:'pending'}},'eligibility'),true);
+});
+
+
+test('team qualification metrics use team units and never call pending qualification no todos', () => {
+  const {app,els}=setup(); els['wb-stats']=element();els['wb-list']=element();
+  Object.assign(app.state,{wbTask:{mode:'open',subject_kind:'team',status:'collecting'},wbTaskId:1,
+    wbCounts:{eligibility_pending:1},wbRows:[{subject_id:2,name:'示例队',formal:true,
+    summary:'规则通过',eligibility:{required:true,status:'pending'}}]});
+  app.paintWorkbench();
+  assert.match(els['wb-stats'].innerHTML,/查看资格待核，1队/);
+  assert.match(els['wb-stats'].innerHTML,/资格待核（队）/);
+  assert.match(els['wb-list'].innerHTML,/核实资格后再验收/);
+  assert.doesNotMatch(els['wb-list'].innerHTML,/暂无待办/);
+});
+
+
+test('a no-rule review shows qualification directly rather than an empty mobile column', () => {
+  const {app,els}=setup(); app.state.reviewData={subject:{id:2,name:'示例队'},revision:{id:9,version:1},
+    run:{status:'success'},rules:[],eligibility:{required:true,status:'pending',members:['甲','乙']},
+    acceptance:{ready:false,accepted:false,blockers:['资格待核']}};
+  app.paintReview(1,2);
+  assert.match(els.rv.innerHTML,/no-rule-layout/);
+  assert.doesNotMatch(els.rv.innerHTML,/review-list-col/);
+  assert.match(els.rv.innerHTML,/独立核实资格/);
+  assert.match(els.rv.innerHTML,/当前登记成员：甲、乙/);
+  assert.doesNotMatch(els.rv.innerHTML,/可能尚未检查/);
+});

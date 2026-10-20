@@ -28,6 +28,9 @@ def valid_acceptance(db, task, subject_id, revision_id, blockers, run=None):
         return False
     if run is not None and as_utc(run.created_at) > as_utc(accepted.created_at):
         return False
+    qualification_ids = {d.id for d in rows if d.decision == "eligibility"}
     return not any(d.id > accepted.id and (
         d.decision in RULE_DECISIONS or d.decision == "eligibility"
-        or (d.decision == "revoke" and d.scope_rule_id)) for d in rows)
+        or (d.decision == "revoke" and (d.scope_rule_id or (
+            d.revokes_decision_id in qualification_ids))))
+        for d in rows)

@@ -47,6 +47,7 @@ from ..schemas import Blueprint
 from .. import storage
 from . import tasks as task_service
 from .decision_state import effective_rules, PASS_DECISIONS, RULE_DECISIONS, valid_acceptance
+from .eligibility import eligibility_view
 
 
 def _load_files(db: Session, revision: Revision) -> list[FileInfo]:
@@ -335,15 +336,17 @@ def current_summary(db: Session, task: Task, subject_id: int) -> dict:
     """主摘要与可重叠待办（第 7 节）。"""
     submission = db.scalar(select(Submission).where(
         Submission.task_id == task.id, Submission.subject_id == subject_id))
+    qualification = eligibility_view(db, task, db.get(Subject, subject_id),
+                                     submission.current_revision_id if submission else None)
     if submission is None or submission.current_revision_id is None:
-        return {"summary": "未正式提交", "acceptance": ACCEPTANCE_PENDING,
+        return {"eligibility": qualification, "summary": "未正式提交", "acceptance": ACCEPTANCE_PENDING,
                 "coverage": run_coverage(None),
                 "buckets": {"blocking": [], "unknown": [],
                             "human": [], "incomplete": [], "pending_jobs": []}}
     revision = db.get(Revision, submission.current_revision_id)
     run = _latest_run(db, submission)
     if run is None:
-        return {"summary": "排队中", "acceptance": ACCEPTANCE_PENDING,
+        return {"eligibility": qualification, "summary": "排队中", "acceptance": ACCEPTANCE_PENDING,
                 "coverage": run_coverage(None),
                 "buckets": {"pending_jobs": ["排队中"]}}
     decisions = _active_decisions(db, task.id, subject_id, revision.id)
@@ -355,6 +358,7 @@ def current_summary(db: Session, task: Task, subject_id: int) -> dict:
     bp = db.get(BlueprintVersion, run.blueprint_version_id)
     blueprint = Blueprint.model_validate_json(bp.blueprint_json)
     human_rules = [r.id for r in blueprint.rules if r.executor.value == "human_only"]
+    qualification = eligibility_view(db, task, db.get(Subject, subject_id), revision.id, run.blueprint_version_id)
 
     for r in results:
         if r.rule_id in effects:
@@ -390,6 +394,7 @@ def current_summary(db: Session, task: Task, subject_id: int) -> dict:
         summary = "规则通过（待人工验收）" if blueprint.manual_acceptance else "规则通过"
         acceptance = ACCEPTANCE_PENDING
     return {
+        "eligibility": qualification,
         "summary": summary,
         "acceptance": acceptance,
         "revision": revision.version,

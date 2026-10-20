@@ -659,8 +659,8 @@ def retry_check(task_id: int, subject_id: int, db: Session = Depends(get_db),
 def make_decision(task_id: int, subject_id: int, decision: str = Form(...),
                   reason: str = Form(...), scope_rule_id: str = Form(""),
                   expected_current_revision: Optional[int] = Form(None),
-                  expires_at: Optional[str] = Form(None),
-                  db: Session = Depends(get_db), acct: Account = Depends(current_account)):
+                  expires_at: Optional[str] = Form(None), eligibility: Optional[str] = Form(None),
+                  expected_members_hash: Optional[str] = Form(None), db: Session = Depends(get_db), acct: Account = Depends(current_account)):
     task = _owned_task(db, acct, task_id)
     subject = db.get(Subject, subject_id)
     if subject is None or subject.task_id != task.id:
@@ -671,6 +671,8 @@ def make_decision(task_id: int, subject_id: int, decision: str = Form(...),
         raise HTTPException(422, "复核版本不合法")
     if expected_current_revision == 0 and decision not in {"exempt", "eligibility"}:
         raise HTTPException(422, "没有正式提交版本，只能处理免交或资格")
+    if decision == "eligibility" and not expected_members_hash:
+        raise HTTPException(422, "缺少登记成员范围，请刷新资格复核页后重试")
     exp_dt: Optional[datetime] = None
     if expires_at:
         try:
@@ -680,7 +682,8 @@ def make_decision(task_id: int, subject_id: int, decision: str = Form(...),
     try:
         d = decision_service.record_decision(db, task, subject, decision=decision, reason=reason,
                                              operator_id=acct.id, scope_rule_id=scope_rule_id,
-                                             expires_at=exp_dt,
+                                             expires_at=exp_dt, eligibility=eligibility,
+                                             expected_members_hash=expected_members_hash,
                                              expected_current_revision=expected_current_revision)
     except decision_service.DecisionConflict as e:
         raise HTTPException(409, str(e))
@@ -774,12 +777,15 @@ def findings(task_id: int, subject_id: int, db: Session = Depends(get_db),
     decisions = [{"id": d.id, "decision": d.decision, "reason": d.reason,
                   "revision_id": d.revision_id, "scope_rule_id": d.scope_rule_id,
                   "revoked": d.revoked, "created_at": _iso(d.created_at),
-                  "expires_at": _iso(d.expires_at)}
+                  "expires_at": _iso(d.expires_at), "eligibility": d.eligibility,
+                  "revokes_decision_id": d.revokes_decision_id}
                  for d in db.scalars(select(ManualDecision).where(
                      ManualDecision.task_id == task.id, ManualDecision.subject_id == subject.id)
                      .order_by(ManualDecision.id)).all()]
+    from ..services.eligibility import eligibility_view
+    qualification = eligibility_view(db, task, subject, submission.current_revision_id if submission else None)
     if submission is None or submission.current_revision_id is None:
-        return {"subject": {"id": subject.id, "name": subject.display_name},
+        return {"eligibility": qualification, "subject": {"id": subject.id, "name": subject.display_name},
                 "revision": None, "run": None, "rules": [], "decisions": decisions,
                 "acceptance": {"ready": False, "accepted": False,
                                "blockers": ["没有正式提交版本"]},
@@ -791,7 +797,8 @@ def findings(task_id: int, subject_id: int, db: Session = Depends(get_db),
     rules = review_rule_details(db, run, task, subject.id, rev.id)
     blockers = decision_service._acceptance_blockers(db, task, subject)
     accepted = current_summary(db, task, subject.id)["acceptance"] == "accepted"
-    return {"subject": {"id": subject.id, "name": subject.display_name},
+    return {"eligibility": eligibility_view(db, task, subject, rev.id, run.blueprint_version_id if run else None),
+            "subject": {"id": subject.id, "name": subject.display_name},
             "revision": {"id": rev.id, "version": rev.version, "receipt": rev.receipt},
             "run": ({"id": run.id, "status": run.status,
                      "pages_read": run.pages_read,

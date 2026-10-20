@@ -138,12 +138,10 @@ def test_ineligible_is_not_an_acceptable_eligibility(review):
     blueprint.eligibility_required = True
     bp.blueprint_json = blueprint.model_dump_json()
     decide(review, "confirm_pass")
-    subject.eligibility = "ineligible"
-    db.flush()
+    dec.record_decision(db, task, subject, decision="eligibility", eligibility="ineligible", reason="人工核实不符合")
     with pytest.raises(dec.DecisionError, match="资格前提"):
         decide(review, "accept_current")
-    subject.eligibility = "eligible"
-    db.flush()
+    dec.record_decision(db, task, subject, decision="eligibility", eligibility="eligible", reason="重新核实符合")
     decide(review, "accept_current")
     assert included(review)
 
