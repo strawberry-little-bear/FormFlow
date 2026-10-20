@@ -500,5 +500,10 @@ def test_p04_blocking_issue_shows_next_step_and_shared_details(client, db_sessio
 
     org_view = client.get(f"/api/tasks/{task.id}/subjects/{sid}/findings",
                           headers=headers).json()
-    assert {x["rule_id"]: x for x in org_view["rules"]} == {
-        x["rule_id"]: x for x in body["details"]}
+    # Organizer-only manual tasks and decision overlays do not change machine facts.
+    machine_rules = {x["rule_id"]: {k: v for k, v in x.items() if k != "decision"}
+                     for x in org_view["rules"] if x["result"] != "manual_pending"}
+    assert machine_rules == {x["rule_id"]: x for x in body["details"]}
+    manual = [x for x in org_view["rules"] if x["result"] == "manual_pending"]
+    assert [x["rule_id"] for x in manual] == ["C-R04"]
+    assert all(not x["evidence"] and x["decision"] is None for x in manual)

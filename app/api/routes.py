@@ -76,7 +76,7 @@ from ..services import export as export_service
 from ..services import submissions as sub_service
 from ..services import tasks as task_service
 from ..services.checks import (create_run, current_details, current_summary,
-                               execute_run, retry_run, rule_details,
+                               execute_run, retry_run, rule_details, review_rule_details,
                                run_coverage)
 from ..agents.requirements_agent import validate_blueprint
 from ..schemas import Blueprint
@@ -763,19 +763,24 @@ def findings(task_id: int, subject_id: int, db: Session = Depends(get_db),
                                              Submission.subject_id == subject.id))
     decisions = [{"id": d.id, "decision": d.decision, "reason": d.reason,
                   "revision_id": d.revision_id, "scope_rule_id": d.scope_rule_id,
-                  "revoked": d.revoked, "created_at": _iso(d.created_at)}
+                  "revoked": d.revoked, "created_at": _iso(d.created_at),
+                  "expires_at": _iso(d.expires_at)}
                  for d in db.scalars(select(ManualDecision).where(
                      ManualDecision.task_id == task.id, ManualDecision.subject_id == subject.id)
                      .order_by(ManualDecision.id)).all()]
     if submission is None or submission.current_revision_id is None:
         return {"subject": {"id": subject.id, "name": subject.display_name},
                 "revision": None, "run": None, "rules": [], "decisions": decisions,
+                "acceptance": {"ready": False, "accepted": False,
+                               "blockers": ["没有正式提交版本"]},
                 "same_name_subjects": same_name, "same_name_hint": same_name_hint}
     rev = db.get(Revision, submission.current_revision_id)
     run = db.scalar(select(CheckRun).where(
         CheckRun.revision_id == rev.id,
         CheckRun.status.not_in([RUN_SUPERSEDED])).order_by(CheckRun.id.desc()))
-    rules = rule_details(db, run)
+    rules = review_rule_details(db, run, task, subject.id, rev.id)
+    blockers = decision_service._acceptance_blockers(db, task, subject)
+    accepted = current_summary(db, task, subject.id)["acceptance"] == "accepted"
     return {"subject": {"id": subject.id, "name": subject.display_name},
             "revision": {"id": rev.id, "version": rev.version, "receipt": rev.receipt},
             "run": ({"id": run.id, "status": run.status,
@@ -784,6 +789,8 @@ def findings(task_id: int, subject_id: int, db: Session = Depends(get_db),
                      "budget_exhausted": run.budget_exhausted,
                      "coverage": run_coverage(run)} if run else None),
             "rules": rules, "decisions": decisions,
+            "acceptance": {"ready": not blockers and not accepted,
+                           "accepted": accepted, "blockers": blockers},
             "notes": [appeal_service.to_dict(db, n)
                       for n in appeal_service.pending_notes(db, task)
                       if n.subject_id == subject.id],
