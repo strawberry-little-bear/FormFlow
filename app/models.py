@@ -194,6 +194,7 @@ class Exemption(Base):
     subject_id: Mapped[int] = mapped_column(ForeignKey("subjects.id"), index=True)
     kind: Mapped[str] = mapped_column(String(16), default="exempt")  # exempt/special_deadline
     status: Mapped[str] = mapped_column(String(16), default=EXEMPTION_ACTIVE)
+    decision_id: Mapped[Optional[int]] = mapped_column(ForeignKey("manual_decisions.id"), nullable=True)
     new_deadline: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     reason: Mapped[str] = mapped_column(Text, default="")
     decided_by: Mapped[Optional[int]] = mapped_column(ForeignKey("accounts.id"), nullable=True)

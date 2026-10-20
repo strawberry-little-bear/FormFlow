@@ -229,7 +229,7 @@ def _active_decisions(db: Session, task_id: int, subject_id: int,
             continue
         if d.expires_at is not None:
             exp = d.expires_at if d.expires_at.tzinfo else d.expires_at.replace(tzinfo=now.tzinfo)
-            if exp < now:
+            if exp <= now:
                 continue
         # 默认不扩大到未来版本：决定必须绑定当前 revision 或为名单级（无 revision）
         if d.revision_id is not None and d.revision_id != revision_id:

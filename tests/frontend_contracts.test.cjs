@@ -30,7 +30,7 @@ function setup() {
     window: {addEventListener() {}}, location: {hash:'#/submit'}, Intl, URLSearchParams, FormData,
     setTimeout, clearTimeout, confirm: () => true, console,
     fetch: async () => {throw new Error('Unexpected request');}});
-  vm.runInContext(source + '\nthis.app = {state, fmtTime, draftFingerprint, collectDraftFields, cacheSubmissionDraft, setSubMode, refreshSlotConditions, wbMatches, api, submitDecision, saveDraft, doSubmit, uploadSlot, cacheReviewDraft, selectReviewRule, viewReview, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, submissionIssues, showSubmissionIssues, initSubChat};', context);
+  vm.runInContext(source + '\nthis.app = {state, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, draftFingerprint, collectDraftFields, cacheSubmissionDraft, setSubMode, refreshSlotConditions, wbMatches, api, submitDecision, saveDraft, doSubmit, uploadSlot, cacheReviewDraft, selectReviewRule, viewReview, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, submissionIssues, showSubmissionIssues, initSubChat};', context);
   Object.assign(context.app.state, {routeEpoch: 1, me:{task:{id:1, status:'collecting', timezone:'Asia/Shanghai'},subject:{id:2}},
     draftVersion:1, fileMeta:{}, sub:{mode:'chat',phase:'fields',fIdx:0, fields:[{id:'name'}],slots:[],answers:{}}});
   context.localStorage.setItem('ff_sub_token', 'test-only-credential');
@@ -315,4 +315,48 @@ test('restored guide answers exclude blanks but retain numeric zero', () => {
   assert.equal(app.state.sub.answers.name,undefined);
   assert.equal(app.state.sub.answers.count,'0');
   assert.equal(app.state.sub.fIdx,0);
+});
+
+
+test('roster metric filters match denominators and exclude out-of-roster or exempt submissions', () => {
+  const {app} = setup(); app.state.wbTask = {mode:'roster'};
+  const rows = [
+    {in_roster:true, formal:false},
+    {in_roster:true, exempt:true, formal:true, acceptance:'accepted'},
+    {in_roster:true, formal:true, acceptance:'accepted'},
+    {in_roster:false, formal:true, acceptance:'accepted'},
+  ];
+  for (const [filter, count] of [['roster',3],['exempt',1],['required',2],['submitted',1],['missing',1],['accepted',1]]) {
+    assert.equal(rows.filter(r=>app.wbMatches(r,filter)).length,count,filter);
+  }
+});
+test('metric navigation clears search and unsubmitted exempt subjects can reach history', () => {
+  const {app,els} = setup();
+  els['wb-stats']=element(); els['wb-list']=element(); els['wb-search']=element('hidden');
+  Object.assign(app.state, {wbTask:{mode:'roster', status:'collecting'},wbTaskId:1,wbCounts:{exempt:1},
+    wbRows:[{subject_id:2,name:'免交者',in_roster:true,exempt:true,formal:false}],wbQuery:'hidden'});
+  app.filterWorkbench('exempt',true);
+  assert.equal(app.state.wbQuery,''); assert.equal(els['wb-search'].value,'');
+  assert.match(els['wb-stats'].innerHTML,/aria-pressed="true"/);
+  assert.match(els['wb-list'].innerHTML,/#\/review\/1\/2/);
+  assert.match(els['wb-list'].innerHTML,/免交与历史/);
+});
+
+
+test('revoke dialog validates reason, locks retries and preserves reason on failure', async () => {
+  const {app,context,els} = setup();
+  for (const id of ['revoke-dialog','revoke-impact','revoke-reason','revoke-error','revoke-confirm','revoke-cancel']) els[id]=element();
+  els['revoke-dialog'].showModal=()=>{els['revoke-dialog'].open=true;};
+  app.state.reviewContext='1:2:0'; app.state.reviewData={decisions:[{id:7,decision:'exempt'}]};
+  app.revokeDecision(1,2,7); assert.equal(els['revoke-dialog'].open,true);
+  assert.match(els['revoke-impact'].textContent,/恢复应交/);
+  await app.confirmRevokeDecision(); assert.match(els['revoke-error'].textContent,/理由/);
+  els['revoke-reason'].value='已恢复'; const pending=deferred(); let count=0;
+  context.fetch=async()=>{count++; return pending.promise;};
+  const first=app.confirmRevokeDecision(); await app.confirmRevokeDecision();
+  assert.equal(count,1); assert.equal(els['revoke-confirm'].disabled,true);
+  pending.resolve(response({detail:'网络暂时不可用'},503)); await first;
+  assert.equal(els['revoke-reason'].value,'已恢复');
+  assert.match(els['revoke-error'].textContent,/暂时不可用/);
+  assert.equal(els['revoke-confirm'].disabled,false);
 });

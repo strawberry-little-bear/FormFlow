@@ -697,6 +697,9 @@ def make_decision(task_id: int, subject_id: int, decision: str = Form(...),
 def revoke_decision(task_id: int, subject_id: int, decision_id: int, reason: str = Form(...),
                     db: Session = Depends(get_db), acct: Account = Depends(current_account)):
     task = _owned_task(db, acct, task_id)
+    target = db.get(ManualDecision, decision_id)
+    if target is None or target.task_id != task.id or target.subject_id != subject_id:
+        raise HTTPException(404, "决定不存在或不属于该主体")
     try:
         decision_service.revoke_decision(db, task, decision_id, reason, operator_id=acct.id)
     except decision_service.DecisionConflict as e:

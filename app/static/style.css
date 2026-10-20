@@ -3518,3 +3518,9 @@ dialog p {
 button.validation-link { border: 0; background: none; color: var(--bad); box-shadow: none; padding: 4px 0; text-align: left; white-space: normal; text-decoration: underline; }
 .validation-message { color: var(--bad); font-size: 13px; margin: 6px 0; }
 [aria-invalid="true"] { border-color: var(--bad); }
+
+/* Workbench metrics are keyboard-accessible list filters. */
+.wb-summary button.overview-stat { display:block; text-align:left; font:inherit; cursor:pointer; color:var(--text, #252338); background:#fff; width:100%; }
+.wb-summary button.overview-stat:hover { background:#f5f3ff; border-color:var(--accent, #7160b5); }
+.wb-summary button.overview-stat[aria-pressed="true"] { outline:2px solid var(--accent, #7160b5); outline-offset:-2px; }
+.wb-summary button.overview-stat:focus-visible { outline:3px solid var(--accent, #7160b5); outline-offset:2px; }

@@ -39,6 +39,7 @@ from ..models import (
 )
 from ..schemas import Blueprint
 from ..security import utcnow
+from ..timeutils import as_utc
 from . import tasks as task_service
 
 VALID_DECISIONS = {
@@ -68,6 +69,14 @@ def record_decision(db: Session, task: Task, subject: Subject, *, decision: str,
     if decision == DECISION_ELIGIBILITY and eligibility not in {ELIG_ELIGIBLE, "ineligible", ELIG_PENDING}:
         raise DecisionError("资格决定必须给出明确结论")
 
+    if subject.task_id != task.id:
+        raise DecisionError("主体不属于该任务")
+    expires_at = as_utc(expires_at, task.timezone)
+    if expires_at is not None and expires_at <= utcnow():
+        raise DecisionError("过期时间必须晚于当前时间")
+    if decision == DECISION_EXEMPT and scope_rule_id:
+        raise DecisionError("免交作用于整个主体，不能限定单条规则")
+
     # Acquire the SQLite writer lock before reading the pointer. A competing
     # formal submission cannot change it between this check and our commit.
     if expected_current_revision is not None:
@@ -88,7 +97,7 @@ def record_decision(db: Session, task: Task, subject: Subject, *, decision: str,
             raise DecisionError("验收前检查未通过：" + "；".join(problems))
 
     d = ManualDecision(
-        task_id=task.id, subject_id=subject.id, revision_id=revision_id or current_rev,
+        task_id=task.id, subject_id=subject.id, revision_id=None if decision == DECISION_EXEMPT else (revision_id or current_rev),
         decision=decision, scope_rule_id=scope_rule_id, operator_id=operator_id,
         reason=reason.strip(), expires_at=expires_at,
     )
@@ -97,7 +106,7 @@ def record_decision(db: Session, task: Task, subject: Subject, *, decision: str,
 
     if decision == DECISION_EXEMPT:
         db.add(Exemption(task_id=task.id, subject_id=subject.id, kind="exempt",
-                         status="active", reason=reason, decided_by=operator_id))
+                         status="active", reason=reason.strip(), decided_by=operator_id, decision_id=d.id))
     if decision == DECISION_ELIGIBILITY and eligibility:
         subject.eligibility = eligibility
     task_service.audit(db, f"decision.{decision}", "subject",
@@ -116,7 +125,12 @@ def revoke_decision(db: Session, task: Task, decision_id: int, reason: str,
         raise DecisionError("该决定已撤销")
     if not reason.strip():
         raise DecisionError("撤销理由不能为空")
+    if d.decision == DECISION_REVOKE:
+        raise DecisionError("撤销记录不能再次撤销，请重新作出决定")
     d.revoked = True
+    if d.decision == DECISION_EXEMPT:
+        for exemption in db.scalars(select(Exemption).where(Exemption.decision_id == d.id)):
+            exemption.status = "revoked"
     db.flush()
     rev = ManualDecision(
         task_id=task.id, subject_id=d.subject_id, revision_id=d.revision_id,

@@ -1,13 +1,21 @@
 """Roster denominators and subject state are separate from check/acceptance state."""
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from ..models import Exemption, Revision, RosterEntry, Submission, Subject, Task
+from ..models import Exemption, ManualDecision, Revision, RosterEntry, Submission, Subject, Task
+from ..security import utcnow
+from ..timeutils import as_utc
 from .checks import current_summary
 
 
 def exempt_subject_ids(db: Session, task: Task) -> set[int]:
-    return set(db.scalars(select(Exemption.subject_id).where(
-        Exemption.task_id == task.id, Exemption.kind == "exempt", Exemption.status == "active")))
+    now = utcnow()
+    rows = db.execute(select(Exemption, ManualDecision).outerjoin(
+        ManualDecision, ManualDecision.id == Exemption.decision_id).where(
+        Exemption.task_id == task.id, Exemption.kind == "exempt", Exemption.status == "active"))
+    return {e.subject_id for e, d in rows if e.decision_id is None or (
+        d is not None and d.task_id == e.task_id and d.subject_id == e.subject_id
+        and d.decision == "exempt" and not d.revoked
+        and (d.expires_at is None or as_utc(d.expires_at) > now))}
 
 
 def workbench_data(db: Session, task: Task) -> dict:

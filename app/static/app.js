@@ -727,7 +727,8 @@ function viewWorkbench(taskId) {
           <button class="filter active" data-wbfilter="all" onclick="filterWorkbench('all')">全部</button>
           <button class="filter" data-wbfilter="todo" onclick="filterWorkbench('todo')">待处理</button>
           <button class="filter" data-wbfilter="submitted" onclick="filterWorkbench('submitted')">已提交</button>
-          <button class="filter" data-wbfilter="missing" onclick="filterWorkbench('missing')">未提交</button></div>
+          <button class="filter" data-wbfilter="missing" onclick="filterWorkbench('missing')">未提交</button>
+          <button class="filter" data-wbfilter="exempt" onclick="filterWorkbench('exempt')">有效免交</button></div>
           <label class="search-box">${icon("search")}<input id="wb-search" aria-label="搜索提交者" placeholder="搜索姓名…" oninput="state.wbQuery=this.value;paintWorkbench()"></label></div>
         <div id="wb-list" aria-live="polite"><p class="empty">正在读取提交情况…</p></div>
       </section>
@@ -773,8 +774,13 @@ async function refreshWorkbench() {
 function wbMatches(r, filter) {
   const hasRevision = r.formal ?? (r.revision != null && r.summary !== "未正式提交");
   if (filter === "todo") return hasRevision && ["待补正", "待人工", "检查未完成"].includes(r.summary);
-  if (filter === "submitted") return hasRevision;
-  if (filter === "missing") return !hasRevision && !r.exempt;
+  const inScope = state.wbTask?.mode !== "roster" || r.in_roster;
+  if (filter === "roster") return !!r.in_roster;
+  if (filter === "exempt") return inScope && !!r.exempt;
+  if (filter === "required") return inScope && !r.exempt;
+  if (filter === "accepted") return inScope && !r.exempt && r.acceptance === "accepted";
+  if (filter === "submitted") return inScope && (state.wbTask?.mode !== "roster" || !r.exempt) && hasRevision;
+  if (filter === "missing") return inScope && !hasRevision && !r.exempt;
   return true;
 }
 function paintWorkbench() {
@@ -790,16 +796,16 @@ function paintWorkbench() {
   const count = (pred) => rows.filter(pred).length;
   const c = state.wbCounts || {};
   const metrics = t.mode === "open" ? [
-    ["已登记", c.registered || 0, "roster"], ["已正式提交", c.submitted || 0, "workbench"],
-    ["已验收", c.accepted || 0, "review"],
+    ["已登记", c.registered || 0, "roster", "all"], ["已正式提交", c.submitted || 0, "workbench", "submitted"],
+    ["已验收", c.accepted || 0, "review", "accepted"],
   ] : [
-    ["名册主体", c.roster || 0, "roster"], ["免交", c.exempt || 0, "roster"],
-    ["应交", c.required || 0, "roster"], ["已正式提交", c.submitted || 0, "workbench"],
-    ["未正式提交", c.unsubmitted || 0, "delivery"], ["已验收", c.accepted || 0, "review"],
+    ["名册主体", c.roster || 0, "roster", "roster"], ["免交", c.exempt || 0, "roster", "exempt"],
+    ["应交", c.required || 0, "roster", "required"], ["已正式提交", c.submitted || 0, "workbench", "submitted"],
+    ["未正式提交", c.unsubmitted || 0, "delivery", "missing"], ["已验收", c.accepted || 0, "review", "accepted"],
   ];
   const stats = document.getElementById("wb-stats");
-  if (stats) stats.innerHTML = metrics.map(([label2, value, ic]) =>
-    `<div class="overview-stat"><span>${label2}</span><strong>${String(value).padStart(2, "0")}</strong><i>${icon(ic)}</i></div>`).join("");
+  if (stats) stats.innerHTML = metrics.map(([label2, value, ic, filter]) =>
+    `<button type="button" class="overview-stat" aria-pressed="${state.wbFilter === filter}" aria-label="查看${label2}，${value}人" onclick="filterWorkbench('${filter}',true)"><span>${label2}</span><strong>${String(value).padStart(2, "0")}</strong><i>${icon(ic)}</i></button>`).join("");
 
   const q = (state.wbQuery || "").trim().toLowerCase();
   const visible = rows.filter(r => (r.name || "").toLowerCase().includes(q) && wbMatches(r, state.wbFilter));
@@ -831,13 +837,21 @@ function paintWorkbench() {
         <div class="wb-state"><span class="badge ${WB_BADGE[r.summary] ?? ""}">${esc(r.exempt ? (hasRevision ? "免交 · 已正式提交" : "免交") : r.summary)}</span>${r.acceptance === "accepted" && r.summary !== "已验收" ? '<span class="badge ok">已验收</span>' : ""}</div>
         <div class="wb-buckets">${tags || `<span class="muted">${hasRevision ? "暂无待办" : (r.exempt ? "无需提交" : "等待提交")}</span>`}</div>
         <div class="wb-actions">${hasRevision ? `<a class="ghost sm" href="#/review/${taskId}/${r.subject_id}">复核 ${icon("arrow")}</a>` : (r.exempt ? "" : r.subject_id ? `<button class="ghost sm" onclick="remindTarget(${r.subject_id})">提醒</button>` : `<a class="ghost sm" href="#/roster/${taskId}">发放凭证</a>`)}
+          ${!hasRevision && r.subject_id ? `<a class="ghost sm" href="#/review/${taskId}/${r.subject_id}">${r.exempt ? "免交与历史" : "处理免交"} ${icon("arrow")}</a>` : ""}
           ${hasRevision && !ro ? `<button class="ghost sm" onclick="runCheck(${taskId},${r.subject_id})">重新检查</button>` : ""}
           ${canRetry ? `<button class="ghost sm" onclick="retryCheck(${taskId},${r.subject_id})" title="上次检查技术失败：重试生成新运行，旧运行标记被取代并保留">重试</button>` : ""}
         </div></article>`;
     }).join("");
 }
 
-function filterWorkbench(f) { state.wbFilter = f; paintWorkbench(); }
+function filterWorkbench(f, fromMetric = false) {
+  state.wbFilter = f;
+  if (fromMetric) {
+    state.wbQuery = "";
+    const search = document.getElementById("wb-search"); if (search) search.value = "";
+  }
+  paintWorkbench();
+}
 
 /* ---- 催交：通知意图（只记录「已复制」，不宣称已发送） ---- */
 function paintReminder() {
@@ -1002,7 +1016,13 @@ async function viewReview(taskId, sid) {
     <div class="breadcrumb"><a href="#/tasks">我的任务</a><span>/</span><a href="#/workbench/${taskId}">收集工作台</a><span>/</span><span id="rv-name">证据复核</span></div>
     <div class="page-heading"><div><div class="eyebrow">EVIDENCE REVIEW</div><h1>逐条核对证据<span class="heading-dot">.</span></h1><p>每处判断都附原文位置。解释不改变机器结论，最终由你决定。</p></div><div id="review-retry"></div></div>
     <div id="flash" role="status" aria-live="polite"></div>
-    <div id="rv"><p class="empty">正在读取检查结果…</p></div>`;
+    <div id="rv"><p class="empty">正在读取检查结果…</p></div>
+    <dialog id="revoke-dialog" aria-labelledby="revoke-title" oncancel="if(state.revokeBusy) event.preventDefault()"><form onsubmit="event.preventDefault();confirmRevokeDecision()">
+      <h2 id="revoke-title">撤销决定</h2><p id="revoke-impact"></p>
+      <label for="revoke-reason">撤销理由（必填）</label><textarea id="revoke-reason" required placeholder="说明为什么撤销；原决定及撤销记录都会保留"></textarea>
+      <div id="revoke-error" role="alert" class="inline-error"></div>
+      <div class="dialog-actions"><button type="button" id="revoke-cancel" class="ghost" onclick="this.closest('dialog').close()">取消</button><button type="submit" id="revoke-confirm">确认撤销</button></div>
+    </form></dialog>`;
   try {
     const d = await api(`/api/tasks/${taskId}/subjects/${sid}/findings`);
     if (epoch !== state.routeEpoch || requestId !== state.reviewRequestId) return;
@@ -1050,7 +1070,7 @@ function paintReview(taskId, sid) {
       <span class="review-rule-text">${esc((r.requirement && r.requirement.statement) || r.explanation || r.rule_id)}</span>
       <span class="review-rule-side">${r.decision ? '<span class="badge info">已有人工决定</span>' : resultBadge(r.result)}<span class="badge">${esc(severityLabel(r.severity))}</span></span>
     </button>`;
-  }).join("")}</div>` : `<div class="empty-state"><div class="empty-icon">${icon("workbench")}</div><h3>暂无规则结果</h3><p>可能尚未检查。回到工作台发起检查，或稍后刷新。</p><p><a class="ghost sm" href="#/workbench/${taskId}">返回工作台</a></p></div>`;
+  }).join("")}</div>` : `<div class="empty-state"><div class="empty-icon">${icon("workbench")}</div><h3>${d.revision ? "暂无规则结果" : "尚无正式提交"}</h3><p>${d.revision ? "可能尚未检查。回到工作台发起检查，或稍后刷新。" : "现在可以处理主体免交或查看决定历史；正式提交后才能检查和验收材料。"}</p><p><a class="ghost sm" href="#/workbench/${taskId}">返回工作台</a></p></div>`;
 
   const evidence = active ? `
     <article class="evidence-detail">
@@ -1071,14 +1091,14 @@ function paintReview(taskId, sid) {
         <option value="approve_exception">批准例外</option>
         <option value="exempt">主体免交（不等于验收）</option></select></div>
         <div><label for="dc-rule">当前规则 · 决定不扩大到其他项</label><input id="dc-rule" value="${esc(active ? active.rule_id : "")}" readonly></div></div>
-      <label for="dc-exp">过期时间（可空，ISO）</label><input id="dc-exp" placeholder="2026-12-31T23:59:59+08:00">
+      <p class="field-help">免交对整个任务生效；到期或撤销后重新计入应交，已有正式提交和历史回执保留。</p><label for="dc-exp">过期时间（可空，ISO；无偏移时按任务时区）</label><input id="dc-exp" placeholder="2026-12-31T23:59:59+08:00">
       <label for="dc-reason">理由（必填）</label><textarea id="dc-reason" placeholder="为什么这样做决定；提交者解释会显示在上方"></textarea>
       <p class="muted">切换规则或页面会暂存理由；浏览器刷新或关闭后不保留。</p>
       <div id="review-conflict" role="alert"></div>
       <button id="decision-submit" ${state.reviewConflict ? "disabled" : ""} onclick="submitDecision(${taskId},${sid})">提交决定 ${icon("arrow")}</button>
     </div>
     <div class="decision-history"><h3>决定历史</h3>
-      ${(d.decisions || []).map(x => `<div class="decision-row"><div><span class="badge ${x.revoked ? "" : "info"}">${esc(DECISION_LABEL[x.decision] || x.decision)}${x.revoked ? "（已撤销）" : x.expires_at && Date.parse(x.expires_at) <= Date.now() ? "（已过期）" : ""}</span><span class="muted">${x.revision_id ? (x.revision_id === d.revision?.id ? "本版本" : "历史版本（修订 #" + x.revision_id + "）") : "名单级"} · ${x.scope_rule_id ? "规则 " + esc(x.scope_rule_id) + " · " : ""}${esc(fmtTime(x.created_at))}</span></div><p>${esc(x.reason)}</p>${x.revoked ? "" : `<button class="link" onclick="revokeDecision(${taskId},${sid},${x.id})">撤销</button>`}</div>`).join("") || `<p class="muted">还没有人工决定。</p>`}
+      ${(d.decisions || []).map(x => `<div class="decision-row"><div><span class="badge ${x.revoked ? "" : "info"}">${esc(DECISION_LABEL[x.decision] || x.decision)}${x.revoked ? "（已撤销）" : x.expires_at && Date.parse(x.expires_at) <= Date.now() ? "（已过期）" : ""}</span><span class="muted">${x.revision_id ? (x.revision_id === d.revision?.id ? "本版本" : "历史版本（修订 #" + x.revision_id + "）") : "名单级"} · ${x.scope_rule_id ? "规则 " + esc(x.scope_rule_id) + " · " : ""}${esc(fmtTime(x.created_at))}</span></div><p>${esc(x.reason)}</p>${x.revoked || x.decision === "revoke" ? "" : `<button class="link" onclick="revokeDecision(${taskId},${sid},${x.id})">撤销</button>`}</div>`).join("") || `<p class="muted">还没有人工决定。</p>`}
     </div>
   </section>`;
 
@@ -1167,17 +1187,36 @@ async function submitDecision(taskId, sid, action = null) {
     }
   }
 }
-async function revokeDecision(taskId, sid, did) {
-  if (state.deciding) return;
-  const epoch = state.routeEpoch, context = state.reviewContext;
-  const isCurrent = () => epoch === state.routeEpoch && context === state.reviewContext;
-  const reason = prompt("撤销理由（必填）：");
-  if (!reason) return;
+function revokeDecision(taskId, sid, did) {
+  if (state.deciding || state.revokeBusy) return;
+  state.revokeTarget = {taskId, sid, did, epoch: state.routeEpoch, context: state.reviewContext};
+  const original = state.reviewData?.decisions?.find(d => d.id === did);
+  document.getElementById("revoke-impact").textContent = original?.decision === "exempt"
+    ? "撤销本条免交后，若没有其他有效免交，主体将恢复应交；已有提交、回执和旧快照保留。"
+    : "撤销后将重新计算当前状态，原决定保留在历史中。";
+  document.getElementById("revoke-reason").value = "";
+  document.getElementById("revoke-error").textContent = "";
+  document.getElementById("revoke-dialog").showModal();
+  document.getElementById("revoke-reason").focus();
+}
+async function confirmRevokeDecision() {
+  const target = state.revokeTarget;
+  if (!target || state.deciding || state.revokeBusy) return;
+  const isCurrent = () => target.epoch === state.routeEpoch && target.context === state.reviewContext;
+  if (!isCurrent()) return;
+  const input = document.getElementById("revoke-reason"), error = document.getElementById("revoke-error");
+  const reason = input.value.trim();
+  if (!reason) { error.textContent = "请填写撤销理由"; input.focus(); return; }
+  const dialog = document.getElementById("revoke-dialog");
+  const controls = [input, document.getElementById("revoke-confirm"), document.getElementById("revoke-cancel")];
+  state.revokeBusy = true;
+  controls.forEach(el => el.disabled = true);
   try {
-    await api(`/api/tasks/${taskId}/subjects/${sid}/decisions/${did}/revoke`,
+    await api(`/api/tasks/${target.taskId}/subjects/${target.sid}/decisions/${target.did}/revoke`,
               { method: "POST", form: { reason } });
-    if (isCurrent()) await viewReview(taskId, sid);
-  } catch (e) { if (isCurrent()) setFlash(e.message); }
+    if (isCurrent()) { dialog.close(); await viewReview(target.taskId, target.sid); }
+  } catch (e) { if (isCurrent()) error.textContent = e.message; }
+  finally { state.revokeBusy = false; controls.forEach(el => { if (el.isConnected) el.disabled = false; }); }
 }
 
 /* ---------------------------------------------------------------- P04 提交空间 */
