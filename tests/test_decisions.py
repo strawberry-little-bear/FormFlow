@@ -30,7 +30,7 @@ def _setup(db):
 def _formal(db, task, subject, key="k1"):
     submission = get_or_create_draft(db, task, subject.id)
     rev = formal_submit(db, task, submission, fields={"name": "张三"},
-                        slot_file_ids={"report": []}, idempotency_key=key)
+                        slot_file_ids={}, idempotency_key=key)
     run = create_run(db, task, rev)
     execute_run(db, run)
     return rev, run
@@ -101,7 +101,7 @@ def test_decision_scope_does_not_leak_to_new_revision(db_session, stub_llm):
     from app.services.submissions import formal_submit
 
     rev2 = formal_submit(db_session, task, get_or_create_draft(db_session, task, subject.id),
-                         fields={"name": "张三"}, slot_file_ids={"report": []},
+                         fields={"name": "张三"}, slot_file_ids={},
                          idempotency_key="k2", is_correction=True)
     from app.services.checks import _active_decisions
 

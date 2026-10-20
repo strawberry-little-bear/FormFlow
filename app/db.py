@@ -45,10 +45,62 @@ def get_db() -> Iterator[Session]:
 
 
 def init_db() -> None:
-    """建表。迁移策略后续再完善，当前阶段直接 create_all。"""
+    """建表 + 轻量迁移（SQLite 缺列时补齐，不引入 Alembic）。"""
     from . import models  # noqa: F401  确保模型已注册
 
     if settings.database_url.startswith("sqlite"):
         db_path = settings.database_url.split("///", 1)[1]
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     Base.metadata.create_all(bind=engine)
+    if settings.database_url.startswith("sqlite"):
+        _add_missing_columns()
+        _link_legacy_exemptions()
+
+
+# 已有本地库升级用：新列 → (表, 列, 定义)。SQLite 不支持 ADD COLUMN IF NOT EXISTS，
+# 先查 PRAGMA table_info 再补，重复执行安全。
+_SQLITE_COLUMNS = {
+    "submissions": [("draft_fields_json", "TEXT DEFAULT '{}'")],
+    "exemptions": [("decision_id", "INTEGER REFERENCES manual_decisions(id)")],
+}
+
+
+def _add_missing_columns() -> None:
+    from sqlalchemy import text
+
+    with engine.begin() as conn:
+        for table, columns in _SQLITE_COLUMNS.items():
+            existing = {row[1] for row in conn.execute(
+                text(f"PRAGMA table_info({table})")).fetchall()}
+            for name, ddl in columns:
+                if name not in existing:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
+
+
+def _link_legacy_exemptions() -> None:
+    """Link only unambiguous legacy pairs; never attach standalone exceptions by name."""
+    from sqlalchemy import select
+    from .models import Exemption, ManualDecision
+    from .timeutils import as_utc
+
+    with Session(engine) as db:
+        exemptions = db.scalars(select(Exemption).where(
+            Exemption.kind == "exempt", Exemption.decision_id.is_(None))).all()
+        decisions = db.scalars(select(ManualDecision).where(
+            ManualDecision.decision == "exempt")).all()
+        linked = set(db.scalars(select(Exemption.decision_id).where(
+            Exemption.decision_id.is_not(None))))
+        candidates = {}
+        for e in exemptions:
+            candidates[e.id] = [d for d in decisions if d.id not in linked
+                and (e.task_id, e.subject_id, e.reason.strip(), e.decided_by) ==
+                    (d.task_id, d.subject_id, d.reason.strip(), d.operator_id)
+                and e.decided_at and d.created_at
+                and abs((as_utc(e.decided_at) - as_utc(d.created_at)).total_seconds()) < 2]
+        for e in exemptions:
+            matches = candidates[e.id]
+            if len(matches) == 1 and sum(
+                    any(d.id == matches[0].id for d in rows)
+                    for rows in candidates.values()) == 1:
+                e.decision_id = matches[0].id
+        db.commit()

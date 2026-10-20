@@ -17,6 +17,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
+from ..timeutils import iso_utc
+from ..services.progress import workbench_data, exempt_subject_ids
 from ..models import (
     EXEMPTION_ACTIVE,
     AccessGrant,
@@ -43,6 +45,7 @@ class DraftIn(BaseModel):
     """保存草稿：字段 + 期望版本（乐观并发）。"""
     fields: dict
     expected_version: Optional[int] = None
+    slot_file_ids: Optional[dict] = None
 
 class SubmitIn(BaseModel):
     """正式提交：字段 + 槽位文件 + 幂等键。"""
@@ -73,7 +76,7 @@ from ..services import export as export_service
 from ..services import submissions as sub_service
 from ..services import tasks as task_service
 from ..services.checks import (create_run, current_details, current_summary,
-                               execute_run, retry_run, rule_details,
+                               execute_run, retry_run, rule_details, review_rule_details,
                                run_coverage)
 from ..agents.requirements_agent import validate_blueprint
 from ..schemas import Blueprint
@@ -82,7 +85,7 @@ from fastapi import APIRouter
 router = APIRouter(prefix="/api")
 
 def _iso(dt) -> str:
-    return dt.isoformat() if dt is not None else ""
+    return iso_utc(dt) or ""
 
 # ---------------------------------------------------------------- 会话（DB 持久化）
 def current_account(
@@ -170,22 +173,53 @@ def create_task(name: str = Form(...), mode: str = Form("roster"),
     db.commit()
     return {"task_id": task.id, "status": task.status}
 
+@router.get("/tasks/{task_id}/design")
+def get_design_view(task_id: int, db: Session = Depends(get_db),
+                    acct: Account = Depends(current_account)):
+    """Owner-only design recovery; unpublished rules and source text are private."""
+    return task_service.get_design(db, _owned_task(db, acct, task_id))
+
+
+@router.get("/tasks/{task_id}/blueprints/{bp_id}")
+def get_blueprint_version(task_id: int, bp_id: int, db: Session = Depends(get_db),
+                          acct: Account = Depends(current_account)):
+    """只读查看历史草案版本；发布后的版本同样可见，用于版本对比。"""
+    task = _owned_task(db, acct, task_id)
+    try:
+        return task_service.get_blueprint_version(db, task, bp_id)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+
+
 @router.post("/tasks/{task_id}/draft/agent")
 def draft_by_agent(task_id: int, requirement: str = Form(...), template: str = Form(None),
                    db: Session = Depends(get_db), acct: Account = Depends(current_account)):
     task = _owned_task(db, acct, task_id)
-    result, bp = task_service.draft_from_requirement(db, task, requirement, template)
+    try:
+        result, bp = task_service.draft_from_requirement(db, task, requirement, template)
+    except task_service.TaskNotWritable as e:
+        raise HTTPException(409, str(e))
     db.commit()
-    return {"blueprint_version_id": bp.id, "draft": result.model_dump()}
+    blocking, advisories = task_service.split_publish_checks(result.blueprint, bp, result)
+    return {"blueprint_version_id": bp.id, "version": bp.version, "status": bp.status,
+            "draft": result.model_dump(), "blocking": blocking, "advisories": advisories}
 
 @router.post("/tasks/{task_id}/draft/template")
 def draft_by_template(task_id: int, template: str = Form(...),
                       db: Session = Depends(get_db), acct: Account = Depends(current_account)):
     task = _owned_task(db, acct, task_id)
-    bp = task_service.draft_from_template(db, task, template)
+    try:
+        bp = task_service.draft_from_template(db, task, template)
+    except task_service.TaskNotWritable as e:
+        raise HTTPException(409, str(e))
+    except ValueError as e:
+        raise HTTPException(422, str(e))
     db.commit()
+    design = task_service.get_design(db, task)
     return {"blueprint_version_id": bp.id, "version": bp.version,
-            "blueprint": Blueprint.model_validate_json(bp.blueprint_json).model_dump()}
+            "blueprint": Blueprint.model_validate_json(bp.blueprint_json).model_dump(),
+            "draft": design["draft"], "blocking": design.get("blocking", []),
+            "advisories": design.get("advisories", [])}
 
 @router.post("/tasks/{task_id}/draft/revise")
 def revise_draft_view(task_id: int, blueprint_version_id: int = Form(...),
@@ -209,8 +243,10 @@ def revise_draft_view(task_id: int, blueprint_version_id: int = Form(...),
     except ValueError as e:
         raise HTTPException(404, str(e))
     db.commit()
+    blocking, advisories = task_service.split_publish_checks(result.blueprint, bp, result)
     return {"blueprint_version_id": bp.id, "version": bp.version,
-            "draft": result.model_dump(), "impact": impact}
+            "status": bp.status, "draft": result.model_dump(), "impact": impact,
+            "blocking": blocking, "advisories": advisories}
 
 
 @router.post("/tasks/{task_id}/blueprints/{bp_id}/publish")
@@ -311,9 +347,7 @@ def get_roster(task_id: int, db: Session = Depends(get_db),
     task = _owned_task(db, acct, task_id)
     entries = db.scalars(select(RosterEntry).where(
         RosterEntry.task_id == task.id).order_by(RosterEntry.id)).all()
-    exempt_ids = set(db.scalars(select(Exemption.subject_id).where(
-        Exemption.task_id == task.id,
-        Exemption.status == EXEMPTION_ACTIVE)).all())
+    exempt_ids = exempt_subject_ids(db, task)
     out = []
     for e in entries:
         subj = db.get(Subject, e.subject_id) if e.subject_id else None
@@ -371,12 +405,9 @@ def issue_grant(task_id: int, subject_name: str = Form(...),
 def workbench(task_id: int, db: Session = Depends(get_db), acct: Account = Depends(current_account)):
     """任务工作台：谁没交、谁要改、谁等我决定。"""
     task = _owned_task(db, acct, task_id)
-    subjects = db.scalars(select(Subject).where(Subject.task_id == task.id)).all()
-    rows = []
-    for s in subjects:
-        summary = current_summary(db, task, s.id)
-        rows.append({"subject_id": s.id, "name": s.display_name, **summary})
-    return {"task": {"id": task.id, "name": task.name, "status": task.status}, "rows": rows}
+    return {"task": {"id": task.id, "name": task.name, "status": task.status,
+                     "mode": task.mode, "subject_kind": task.subject_kind},
+            **workbench_data(db, task)}
 
 # ---------------------------------------------------------------- 提交者
 @router.get("/me")
@@ -388,8 +419,8 @@ def my_space(grant: AccessGrant = Depends(current_subject), db: Session = Depend
     blueprint = Blueprint.model_validate_json(bp.blueprint_json).model_dump() if bp else None
     return {
         "task": {"id": task.id, "name": task.name, "timezone": task.timezone,
-                 "open_at": task.open_at, "first_deadline": task.first_deadline,
-                 "correction_deadline": task.correction_deadline, "status": task.status},
+                 "open_at": iso_utc(task.open_at), "first_deadline": iso_utc(task.first_deadline),
+                 "correction_deadline": iso_utc(task.correction_deadline), "status": task.status},
         "subject": {"id": subject.id, "name": subject.display_name, "kind": subject.kind},
         "blueprint": blueprint,
     }
@@ -401,13 +432,24 @@ def save_draft(body: DraftIn,
     task = db.get(Task, grant.task_id)
     submission = sub_service.get_or_create_draft(db, task, subject.id)
     try:
-        version = sub_service.save_draft(db, submission, body.fields, body.expected_version)
+        version = sub_service.save_draft(db, submission, body.fields, body.expected_version,
+                                         slot_file_ids=body.slot_file_ids)
     except task_service.TaskNotWritable as e:
         raise HTTPException(409, str(e))
     except sub_service.SubmitError as e:
         raise HTTPException(409, str(e))
     db.commit()
     return {"draft_version": version}
+
+@router.get("/me/draft")
+def read_draft(grant_and_subject: tuple = Depends(current_subject),
+               db: Session = Depends(get_db)):
+    """恢复提交者草稿：刷新/换设备后字段与已上传文件都还在。"""
+    grant, subject = grant_and_subject
+    task = db.get(Task, grant.task_id)
+    submission = sub_service.get_or_create_draft(db, task, subject.id)
+    db.commit()
+    return sub_service.draft_view(db, task, submission)
 
 @router.post("/me/files")
 async def upload_file(slot: str = Form(...), file: UploadFile = File(...),
@@ -417,14 +459,38 @@ async def upload_file(slot: str = Form(...), file: UploadFile = File(...),
     task = db.get(Task, grant.task_id)
     submission = sub_service.get_or_create_draft(db, task, subject.id)
     content = await file.read()
+    bp = db.get(BlueprintVersion, task.current_blueprint_id) if task.current_blueprint_id else None
+    blueprint = Blueprint.model_validate_json(bp.blueprint_json) if bp else None
     try:
+        sub_service.validate_slot_count(db, submission, blueprint, slot=slot)
+        sub_service.validate_upload(task, blueprint, slot=slot,
+                                    original_name=file.filename or "unnamed",
+                                    size=len(content))
         fo = sub_service.attach_file(db, submission, slot=slot,
                                      original_name=file.filename or "unnamed",
                                      content=content, sha256="", mime=file.content_type or "")
     except task_service.TaskNotWritable as e:
         raise HTTPException(409, str(e))
+    except sub_service.SubmitError as e:
+        raise HTTPException(422, str(e))
     db.commit()
     return {"file_id": fo.file_id, "status": fo.status, "size": fo.size}
+
+@router.delete("/me/files/{file_id}")
+def delete_file(file_id: str, grant_and_subject: tuple = Depends(current_subject),
+                db: Session = Depends(get_db)):
+    """删除尚未进入正式版本的草稿文件。"""
+    grant, subject = grant_and_subject
+    task = db.get(Task, grant.task_id)
+    submission = sub_service.get_or_create_draft(db, task, subject.id)
+    try:
+        sub_service.delete_file(db, submission, file_id)
+    except task_service.TaskNotWritable as e:
+        raise HTTPException(409, str(e))
+    except sub_service.SubmitError as e:
+        raise HTTPException(422, str(e))
+    db.commit()
+    return {"deleted": file_id}
 
 @router.post("/me/submit")
 def formal_submit(body: SubmitIn,
@@ -441,18 +507,26 @@ def formal_submit(body: SubmitIn,
         raise HTTPException(409, str(e))
     except sub_service.IdempotencyConflict as e:
         raise HTTPException(409, str(e))
+    except sub_service.SubmissionValidationError as e:
+        raise HTTPException(422, {"code": "submission_validation", "message": str(e),
+                                  "issues": e.issues})
     except sub_service.SubmitError as e:
         raise HTTPException(422, str(e))
     # 正式版本与检查意图在同一可靠边界记录（W4/W5）
     try:
-        run = create_run(db, task, rev)
+        # A receipt replay must not create another run/job (or recheck a closed task).
+        run = db.scalar(select(CheckRun).where(CheckRun.revision_id == rev.id)
+                        .order_by(CheckRun.id.desc()))
+        if run is None:
+            run = create_run(db, task, rev)
     except ValueError as e:
         raise HTTPException(422, str(e))
     except task_service.TaskNotWritable as e:
         raise HTTPException(409, str(e))
     db.commit()
     return {"receipt": rev.receipt, "revision": rev.version,
-            "formal_submitted_at": rev.formal_submitted_at, "run_id": run.id}
+            "formal_submitted_at": iso_utc(rev.formal_submitted_at), "run_id": run.id,
+            "draft_version": submission.draft_version}
 
 @router.get("/me/receipt")
 def my_receipt(grant_and_subject: tuple = Depends(current_subject), db: Session = Depends(get_db)):
@@ -464,7 +538,7 @@ def my_receipt(grant_and_subject: tuple = Depends(current_subject), db: Session 
         return {"formal": False}
     rev = db.get(Revision, submission.current_revision_id)
     return {"formal": True, "receipt": rev.receipt, "revision": rev.version,
-            "formal_submitted_at": rev.formal_submitted_at}
+            "formal_submitted_at": iso_utc(rev.formal_submitted_at)}
 
 @router.post("/me/appeals")
 def create_appeal(body: AppealIn,
@@ -584,12 +658,19 @@ def retry_check(task_id: int, subject_id: int, db: Session = Depends(get_db),
 @router.post("/tasks/{task_id}/subjects/{subject_id}/decisions")
 def make_decision(task_id: int, subject_id: int, decision: str = Form(...),
                   reason: str = Form(...), scope_rule_id: str = Form(""),
+                  expected_current_revision: Optional[int] = Form(None),
                   expires_at: Optional[str] = Form(None),
                   db: Session = Depends(get_db), acct: Account = Depends(current_account)):
     task = _owned_task(db, acct, task_id)
     subject = db.get(Subject, subject_id)
     if subject is None or subject.task_id != task.id:
         raise HTTPException(404, "主体不存在或不属于该任务")
+    if expected_current_revision is None:
+        raise HTTPException(422, "缺少复核版本，请刷新复核页后重试")
+    if expected_current_revision < 0:
+        raise HTTPException(422, "复核版本不合法")
+    if expected_current_revision == 0 and decision not in {"exempt", "eligibility"}:
+        raise HTTPException(422, "没有正式提交版本，只能处理免交或资格")
     exp_dt: Optional[datetime] = None
     if expires_at:
         try:
@@ -599,7 +680,10 @@ def make_decision(task_id: int, subject_id: int, decision: str = Form(...),
     try:
         d = decision_service.record_decision(db, task, subject, decision=decision, reason=reason,
                                              operator_id=acct.id, scope_rule_id=scope_rule_id,
-                                             expires_at=exp_dt)
+                                             expires_at=exp_dt,
+                                             expected_current_revision=expected_current_revision)
+    except decision_service.DecisionConflict as e:
+        raise HTTPException(409, str(e))
     except decision_service.DecisionError as e:
         raise HTTPException(422, str(e))
     db.commit()
@@ -613,8 +697,13 @@ def make_decision(task_id: int, subject_id: int, decision: str = Form(...),
 def revoke_decision(task_id: int, subject_id: int, decision_id: int, reason: str = Form(...),
                     db: Session = Depends(get_db), acct: Account = Depends(current_account)):
     task = _owned_task(db, acct, task_id)
+    target = db.get(ManualDecision, decision_id)
+    if target is None or target.task_id != task.id or target.subject_id != subject_id:
+        raise HTTPException(404, "决定不存在或不属于该主体")
     try:
         decision_service.revoke_decision(db, task, decision_id, reason, operator_id=acct.id)
+    except decision_service.DecisionConflict as e:
+        raise HTTPException(409, str(e))
     except decision_service.DecisionError as e:
         raise HTTPException(422, str(e))
     db.commit()
@@ -682,21 +771,26 @@ def findings(task_id: int, subject_id: int, db: Session = Depends(get_db),
                       if same_name else "")
     submission = db.scalar(select(Submission).where(Submission.task_id == task.id,
                                              Submission.subject_id == subject.id))
+    decisions = [{"id": d.id, "decision": d.decision, "reason": d.reason,
+                  "revision_id": d.revision_id, "scope_rule_id": d.scope_rule_id,
+                  "revoked": d.revoked, "created_at": _iso(d.created_at),
+                  "expires_at": _iso(d.expires_at)}
+                 for d in db.scalars(select(ManualDecision).where(
+                     ManualDecision.task_id == task.id, ManualDecision.subject_id == subject.id)
+                     .order_by(ManualDecision.id)).all()]
     if submission is None or submission.current_revision_id is None:
         return {"subject": {"id": subject.id, "name": subject.display_name},
-                "revision": None, "run": None, "rules": [], "decisions": [],
+                "revision": None, "run": None, "rules": [], "decisions": decisions,
+                "acceptance": {"ready": False, "accepted": False,
+                               "blockers": ["没有正式提交版本"]},
                 "same_name_subjects": same_name, "same_name_hint": same_name_hint}
     rev = db.get(Revision, submission.current_revision_id)
     run = db.scalar(select(CheckRun).where(
         CheckRun.revision_id == rev.id,
         CheckRun.status.not_in([RUN_SUPERSEDED])).order_by(CheckRun.id.desc()))
-    rules = rule_details(db, run)
-    decisions = [{"id": d.id, "decision": d.decision, "reason": d.reason,
-                  "scope_rule_id": d.scope_rule_id, "revoked": d.revoked,
-                  "created_at": _iso(d.created_at)}
-                 for d in db.scalars(select(ManualDecision).where(
-                     ManualDecision.task_id == task.id,
-                     ManualDecision.subject_id == subject.id).order_by(ManualDecision.id)).all()]
+    rules = review_rule_details(db, run, task, subject.id, rev.id)
+    blockers = decision_service._acceptance_blockers(db, task, subject)
+    accepted = current_summary(db, task, subject.id)["acceptance"] == "accepted"
     return {"subject": {"id": subject.id, "name": subject.display_name},
             "revision": {"id": rev.id, "version": rev.version, "receipt": rev.receipt},
             "run": ({"id": run.id, "status": run.status,
@@ -705,6 +799,8 @@ def findings(task_id: int, subject_id: int, db: Session = Depends(get_db),
                      "budget_exhausted": run.budget_exhausted,
                      "coverage": run_coverage(run)} if run else None),
             "rules": rules, "decisions": decisions,
+            "acceptance": {"ready": not blockers and not accepted,
+                           "accepted": accepted, "blockers": blockers},
             "notes": [appeal_service.to_dict(db, n)
                       for n in appeal_service.pending_notes(db, task)
                       if n.subject_id == subject.id],

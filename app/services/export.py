@@ -49,6 +49,8 @@ def create_snapshot(db: Session, task: Task, *, kind: str = "formal",
     if include_subject_ids is not None:
         subjects = [s for s in subjects if s.id in include_subject_ids]
 
+    from .progress import exempt_subject_ids
+    exempt_ids = exempt_subject_ids(db, task)
     entries = []
     for s in subjects:
         submission = db.scalar(select(Submission).where(
@@ -71,6 +73,10 @@ def create_snapshot(db: Session, task: Task, *, kind: str = "formal",
             excluded_reason = "无正式提交版本"
         elif not accepted:
             excluded_reason = "当前版本未验收" if kind == "formal" else "当前版本未验收（整理预览仍列出）"
+        exempt = s.id in exempt_ids
+        included = kind != "formal" or (accepted and not exempt)
+        if exempt:
+            excluded_reason = "有效免交（不等于材料验收）"
         files = []
         if rev is not None:
             for slot, fids in json.loads(rev.slot_file_ids_json).items():
@@ -87,8 +93,8 @@ def create_snapshot(db: Session, task: Task, *, kind: str = "formal",
             "receipt": rev.receipt if rev else None,
             "formal_submitted_at": _utc(rev.formal_submitted_at) if rev else None,
             "accepted": accepted, "decision_ids": decisions,
-            "included": (kind != "formal") or accepted,
-            "excluded_reason": "" if ((kind != "formal") or accepted) else excluded_reason,
+            "exempt": exempt, "included": included,
+            "excluded_reason": "" if included else excluded_reason,
             "files": files,
         })
 

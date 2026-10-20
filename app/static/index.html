@@ -1,20 +1,18 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>收齐啦 FormFlow</title>
-<link rel="stylesheet" href="/static/style.css">
-</head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#f7f8fa"><title>收齐啦 · FormFlow</title>
+<link rel="stylesheet" href="/static/style.css"></head>
 <body>
-<header>
-  <span class="logo"><span class="mark">齐</span>收齐啦 FormFlow</span>
-  <span id="role-label" class="muted"></span>
-  <span class="spacer"></span>
-  <button id="btn-logout" class="link" onclick="logout()">退出</button>
-</header>
-<nav id="nav"></nav>
-<main id="app"><p class="muted">加载中…</p></main>
-<script src="/static/app.js"></script>
-</body>
-</html>
+<a class="skip-link" href="#app">跳到主要内容</a>
+<aside class="sidebar" aria-label="工作区导航">
+<a class="logo" href="#/tasks"><span class="mark">齐</span><span>收齐啦<small>FORMFLOW</small></span></a>
+<div class="workspace-label">个人工作区</div>
+<nav id="nav" aria-label="主导航"></nav>
+<div class="sidebar-foot"><span class="status-dot"></span> 每一份材料，都有着落<small>需求起草 · 证据审核 · 版本交付</small></div>
+</aside>
+<header class="topbar"><span class="topbar-label">材料收集工作区</span><span class="spacer"></span>
+<span id="role-label" class="muted"></span><span class="user-avatar" aria-hidden="true">齐</span>
+<button id="btn-logout" class="link" onclick="logout()">退出</button></header>
+<main id="app" tabindex="-1"><p class="muted" role="status">正在打开工作区…</p></main>
+<script src="/static/app.js"></script></body></html>

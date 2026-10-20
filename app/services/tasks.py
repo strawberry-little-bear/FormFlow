@@ -32,6 +32,10 @@ from ..schemas import Blueprint, DraftResult
 from ..security import generate_credential, hash_credential, utcnow
 
 
+def _iso(dt: Optional[datetime]) -> str:
+    return dt.isoformat() if dt is not None else ""
+
+
 def audit(db: Session, action: str, entity: str = "", payload: dict | None = None,
           task_id: Optional[int] = None, actor: str = "system") -> None:
     db.add(AuditEvent(task_id=task_id, actor=actor, action=action,
@@ -65,18 +69,109 @@ def save_draft(db: Session, task: Task, draft: DraftResult, by_agent: bool = Tru
     db.add(bp)
     db.flush()
     audit(db, "blueprint.draft_saved", "blueprint", {"version": version}, task.id)
+    save_design_context(db, task, bp, draft)
     return bp
+
+
+def save_design_context(db: Session, task: Task, bp: BlueprintVersion, draft: DraftResult) -> None:
+    """Persist agent clarifications alongside the immutable blueprint, without a schema migration."""
+    audit(db, "blueprint.design_context", str(bp.id), draft.model_dump(mode="json"), task.id)
+
+
+def get_design(db: Session, task: Task) -> dict:
+    """Recover the latest draft/published version, including unresolved questions and warnings."""
+    latest = db.scalar(select(BlueprintVersion).where(BlueprintVersion.task_id == task.id)
+                       .order_by(BlueprintVersion.version.desc()))
+    result = {"task": {"id": task.id, "name": task.name, "status": task.status,
+                       "mode": task.mode, "subject_kind": task.subject_kind},
+              "blueprint_version_id": None}
+    versions = db.scalars(select(BlueprintVersion).where(BlueprintVersion.task_id == task.id)
+                          .order_by(BlueprintVersion.version.desc())).all()
+    result["versions"] = [{"id": v.id, "version": v.version, "status": v.status,
+                           "created_at": _iso(v.created_at),
+                           "published_at": _iso(v.published_at)}
+                          for v in versions]
+    if latest is None:
+        result["history"] = []
+        return result
+    bp = Blueprint.model_validate_json(latest.blueprint_json)
+    context = db.scalar(select(AuditEvent).where(
+        AuditEvent.task_id == task.id, AuditEvent.action == "blueprint.design_context",
+        AuditEvent.entity == str(latest.id)).order_by(AuditEvent.id.desc()))
+    draft = DraftResult.model_validate_json(context.payload_json) if context else DraftResult(blueprint=bp)
+    # Always re-check the actual stored blueprint, not stale metadata from an earlier attempt.
+    draft.blueprint = bp
+    draft.warnings = list(dict.fromkeys(draft.warnings + validate_blueprint(bp, latest.source_text or "")))
+    blocking, advisories = split_publish_checks(bp, latest, draft)
+    result.update(blueprint_version_id=latest.id, version=latest.version, status=latest.status,
+                  source_text=latest.source_text or "", draft=draft.model_dump(mode="json"),
+                  blocking=blocking, advisories=advisories,
+                  history=_design_history(db, task))
+    return result
+
+
+def get_blueprint_version(db: Session, task: Task, bp_id: int) -> dict:
+    """只读查看某个历史草案版本（含当时的澄清与提醒），用于设计台版本浏览。"""
+    bp = db.get(BlueprintVersion, bp_id)
+    if bp is None or bp.task_id != task.id:
+        raise ValueError("蓝图版本不存在")
+    blueprint = Blueprint.model_validate_json(bp.blueprint_json)
+    context = db.scalar(select(AuditEvent).where(
+        AuditEvent.task_id == task.id, AuditEvent.action == "blueprint.design_context",
+        AuditEvent.entity == str(bp.id)).order_by(AuditEvent.id.desc()))
+    draft = (DraftResult.model_validate_json(context.payload_json) if context
+             else DraftResult(blueprint=blueprint))
+    draft.blueprint = blueprint
+    blocking, advisories = split_publish_checks(blueprint, bp, draft)
+    return {"blueprint_version_id": bp.id, "version": bp.version, "status": bp.status,
+            "source_text": bp.source_text or "", "draft": draft.model_dump(mode="json"),
+            "blocking": blocking, "advisories": advisories}
+
+
+def split_publish_checks(blueprint: Blueprint, bp: BlueprintVersion,
+                         draft: DraftResult) -> tuple[list[str], list[str]]:
+    """把发布校验拆成「阻塞」与「提醒」：只有硬错误/关键歧义阻止发布。"""
+    blocking = list(validate_blueprint(blueprint, bp.source_text or ""))
+    if draft.clarifications:
+        blocking.append(f"还有 {len(draft.clarifications)} 项澄清未确认")
+    advisories = [w for w in draft.warnings if w not in blocking]
+    return blocking, advisories
+
+
+def _design_history(db: Session, task: Task) -> list[dict]:
+    """设计时间线：修订/无变化/发布事件，按时间正序。"""
+    events = db.scalars(select(AuditEvent).where(
+        AuditEvent.task_id == task.id,
+        AuditEvent.action.in_(("blueprint.revised", "blueprint.revise_noop",
+                               "blueprint.publish", "blueprint.publish_advisories")),
+    ).order_by(AuditEvent.id)).all()
+    out = []
+    for e in events:
+        try:
+            payload = json.loads(e.payload_json or "{}")
+        except ValueError:
+            payload = {}
+        if e.action == "blueprint.publish_advisories":
+            continue  # 发布事件里已含提醒摘要
+        out.append({"action": e.action, "version": payload.get("version")
+                    or payload.get("to_version"), "from_version": payload.get("from_version"),
+                    "impact": payload.get("impact", ""),
+                    "advisories": payload.get("advisories", []),
+                    "created_at": _iso(e.created_at)})
+    return out
 
 
 def draft_from_requirement(db: Session, task: Task, requirement_text: str,
                            template: Optional[str] = None) -> tuple[DraftResult, BlueprintVersion]:
     """需求 Agent 起草并保存草案。模型不可用时保留原草案并给警告。"""
+    ensure_task_writable(task)
     result = draft_blueprint(requirement_text, template=template)
     bp = save_draft(db, task, result, source_text=requirement_text)
     return result, bp
 
 
 def draft_from_template(db: Session, task: Task, template: str) -> BlueprintVersion:
+    ensure_task_writable(task)
     return save_draft(db, task, DraftResult(blueprint=template_blueprint(template)), by_agent=False)
 
 
@@ -129,12 +224,14 @@ def revise_draft(db: Session, task: Task, blueprint_version_id: int, *,
         audit(db, "blueprint.revise_noop", "blueprint",
               {"version": bp.version, "answered": sorted((answered or {}).keys())},
               task.id)
+        save_design_context(db, task, bp, result)
         return result, bp, blueprint_diff(current, result.blueprint)
     addendum = build_source_text(requirement, instruction, answered or {})
     accumulated = (prior_source + chr(10) + addendum).strip() if prior_source.strip() else addendum
     new_bp = save_draft(db, task, result, source_text=accumulated)
     impact = blueprint_diff(current, result.blueprint)
     _warn_unrequested_removal(result, impact)
+    save_design_context(db, task, new_bp, result)
     audit(db, "blueprint.revised", "blueprint",
           {"from_version": bp.version, "to_version": new_bp.version,
            "answered": sorted((answered or {}).keys()),
@@ -152,15 +249,32 @@ def publish(db: Session, task: Task, blueprint_version_id: int) -> BlueprintVers
         raise ValueError("蓝图版本不存在")
     ensure_task_writable(task)  # V24 readonly guard
     blueprint = Blueprint.model_validate_json(bp.blueprint_json)
-    errors = validate_blueprint(blueprint, bp.source_text or "")
-    if errors:
-        raise PublishBlocked("；".join(errors))
+    context = db.scalar(select(AuditEvent).where(
+        AuditEvent.task_id == task.id, AuditEvent.action == "blueprint.design_context",
+        AuditEvent.entity == str(bp.id)).order_by(AuditEvent.id.desc()))
+    draft = (DraftResult.model_validate_json(context.payload_json) if context
+             else DraftResult(blueprint=blueprint))
+    # 实际存储的蓝图为准，避免读到过期的上下文元数据
+    draft.blueprint = blueprint
+    blocking, advisories = split_publish_checks(blueprint, bp, draft)
+    if blocking:
+        raise PublishBlocked("；".join(blocking))
+    # Keep API display and server-side submission windows on the same UTC instant.
+    policy = blueprint.time_policy
+    task.timezone = policy.timezone
+    task.open_at = policy.open_at
+    task.first_deadline = policy.first_deadline
+    task.correction_deadline = policy.correction_deadline
     bp.status = "published"
     bp.published_at = utcnow()
     task.current_blueprint_id = bp.id
     if task.status == "draft":
         task.status = TASK_COLLECTING
-    audit(db, "blueprint.publish", "blueprint", {"version": bp.version}, task.id)
+    audit(db, "blueprint.publish", "blueprint",
+          {"version": bp.version, "advisories": advisories}, task.id)
+    if advisories:
+        audit(db, "blueprint.publish_advisories", "blueprint",
+              {"version": bp.version, "advisories": advisories}, task.id)
     return bp
 
 

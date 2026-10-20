@@ -222,21 +222,30 @@ def seed_demo(db: Session, *, username: str = "demo", password: str = "demo1234"
     task.current_blueprint_id = bpv.id
     task.status = "collecting"
 
-    task_service.add_roster(db, task, [
+    roster_entries = task_service.add_roster(db, task, [
         {"name": "张三", "ref": "一班"},
         {"name": "李四", "ref": "一班"},
         {"name": "王五", "ref": "二班"},
         {"name": "赵六", "ref": "二班"},
         {"name": "孙七", "ref": "二班"},
     ])
+    entries_by_name = {e.name: e for e in roster_entries}
 
     credentials = {}
     for name in ("张三", "李四", "王五", "赵六"):
         subject = task_service.ensure_subject(db, task, name)
+        entries_by_name[name].subject_id = subject.id
         credentials[name] = task_service.issue_grant(db, task, subject)
+
+    from ..models import RosterEntry
+    for entry in db.scalars(select(RosterEntry).where(RosterEntry.task_id == task.id)):
+        entry.subject_id = task_service.ensure_subject(db, task, entry.name).id
+    db.flush()
 
     # 孙七：免交（名册 5 − 免交 1 = 应交 4）
     sunqi = task_service.ensure_subject(db, task, "孙七")
+    entries_by_name["孙七"].subject_id = sunqi.id
+    db.flush()
     record_decision(db, task, sunqi, decision="exempt",
                     reason="因病免交，已核实（演示数据）", operator_id=acct.id)
 

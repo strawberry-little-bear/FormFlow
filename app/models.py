@@ -194,6 +194,7 @@ class Exemption(Base):
     subject_id: Mapped[int] = mapped_column(ForeignKey("subjects.id"), index=True)
     kind: Mapped[str] = mapped_column(String(16), default="exempt")  # exempt/special_deadline
     status: Mapped[str] = mapped_column(String(16), default=EXEMPTION_ACTIVE)
+    decision_id: Mapped[Optional[int]] = mapped_column(ForeignKey("manual_decisions.id"), nullable=True)
     new_deadline: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     reason: Mapped[str] = mapped_column(Text, default="")
     decided_by: Mapped[Optional[int]] = mapped_column(ForeignKey("accounts.id"), nullable=True)
@@ -223,12 +224,26 @@ class Submission(Base):
     subject_id: Mapped[int] = mapped_column(ForeignKey("subjects.id"), index=True)
     state: Mapped[str] = mapped_column(String(16), default=SUBMISSION_DRAFT)
     draft_version: Mapped[int] = mapped_column(Integer, default=1)
+    # 未正式提交前的字段草稿；刷新/换设备后可恢复。正式版本仍只存于 Revision。
+    draft_fields_json: Mapped[str] = mapped_column(Text, default="{}")
     current_revision_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("revisions.id"), nullable=True
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
     )
+
+
+class SubmissionDraft(Base):
+    """Persisted editable content, separate from immutable formal revisions.
+
+    A separate table lets create_all upgrade existing installations without ALTER.
+    """
+    __tablename__ = "submission_drafts"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    submission_id: Mapped[int] = mapped_column(ForeignKey("submissions.id"), unique=True)
+    fields_json: Mapped[str] = mapped_column(Text, default="{}")
+    slot_file_ids_json: Mapped[str] = mapped_column(Text, default="{}")
 
 
 class Revision(Base):

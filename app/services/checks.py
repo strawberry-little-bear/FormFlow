@@ -219,15 +219,17 @@ def _active_decisions(db: Session, task_id: int, subject_id: int,
         ManualDecision.task_id == task_id,
         ManualDecision.subject_id == subject_id,
         ManualDecision.revoked == False,  # noqa: E712
-    )).all()
+    ).order_by(ManualDecision.id)).all()
     from ..security import utcnow
 
     now = utcnow()
     out = []
     for d in rows:
+        if d.decision == "revoke":
+            continue
         if d.expires_at is not None:
             exp = d.expires_at if d.expires_at.tzinfo else d.expires_at.replace(tzinfo=now.tzinfo)
-            if exp < now:
+            if exp <= now:
                 continue
         # 默认不扩大到未来版本：决定必须绑定当前 revision 或为名单级（无 revision）
         if d.revision_id is not None and d.revision_id != revision_id:
@@ -292,6 +294,29 @@ def rule_details(db: Session, run: Optional[CheckRun]) -> list[dict]:
             "evidence": evs,
         })
     return out
+
+
+def review_rule_details(db: Session, run: Optional[CheckRun], task: Task,
+                        subject_id: int, revision_id: int) -> list[dict]:
+    """Organizer review includes human-only tasks, without inventing machine results."""
+    rows = rule_details(db, run)
+    if run is None:
+        return rows
+    bp = db.get(BlueprintVersion, run.blueprint_version_id)
+    blueprint = Blueprint.model_validate_json(bp.blueprint_json)
+    present = {r["rule_id"] for r in rows}
+    for rule in blueprint.rules:
+        if rule.executor.value == "human_only" and rule.id not in present:
+            rows.append({"rule_id": rule.id, "result": "manual_pending",
+                         "severity": rule.severity, "requirement": rule.model_dump(),
+                         "explanation": "此项须由组织者人工核对，系统不生成机器结论。",
+                         "next_step": "核对材料后，记录本项决定与理由。", "evidence": []})
+    active = _active_decisions(db, task.id, subject_id, revision_id)
+    for row in rows:
+        scoped = [d for d in active if d.scope_rule_id == row["rule_id"]]
+        row["decision"] = ({"id": scoped[-1].id, "decision": scoped[-1].decision,
+                            "reason": scoped[-1].reason} if scoped else None)
+    return rows
 
 
 def current_details(db: Session, task: Task, subject_id: int) -> list[dict]:
