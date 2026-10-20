@@ -11,3 +11,5 @@ python-docx>=1.1
 rapidocr-onnxruntime>=1.2
 pillow>=10.0
 pytest>=8.0
+
+tzdata>=2024.1

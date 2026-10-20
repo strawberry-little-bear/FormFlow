@@ -233,6 +233,18 @@ class Submission(Base):
     )
 
 
+class SubmissionDraft(Base):
+    """Persisted editable content, separate from immutable formal revisions.
+
+    A separate table lets create_all upgrade existing installations without ALTER.
+    """
+    __tablename__ = "submission_drafts"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    submission_id: Mapped[int] = mapped_column(ForeignKey("submissions.id"), unique=True)
+    fields_json: Mapped[str] = mapped_column(Text, default="{}")
+    slot_file_ids_json: Mapped[str] = mapped_column(Text, default="{}")
+
+
 class Revision(Base):
     """一次固定的正式提交版本。服务端记录收件时刻；带幂等键与内容摘要。"""
 

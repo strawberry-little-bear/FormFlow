@@ -237,6 +237,11 @@ def seed_demo(db: Session, *, username: str = "demo", password: str = "demo1234"
         entries_by_name[name].subject_id = subject.id
         credentials[name] = task_service.issue_grant(db, task, subject)
 
+    from ..models import RosterEntry
+    for entry in db.scalars(select(RosterEntry).where(RosterEntry.task_id == task.id)):
+        entry.subject_id = task_service.ensure_subject(db, task, entry.name).id
+    db.flush()
+
     # 孙七：免交（名册 5 − 免交 1 = 应交 4）
     sunqi = task_service.ensure_subject(db, task, "孙七")
     entries_by_name["孙七"].subject_id = sunqi.id
