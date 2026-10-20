@@ -76,6 +76,7 @@ def test_revoke_appends_record(db_session, stub_llm):
 
     stub_llm.error = LLMUnavailable("503")
     task, subject = _setup(db_session)
+    _formal(db_session, task, subject)
     d1 = dec.record_decision(db_session, task, subject, decision="correct_false_positive",
                              reason="误报已纠正", scope_rule_id="C-R03")
     rev = dec.revoke_decision(db_session, task, d1.id, "发现原文确为第 2 期，撤销纠正")

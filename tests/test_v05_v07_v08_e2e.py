@@ -164,7 +164,7 @@ def test_v05_normal_pdf_all_elements_evidence_then_manual_accept(db_session):
                             reason="\u770b\u7740\u6ca1\u95ee\u9898")
 
     # \u4eba\u5de5\u7b54\u6848 + \u51b3\u5b9a\u7559\u75d5\uff0c\u518d\u9a8c\u6536
-    dec.record_decision(db_session, task, subject, decision="confirm_issue",
+    dec.record_decision(db_session, task, subject, decision="confirm_pass",
                         scope_rule_id="C-R04",
                         reason="\u5df2\u4eba\u5de5\u9605\u8bfb\u5168\u6587\uff0c\u6d3b\u52a8\u5185\u5bb9\u4e0e\u4e2a\u4eba\u6536\u83b7\u9f50\u5168\uff08V05 \u4eba\u5de5\u786e\u8ba4\uff09")
     dec.record_decision(db_session, task, subject, decision="accept_current",
@@ -239,7 +239,7 @@ def test_v07_blurred_name_ocr_misread_is_unknown_not_missing(db_session):
                         scope_rule_id="C-R02",
                         reason="\u7533\u8bf9\u6210\u7acb\uff1a\u539f\u4ef6\u59d3\u540d\u533a\u57df\u6a21\u7cca\u5bfc\u81f4 OCR \u8bef\u8bc6\u522b\uff0c"
                                "\u7ec4\u7ec7\u8005\u7ed3\u5408\u539f\u4ef6\u786e\u8ba4\u59d3\u540d\u4e3a\u5f20\u4e09\uff08V07\uff09")
-    dec.record_decision(db_session, task, subject, decision="confirm_issue",
+    dec.record_decision(db_session, task, subject, decision="confirm_pass",
                         scope_rule_id="C-R04",
                         reason="\u5df2\u4eba\u5de5\u9605\u8bfb\u5168\u6587\uff0c\u6d3b\u52a8\u5185\u5bb9\u4e0e\u4e2a\u4eba\u6536\u83b7\u9f50\u5168")
     dec.record_decision(db_session, task, subject, decision="accept_current",
@@ -445,7 +445,8 @@ def test_p04_submitter_sees_rule_details_with_coverage_gap(client, db_session, m
     assert body["coverage"]["files"][0]["total"] == 2
 
     details = {d["rule_id"]: d for d in body["details"]}
-    assert set(details) == {"C-R01", "C-R02", "C-R03"}
+    assert set(details) == {"C-R01", "C-R02", "C-R03", "C-R04"}
+    assert details["C-R04"]["result"] == "manual_pending"
     r02 = details["C-R02"]
     assert r02["result"] == "unknown"
     assert "\u4e0d\u5224\u672a\u586b\u5199" in r02["explanation"]
@@ -460,7 +461,7 @@ def test_p04_submitter_sees_rule_details_with_coverage_gap(client, db_session, m
     assert details["C-R01"]["result"] == "satisfied"
     assert details["C-R03"]["result"] == "unknown"
     # human_only \u89c4\u5219\u4e0d\u4ea7\u751f\u89c4\u5219\u7ed3\u679c\uff0c\u53ea\u8fdb\u201c\u4eba\u5de5\u201d\u5f85\u529e
-    assert "C-R04" not in details
+    assert details["C-R04"]["evidence"] == []  # Human task, never a fabricated machine result.
     assert "C-R04" in body["buckets"]["human"]
 
 
@@ -500,10 +501,8 @@ def test_p04_blocking_issue_shows_next_step_and_shared_details(client, db_sessio
 
     org_view = client.get(f"/api/tasks/{task.id}/subjects/{sid}/findings",
                           headers=headers).json()
-    # Organizer-only manual tasks and decision overlays do not change machine facts.
-    machine_rules = {x["rule_id"]: {k: v for k, v in x.items() if k != "decision"}
-                     for x in org_view["rules"] if x["result"] != "manual_pending"}
-    assert machine_rules == {x["rule_id"]: x for x in body["details"]}
+    # Both roles see the same machine facts and the same separate human overlay.
+    assert {x["rule_id"]: x for x in org_view["rules"]} == {x["rule_id"]: x for x in body["details"]}
     manual = [x for x in org_view["rules"] if x["result"] == "manual_pending"]
     assert [x["rule_id"] for x in manual] == ["C-R04"]
     assert all(not x["evidence"] and x["decision"] is None for x in manual)

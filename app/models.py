@@ -79,6 +79,7 @@ NOTE_WITHDRAWN = "withdrawn"      # 提交者自行撤回（只改状态，不�
 
 # 人工决定类型（表 11）
 DECISION_CONFIRM_ISSUE = "confirm_issue"
+DECISION_CONFIRM_PASS = "confirm_pass"
 DECISION_CORRECT_FALSE_POSITIVE = "correct_false_positive"
 DECISION_APPROVE_EXCEPTION = "approve_exception"
 DECISION_EXEMPT = "exempt"

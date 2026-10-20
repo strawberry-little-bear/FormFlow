@@ -66,8 +66,9 @@ def create_snapshot(db: Session, task: Task, *, kind: str = "formal",
                 ManualDecision.revision_id == rev.id,
                 ManualDecision.decision == DECISION_ACCEPT_CURRENT,
                 ManualDecision.revoked == False)).all()  # noqa: E712
-            accepted = bool(ds)
-            decisions = [d.id for d in ds]
+            from .checks import current_summary
+            accepted = current_summary(db, task, s.id)["acceptance"] == "accepted"
+            decisions = [d.id for d in ds] if accepted else []
         excluded_reason = ""
         if rev is None:
             excluded_reason = "无正式提交版本"

@@ -20,7 +20,6 @@ from ..models import (
     ACCEPTANCE_ACCEPTED,
     ACCEPTANCE_NOT_ACCEPTED,
     ACCEPTANCE_PENDING,
-    DECISION_ACCEPT_CURRENT,
     RESULT_FAILED,
     RESULT_ISSUE,
     RESULT_NOT_APPLICABLE,
@@ -47,6 +46,7 @@ from ..parsing import ParseError, parse_file
 from ..schemas import Blueprint
 from .. import storage
 from . import tasks as task_service
+from .decision_state import effective_rules, PASS_DECISIONS, RULE_DECISIONS, valid_acceptance
 
 
 def _load_files(db: Session, revision: Revision) -> list[FileInfo]:
@@ -231,6 +231,8 @@ def _active_decisions(db: Session, task_id: int, subject_id: int,
             exp = d.expires_at if d.expires_at.tzinfo else d.expires_at.replace(tzinfo=now.tzinfo)
             if exp <= now:
                 continue
+        if d.decision in RULE_DECISIONS and d.revision_id != revision_id:
+            continue
         # 默认不扩大到未来版本：决定必须绑定当前 revision 或为名单级（无 revision）
         if d.revision_id is not None and d.revision_id != revision_id:
             continue
@@ -311,11 +313,11 @@ def review_rule_details(db: Session, run: Optional[CheckRun], task: Task,
                          "severity": rule.severity, "requirement": rule.model_dump(),
                          "explanation": "此项须由组织者人工核对，系统不生成机器结论。",
                          "next_step": "核对材料后，记录本项决定与理由。", "evidence": []})
-    active = _active_decisions(db, task.id, subject_id, revision_id)
+    effects = effective_rules(_active_decisions(db, task.id, subject_id, revision_id))
     for row in rows:
-        scoped = [d for d in active if d.scope_rule_id == row["rule_id"]]
-        row["decision"] = ({"id": scoped[-1].id, "decision": scoped[-1].decision,
-                            "reason": scoped[-1].reason} if scoped else None)
+        d = effects.get(row["rule_id"])
+        row["decision"] = ({"id": d.id, "decision": d.decision, "reason": d.reason,
+                            "resolves": d.decision in PASS_DECISIONS} if d else None)
     return rows
 
 
@@ -323,7 +325,10 @@ def current_details(db: Session, task: Task, subject_id: int) -> list[dict]:
     """提交者视角的规则明细：哪里有问题、怎么改、引用证据、剩余待办。"""
     submission = db.scalar(select(Submission).where(
         Submission.task_id == task.id, Submission.subject_id == subject_id))
-    return rule_details(db, _latest_run(db, submission))
+    if submission is None or submission.current_revision_id is None:
+        return []
+    return review_rule_details(db, _latest_run(db, submission), task, subject_id,
+                               submission.current_revision_id)
 
 
 def current_summary(db: Session, task: Task, subject_id: int) -> dict:
@@ -342,16 +347,17 @@ def current_summary(db: Session, task: Task, subject_id: int) -> dict:
                 "coverage": run_coverage(None),
                 "buckets": {"pending_jobs": ["排队中"]}}
     decisions = _active_decisions(db, task.id, subject_id, revision.id)
-    decided_rules = {d.scope_rule_id for d in decisions if d.scope_rule_id}
+    effects = effective_rules(decisions)
     results = db.scalars(select(RuleResult).where(RuleResult.run_id == run.id)).all()
 
-    blocking, unknown, incomplete, human, jobs = [], [], [], [], []
+    blocking = [rid for rid, d in effects.items() if d.decision == "confirm_issue"]
+    unknown, incomplete, human, jobs = [], [], [], []
     bp = db.get(BlueprintVersion, run.blueprint_version_id)
     blueprint = Blueprint.model_validate_json(bp.blueprint_json)
     human_rules = [r.id for r in blueprint.rules if r.executor.value == "human_only"]
 
     for r in results:
-        if r.rule_id in decided_rules:
+        if r.rule_id in effects:
             continue
         if r.result == RESULT_ISSUE:
             blocking.append(r.rule_id)
@@ -361,13 +367,11 @@ def current_summary(db: Session, task: Task, subject_id: int) -> dict:
             incomplete.append(r.rule_id)
     if run.status in (RUN_QUEUED, RUN_RUNNING, "retry_wait"):
         jobs.append(run.status)
-    human = [rid for rid in human_rules if rid not in decided_rules]
+    human = [rid for rid in human_rules if rid not in effects]
 
-    accepted = any(
-        d.decision == DECISION_ACCEPT_CURRENT
-        and (d.revision_id in (None, revision.id))
-        for d in decisions
-    )
+    from .decisions import _acceptance_blockers
+    blockers = _acceptance_blockers(db, task, db.get(Subject, subject_id))
+    accepted = valid_acceptance(db, task, subject_id, revision.id, blockers, run)
     if accepted:
         # accept_current 只对记录时指向的版本有效；新提交派生新版本后回到待验收
         summary, acceptance = "已验收", ACCEPTANCE_ACCEPTED

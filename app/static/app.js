@@ -87,8 +87,9 @@ const ruleCard = (r) => `
   <div class="card">
     <h3>${esc(r.rule_id)} ${resultBadge(r.result)}
       <span class="badge">${esc(r.severity || "")}</span></h3>
+    ${r.decision ? `<div class="notice-warn"><b>${esc(DECISION_LABEL[r.decision.decision] || r.decision.decision)}</b><p>${esc(r.decision.reason)}</p><span>人工决定与原始检查结论分开保留。</span></div>` : ""}
     ${r.explanation ? `<p>${esc(r.explanation)}</p>` : ""}
-    ${r.next_step ? `<p class="kv">下一步：${esc(r.next_step)}</p>` : ""}
+    ${r.next_step ? `<p class="kv">${r.decision ? "原始检查建议" : "下一步"}：${esc(r.next_step)}</p>` : ""}
     ${r.requirement && r.requirement.statement ?
       `<p class="kv">要求来源：${esc(r.requirement.requirement_source || "")} ｜ ${esc(r.requirement.statement)}</p>` : ""}
     ${(r.evidence || []).map(e => `
@@ -985,7 +986,7 @@ async function retryCheck(taskId, sid, back) {
 
 /* ---------------------------------------------------------------- P03 证据复核 */
 const RUN_LABEL = {queued: "排队中", running: "检查中", retry_wait: "等待重试", success: "检查完成", failed: "检查失败"};
-const DECISION_LABEL = {confirm_issue: "确认问题", correct_false_positive: "纠正误报",
+const DECISION_LABEL = {confirm_issue: "确认问题（需补正）", confirm_pass: "人工核对通过", correct_false_positive: "纠正误报",
   approve_exception: "批准例外", exempt: "免交", accept_current: "验收本版本", revoke: "撤销决定"};
 const severityLabel = value => ({blocking: "阻塞验收", advisory: "提醒项"}[value] || value || "未标级别");
 // Background refreshes must not move the cursor while someone is writing.
@@ -1042,7 +1043,7 @@ async function viewReview(taskId, sid) {
 function paintReview(taskId, sid) {
   const d = state.reviewData; if (!d) return;
   const rules = [...(d.rules || [])].sort((a, b) => {
-    const priority = r => r.decision ? 2 : ["satisfied", "not_applicable"].includes(r.result) ? 1 : 0;
+    const priority = r => r.decision?.decision === "confirm_issue" ? 0 : r.decision?.resolves ? 2 : ["satisfied", "not_applicable"].includes(r.result) ? 1 : 0;
     return priority(a) - priority(b);
   });
   if (!rules.some(r => r.rule_id === state.reviewRule)) state.reviewRule = rules[0]?.rule_id || null;
@@ -1053,7 +1054,7 @@ function paintReview(taskId, sid) {
     ? `<button class="ghost" onclick="retryCheck(${taskId},${sid},'review')" title="上次检查技术失败：重试生成新运行，旧运行标记被取代并保留">${icon("arrow")} 重试检查</button>` : "";
 
   const counts = { issue: 0, unknown: 0, failed: 0, satisfied: 0, manual: 0 };
-  rules.forEach(r => { if (r.decision) return; if (r.result === "manual_pending") counts.manual++; if (r.result === "issue") counts.issue++; else if (r.result === "unknown") counts.unknown++; else if (r.result === "failed") counts.failed++; else if (r.result === "satisfied") counts.satisfied++; });
+  rules.forEach(r => { if (r.decision?.decision === "confirm_issue") { counts.issue++; return; } if (r.decision?.resolves) { counts.satisfied++; return; } if (r.result === "manual_pending") counts.manual++; if (r.result === "issue") counts.issue++; else if (r.result === "unknown") counts.unknown++; else if (r.result === "failed") counts.failed++; else if (r.result === "satisfied") counts.satisfied++; });
   const cov = run && run.coverage ? run.coverage : null;
   const gap = cov ? (cov.unread_pages || 0) + (cov.failed_pages || 0) : 0;
 
@@ -1068,7 +1069,7 @@ function paintReview(taskId, sid) {
     return `<button class="review-rule-item ${on ? "on" : ""}" aria-current="${on}" data-review-rule="${esc(r.rule_id)}">
       <span class="review-rule-id">${esc(r.rule_id)}</span>
       <span class="review-rule-text">${esc((r.requirement && r.requirement.statement) || r.explanation || r.rule_id)}</span>
-      <span class="review-rule-side">${r.decision ? '<span class="badge info">已有人工决定</span>' : resultBadge(r.result)}<span class="badge">${esc(severityLabel(r.severity))}</span></span>
+      <span class="review-rule-side">${r.decision ? `<span class="badge ${r.decision.decision === "confirm_issue" ? "bad" : "info"}">${esc(DECISION_LABEL[r.decision.decision] || "已有人工决定")}</span>` : resultBadge(r.result)}<span class="badge">${esc(severityLabel(r.severity))}</span></span>
     </button>`;
   }).join("")}</div>` : `<div class="empty-state"><div class="empty-icon">${icon("workbench")}</div><h3>${d.revision ? "暂无规则结果" : "尚无正式提交"}</h3><p>${d.revision ? "可能尚未检查。回到工作台发起检查，或稍后刷新。" : "现在可以处理主体免交或查看决定历史；正式提交后才能检查和验收材料。"}</p><p><a class="ghost sm" href="#/workbench/${taskId}">返回工作台</a></p></div>`;
 
@@ -1079,18 +1080,21 @@ function paintReview(taskId, sid) {
       ${active.decision ? `<div class="notice-warn"><b>${esc(DECISION_LABEL[active.decision.decision] || active.decision.decision)}</b><p>${esc(active.decision.reason)}</p><span class="muted">人工决定不改写原始检查结果；撤销后可重新核对。</span></div>` : ""}
       ${active.explanation ? `<p class="evidence-explanation">${esc(active.explanation)}</p>` : ""}
       ${(active.evidence || []).length ? `<div class="evidence-list">${active.evidence.map(e => `<blockquote class="evidence"><span class="evidence-loc">${esc(e.locator || "未标注位置")} · ${esc(e.method || "-")}</span>${esc(e.quote || "")}</blockquote>`).join("")}</div>` : `<p class="muted">这条规则没有可引用的原文证据。</p>`}
-      ${active.next_step ? `<div class="evidence-next"><b>下一步</b><p>${esc(active.next_step)}</p></div>` : ""}
+      ${active.next_step ? `<div class="evidence-next"><b>${active.decision ? "原始检查建议" : "下一步"}</b><p>${esc(active.next_step)}</p></div>` : ""}
     </article>` : `<article class="evidence-detail"><p class="muted">选择左侧任一规则查看证据。</p></article>`;
 
   const decision = `<section class="card decision-panel" aria-label="人工决定">
     <div class="section-heading"><div><div class="eyebrow">DECISION</div><h2>人工决定</h2></div><span class="muted">撤销只追加记录，不删历史</span></div>
     <div class="decision-form">
       <div class="grid2"><div><label for="dc-type">决定</label><select id="dc-type">
-        <option value="confirm_issue">确认问题</option>
+        <option value="" disabled selected>请选择核对结论</option>
+        <option value="confirm_pass">人工核对通过</option>
+        <option value="confirm_issue">确认问题，要求补正</option>
         <option value="correct_false_positive">纠正误报</option>
         <option value="approve_exception">批准例外</option>
         <option value="exempt">主体免交（不等于验收）</option></select></div>
         <div><label for="dc-rule">当前规则 · 决定不扩大到其他项</label><input id="dc-rule" value="${esc(active ? active.rule_id : "")}" readonly></div></div>
+      <p class="field-help">确认问题会保留补正待办；核对通过、纠正误报或批准例外只解除当前规则，之后仍需单独验收。</p>
       <p class="field-help">免交对整个任务生效；到期或撤销后重新计入应交，已有正式提交和历史回执保留。</p><label for="dc-exp">过期时间（可空，ISO；无偏移时按任务时区）</label><input id="dc-exp" placeholder="2026-12-31T23:59:59+08:00">
       <label for="dc-reason">理由（必填）</label><textarea id="dc-reason" placeholder="为什么这样做决定；提交者解释会显示在上方"></textarea>
       <p class="muted">切换规则或页面会暂存理由；浏览器刷新或关闭后不保留。</p>
@@ -1098,7 +1102,7 @@ function paintReview(taskId, sid) {
       <button id="decision-submit" ${state.reviewConflict ? "disabled" : ""} onclick="submitDecision(${taskId},${sid})">提交决定 ${icon("arrow")}</button>
     </div>
     <div class="decision-history"><h3>决定历史</h3>
-      ${(d.decisions || []).map(x => `<div class="decision-row"><div><span class="badge ${x.revoked ? "" : "info"}">${esc(DECISION_LABEL[x.decision] || x.decision)}${x.revoked ? "（已撤销）" : x.expires_at && Date.parse(x.expires_at) <= Date.now() ? "（已过期）" : ""}</span><span class="muted">${x.revision_id ? (x.revision_id === d.revision?.id ? "本版本" : "历史版本（修订 #" + x.revision_id + "）") : "名单级"} · ${x.scope_rule_id ? "规则 " + esc(x.scope_rule_id) + " · " : ""}${esc(fmtTime(x.created_at))}</span></div><p>${esc(x.reason)}</p>${x.revoked || x.decision === "revoke" ? "" : `<button class="link" onclick="revokeDecision(${taskId},${sid},${x.id})">撤销</button>`}</div>`).join("") || `<p class="muted">还没有人工决定。</p>`}
+      ${(d.decisions || []).map(x => `<div class="decision-row"><div><span class="badge ${x.revoked ? "" : "info"}">${esc(DECISION_LABEL[x.decision] || x.decision)}${x.revoked ? "（已撤销）" : x.expires_at && Date.parse(x.expires_at) <= Date.now() ? "（已过期）" : x.decision === "accept_current" && (!d.acceptance?.accepted || x.revision_id !== d.revision?.id) ? "（当前不生效）" : ""}</span><span class="muted">${x.revision_id ? (x.revision_id === d.revision?.id ? "本版本" : "历史版本（修订 #" + x.revision_id + "）") : "名单级"} · ${x.scope_rule_id ? "规则 " + esc(x.scope_rule_id) + " · " : ""}${esc(fmtTime(x.created_at))}</span></div><p>${esc(x.reason)}</p>${x.revoked || x.decision === "revoke" ? "" : `<button class="link" onclick="revokeDecision(${taskId},${sid},${x.id})">撤销</button>`}</div>`).join("") || `<p class="muted">还没有人工决定。</p>`}
     </div>
   </section>`;
 
@@ -1167,6 +1171,7 @@ async function submitDecision(taskId, sid, action = null) {
     };
     const exp = document.getElementById("dc-exp").value.trim();
     if (exp && !action) form.expires_at = exp;
+    if (!form.decision) throw new Error("请先选择核对结论");
     if (!form.reason) throw new Error("请先填写决定理由或验收依据");
     if (form.decision === "exempt" && !confirm("免交作用于整个主体，会移出应交和催交名单，但不代表材料已验收。确认免交？")) return;
     await api(`/api/tasks/${taskId}/subjects/${sid}/decisions`, { method: "POST", form });
@@ -1699,16 +1704,18 @@ async function loadMyResults() {
     }
     // 规则明细：哪里有问题、怎么改、引用证据、剩余待办
     const details = r.details || [];
-    const todo = details.filter(x => x.result === "issue" || x.result === "unknown"
-      || x.result === "failed");
-    const done = details.filter(x => x.result === "satisfied"
-      || x.result === "not_applicable");
+    const todo = details.filter(x => x.decision?.decision === "confirm_issue"
+      || (!x.decision?.resolves && ["issue", "unknown", "failed", "manual_pending"].includes(x.result)));
+    const done = details.filter(x => x.decision?.resolves
+      || (!x.decision && ["satisfied", "not_applicable"].includes(x.result)));
     if (todo.length) {
       html += `<h3>待办事项（${todo.length}）</h3>` + todo.map(ruleCard).join("");
     }
     if (done.length) {
       html += `<p class="kv">已通过 ${done.length} 项：`
         + `${done.map(x => esc(x.rule_id)).join("、")}</p>`;
+      const reviewed = done.filter(x => x.decision);
+      if (reviewed.length) html += `<details><summary>查看人工核对依据（${reviewed.length} 项）</summary>${reviewed.map(ruleCard).join("")}</details>`;
     }
     if (!details.length && r.summary && r.summary !== "未正式提交") {
       html += `<p class="muted">暂无规则明细（可能尚未检查）</p>`;

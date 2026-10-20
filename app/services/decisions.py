@@ -20,6 +20,7 @@ from ..models import (
     CheckRun,
     DECISION_APPROVE_EXCEPTION,
     DECISION_CONFIRM_ISSUE,
+    DECISION_CONFIRM_PASS,
     DECISION_CORRECT_FALSE_POSITIVE,
     DECISION_ELIGIBILITY,
     DECISION_EXEMPT,
@@ -41,9 +42,10 @@ from ..schemas import Blueprint
 from ..security import utcnow
 from ..timeutils import as_utc
 from . import tasks as task_service
+from .decision_state import RULE_DECISIONS, effective_rules
 
 VALID_DECISIONS = {
-    DECISION_CONFIRM_ISSUE, DECISION_CORRECT_FALSE_POSITIVE, DECISION_APPROVE_EXCEPTION,
+    DECISION_CONFIRM_ISSUE, DECISION_CONFIRM_PASS, DECISION_CORRECT_FALSE_POSITIVE, DECISION_APPROVE_EXCEPTION,
     DECISION_EXEMPT, DECISION_ELIGIBILITY, DECISION_REVOKE, DECISION_ACCEPT_CURRENT,
 }
 
@@ -90,6 +92,17 @@ def record_decision(db: Session, task: Task, subject: Subject, *, decision: str,
         raise DecisionConflict(f"当前版本已变化（预期 {expected_current_revision}，实际 {current_rev or 0}），决定未保存，请刷新后重新核对")
     if revision_id is not None and revision_id != current_rev:
         raise DecisionConflict("决定只能作用于已核对的当前版本，请刷新后重新核对")
+
+    if decision in RULE_DECISIONS:
+        if not current_rev or not scope_rule_id:
+            raise DecisionError("规则决定必须绑定当前正式版本和具体规则")
+        run = db.scalar(select(CheckRun).where(CheckRun.revision_id == current_rev,
+            CheckRun.status != RUN_SUPERSEDED).order_by(CheckRun.id.desc()))
+        bp = db.get(BlueprintVersion, run.blueprint_version_id) if run else None
+        if bp is None or scope_rule_id not in {r.id for r in Blueprint.model_validate_json(bp.blueprint_json).rules}:
+            raise DecisionError("规则不属于当前版本的检查蓝图")
+    if decision == DECISION_ACCEPT_CURRENT and scope_rule_id:
+        raise DecisionError("验收作用于整个正式版本，不能限定单条规则")
 
     if decision == DECISION_ACCEPT_CURRENT:
         problems = _acceptance_blockers(db, task, subject)
@@ -156,11 +169,11 @@ def _acceptance_blockers(db: Session, task: Task, subject: Subject) -> list[str]
     if run is None or run.status != "success":
         return ["当前版本没有已完成的检查运行"]
     from .checks import _active_decisions
-    decided = {d.scope_rule_id for d in _active_decisions(db, task.id, subject.id, rev.id)
-               if d.scope_rule_id}
-    problems = []
+    effects = effective_rules(_active_decisions(db, task.id, subject.id, rev.id))
+    problems = [f"规则 {rid} 已人工确认存在问题，需补正或明确批准例外"
+                for rid, d in effects.items() if d.decision == DECISION_CONFIRM_ISSUE]
     for r in db.scalars(select(RuleResult).where(RuleResult.run_id == run.id)).all():
-        if r.rule_id in decided:
+        if r.rule_id in effects:
             continue
         if r.result == RESULT_ISSUE:
             problems.append(f"规则 {r.rule_id} 存在未解决阻塞")
@@ -172,9 +185,9 @@ def _acceptance_blockers(db: Session, task: Task, subject: Subject) -> list[str]
     blueprint = Blueprint.model_validate_json(bp.blueprint_json)
     human_rules = [r.id for r in blueprint.rules if r.executor.value == "human_only"]
     for rid in human_rules:
-        if rid not in decided:
+        if rid not in effects:
             problems.append(f"人工项 {rid} 尚未处置")
     if blueprint.eligibility_required:
-        if getattr(subject, "eligibility", "not_assessed") in ("not_assessed", "pending"):
-            problems.append("资格前提未明确（资格不能被材料通过自动推导）")
+        if getattr(subject, "eligibility", "not_assessed") != ELIG_ELIGIBLE:
+            problems.append("资格前提未确认符合（资格不能被材料通过自动推导）")
     return problems

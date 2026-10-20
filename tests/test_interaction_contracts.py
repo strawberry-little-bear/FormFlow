@@ -11,7 +11,7 @@ from app.db import engine
 from app.main import app
 from app.models import (BlueprintVersion, Exemption, ManualDecision, RosterEntry,
                         Subject, Submission, Task)
-from app.schemas import Blueprint, FieldDef, SlotDef, TimePolicy
+from app.schemas import Blueprint, FieldDef, SlotDef, TimePolicy, RuleDef
 from app.services import submissions as sub
 from app.services import tasks
 from app.services.decisions import DecisionConflict, record_decision
@@ -114,7 +114,12 @@ def test_stale_review_returns_conflict_without_recording_decision(db_session, sc
         v2 = formal(db_session, task, subject, "v2")
         db_session.commit()
         path = f"/api/tasks/{task_id}/subjects/{sid}/decisions"
-        form = {"decision": "confirm_issue", "reason": "我看到的 v1 有问题",
+        bp = db_session.get(BlueprintVersion, task.current_blueprint_id)
+        bp.blueprint_json = Blueprint(rules=[RuleDef(id="R", statement="核对", requirement_source="要求", executor="human_only")]).model_dump_json()
+        from app.services.checks import create_run
+        create_run(db_session, task, v2)
+        db_session.commit()
+        form = {"decision": "confirm_issue", "scope_rule_id": "R", "reason": "我看到的 v1 有问题",
                 "expected_current_revision": page["revision"]["id"]}
         response = client.post(path, headers=owner, data=form)
         assert response.status_code == 409, response.text

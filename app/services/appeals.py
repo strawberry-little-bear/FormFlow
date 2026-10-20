@@ -120,14 +120,13 @@ def note_handled(db: Session, note: SubmitterNote) -> bool:
     """
     if note.status == NOTE_WITHDRAWN or not note.rule_id:
         return False
-    for d in db.scalars(select(ManualDecision).where(
-            ManualDecision.task_id == note.task_id,
-            ManualDecision.subject_id == note.subject_id,
-            ManualDecision.scope_rule_id == note.rule_id,
-            ManualDecision.revoked == False)).all():  # noqa: E712
-        if d.created_at is not None and note.created_at is not None \
-                and d.created_at >= note.created_at:
-            return True
+    from .checks import _active_decisions
+    from .decision_state import effective_rules
+    from ..timeutils import as_utc
+    decisions = effective_rules(_active_decisions(db, note.task_id, note.subject_id, note.revision_id))
+    d = decisions.get(note.rule_id)
+    if d and d.created_at and note.created_at and as_utc(d.created_at) >= as_utc(note.created_at):
+        return True
     return False
 
 

@@ -272,7 +272,7 @@ def seed_demo(db: Session, *, username: str = "demo", password: str = "demo1234"
 
     # 张三：人工终验 + 验收当前版本
     zhangsan = task_service.ensure_subject(db, task, "张三")
-    record_decision(db, task, zhangsan, decision="confirm_issue", scope_rule_id="r_final_review",
+    record_decision(db, task, zhangsan, decision="confirm_pass", scope_rule_id="r_final_review",
                     reason="已人工阅读全文，报告质量合格（演示数据）", operator_id=acct.id)
     record_decision(db, task, zhangsan, decision="accept_current",
                     reason="材料齐全、规则通过、人工终验完成（演示数据）", operator_id=acct.id)

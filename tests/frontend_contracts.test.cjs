@@ -360,3 +360,31 @@ test('revoke dialog validates reason, locks retries and preserves reason on fail
   assert.match(els['revoke-error'].textContent,/暂时不可用/);
   assert.equal(els['revoke-confirm'].disabled,false);
 });
+
+
+test('confirmed issues remain visible as problems in review and submitter details', async () => {
+  const {app,els,context} = setup();
+  app.state.reviewContext='1:2:3'; app.state.reviewData={subject:{id:2,name:'用户'},revision:{id:3,version:1},
+    rules:[{rule_id:'H',result:'satisfied',decision:{decision:'confirm_issue',reason:'内容仍有问题',resolves:false}}],
+    acceptance:{ready:false,accepted:false,blockers:['H 需补正']}};
+  app.paintReview(1,2);
+  assert.match(els.rv.innerHTML,/确认问题（需补正）/);
+  assert.match(els.rv.innerHTML,/请选择核对结论/);
+  assert.match(els.rv.innerHTML,/人工核对通过/);
+  context.fetch=async()=>response({summary:'待补正',buckets:{blocking:['H']},details:app.state.reviewData.rules});
+  await app.loadMyResults();
+  assert.match(els['my-results'].innerHTML,/待办事项（1）/);
+  assert.match(els['my-results'].innerHTML,/内容仍有问题/);
+  assert.doesNotMatch(els['my-results'].innerHTML,/已通过 1 项/);
+});
+test('human resolution moves raw unknown out of submitter todo without hiding evidence', async () => {
+  const {app,els,context} = setup();
+  context.fetch=async()=>response({summary:'规则通过（待人工验收）',buckets:{},details:[{
+    rule_id:'R',result:'unknown',explanation:'机器原先未读到',evidence:[{quote:'原文已核对'}],
+    decision:{decision:'confirm_pass',reason:'人工核对原文通过',resolves:true}}]});
+  await app.loadMyResults();
+  assert.doesNotMatch(els['my-results'].innerHTML,/待办事项/);
+  assert.match(els['my-results'].innerHTML,/已通过 1 项/);
+  assert.match(els['my-results'].innerHTML,/人工核对原文通过/);
+  assert.match(els['my-results'].innerHTML,/机器原先未读到/);
+});
