@@ -125,6 +125,7 @@ def test_appeal_visible_to_both_sides_until_organizer_handles(client, db_session
     r = client.post(f"/api/tasks/{task.id}/subjects/{sid}/decisions",
                     data={"decision": "correct_false_positive",
                           "reason": "核对纸质原件后确认姓名无误",
+                          "expected_current_revision": org_view["revision"]["id"],
                           "scope_rule_id": "C-R02"}, headers=headers)
     assert r.status_code == 200, r.text
 

@@ -15,7 +15,7 @@ import secrets
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from ..models import (
@@ -25,6 +25,7 @@ from ..models import (
     FileObject,
     Revision,
     Submission,
+    SubmissionDraft,
     Task,
 )
 from ..schemas import Blueprint
@@ -55,15 +56,64 @@ def get_or_create_draft(db: Session, task: Task, subject_id: int) -> Submission:
     return sub
 
 
-def save_draft(db: Session, submission: Submission, fields: dict, expected_version: Optional[int] = None) -> int:
-    """保存草稿。expected_version 不匹配 → 冲突，保留本地内容（V14）。"""
-    task_service.ensure_task_writable(db.get(Task, submission.task_id))  # V24 readonly
-    if expected_version is not None and expected_version != submission.draft_version:
-        raise SubmitError(f"草稿版本冲突：服务端当前 v{submission.draft_version}，"
-                          f"你基于 v{expected_version} 编辑，请核对后重试")
-    submission.draft_fields_json = json.dumps(fields or {}, ensure_ascii=False)
-    submission.draft_version += 1
+def read_draft(db: Session, submission: Submission | None) -> dict:
+    if submission is None:
+        return {"fields": {}, "slot_file_ids": {}, "draft_version": 1}
+    draft = db.scalar(select(SubmissionDraft).where(SubmissionDraft.submission_id == submission.id))
+    if draft is not None:
+        fields = json.loads(draft.fields_json)
+        files = json.loads(draft.slot_file_ids_json)
+    else:
+        # Preserve drafts saved before the versioned attachment manifest existed.
+        fields = json.loads(submission.draft_fields_json or "{}")
+        if not fields and submission.current_revision_id:
+            fields = json.loads(db.get(Revision, submission.current_revision_id).fields_json)
+        files = {}
+        for fo in db.scalars(select(FileObject).where(
+                FileObject.submission_id == submission.id, FileObject.status != "failed")
+                .order_by(FileObject.id)):
+            files.setdefault(fo.slot, []).append(fo.file_id)
+    return {"fields": fields, "slot_file_ids": files,
+            "draft_version": submission.draft_version}
+
+
+def _write_draft(db: Session, submission: Submission, fields: dict, files: dict) -> None:
+    draft = db.scalar(select(SubmissionDraft).where(SubmissionDraft.submission_id == submission.id))
+    if draft is None:
+        draft = SubmissionDraft(submission_id=submission.id)
+        db.add(draft)
+    submission.draft_fields_json = json.dumps(fields, ensure_ascii=False)
+    draft.fields_json = submission.draft_fields_json
+    draft.slot_file_ids_json = json.dumps(files, ensure_ascii=False)
+
     db.flush()
+
+
+def _validate_files(db: Session, submission: Submission, files: dict) -> None:
+    for slot, ids in files.items():
+        if not isinstance(ids, list):
+            raise SubmitError("材料引用必须是文件 ID 列表")
+        for fid in ids:
+            fo = db.scalar(select(FileObject).where(FileObject.file_id == fid))
+            if fo is None or fo.submission_id != submission.id or fo.slot != slot:
+                raise SubmitError(f"文件 {fid} 不属于当前提交的槽位 {slot}")
+
+
+def save_draft(db: Session, submission: Submission, fields: dict,
+               expected_version: Optional[int] = None, *, slot_file_ids: Optional[dict] = None) -> int:
+    """Compare-and-swap before writing content; conflicts never overwrite either draft."""
+    task_service.ensure_task_writable(db.get(Task, submission.task_id))
+    expected = submission.draft_version if expected_version is None else expected_version
+    changed = db.execute(update(Submission).where(
+        Submission.id == submission.id, Submission.draft_version == expected
+    ).values(draft_version=Submission.draft_version + 1).execution_options(synchronize_session=False))
+    if changed.rowcount != 1:
+        raise SubmitError(f"草稿版本冲突：你基于 v{expected} 编辑，请保留本地内容并重新核对")
+    db.refresh(submission)
+    previous = read_draft(db, submission)
+    files = previous["slot_file_ids"] if slot_file_ids is None else slot_file_ids
+    _validate_files(db, submission, files)
+    _write_draft(db, submission, fields, files)
     return submission.draft_version
 
 
@@ -73,28 +123,17 @@ def draft_view(db: Session, task: Task, submission: Submission) -> dict:
     文件按槽位分组；已失败的文件不返回（前端看不到即不会被误提交）。
     正式提交后仍返回最近一次正式版本的字段，便于补正时对照修改。
     """
-    fields = {}
-    try:
-        fields = json.loads(submission.draft_fields_json or "{}")
-    except (TypeError, ValueError):
-        fields = {}
-    if not fields and submission.current_revision_id:
-        rev = db.get(Revision, submission.current_revision_id)
-        if rev is not None:
-            try:
-                fields = json.loads(rev.fields_json or "{}")
-            except (TypeError, ValueError):
-                fields = {}
-    files = db.scalars(select(FileObject).where(
-        FileObject.submission_id == submission.id,
-        FileObject.status != "failed").order_by(FileObject.id)).all()
-    slot_files: dict[str, list[dict]] = {}
-    for fo in files:
-        slot_files.setdefault(fo.slot, []).append({
-            "file_id": fo.file_id, "name": fo.original_name,
-            "size": fo.size, "mime": fo.mime, "status": fo.status})
-    return {"fields": fields, "slot_file_ids": slot_files,
-            "draft_version": submission.draft_version,
+    content = read_draft(db, submission)
+    slot_files = {}
+    for slot, ids in content["slot_file_ids"].items():
+        for fid in ids:
+            fo = db.scalar(select(FileObject).where(FileObject.file_id == fid,
+                                                    FileObject.submission_id == submission.id))
+            if fo is not None and fo.status != "failed":
+                slot_files.setdefault(slot, []).append({
+                    "file_id": fo.file_id, "name": fo.original_name,
+                    "size": fo.size, "mime": fo.mime, "status": fo.status})
+    return {**content, "slot_file_ids": slot_files,
             "formal_revision": submission.state == SUBMISSION_FORMAL,
             "updated_at": submission.updated_at.isoformat() if submission.updated_at else ""}
 
@@ -128,6 +167,11 @@ def delete_file(db: Session, submission: Submission, file_id: str) -> None:
         path.unlink()
     except FileNotFoundError:
         pass
+    draft = db.scalar(select(SubmissionDraft).where(SubmissionDraft.submission_id == submission.id))
+    if draft is not None:
+        files = json.loads(draft.slot_file_ids_json)
+        files = {slot: [fid for fid in ids if fid != file_id] for slot, ids in files.items()}
+        draft.slot_file_ids_json = json.dumps({slot: ids for slot, ids in files.items() if ids})
     db.delete(fo)
     db.flush()
 
@@ -188,6 +232,12 @@ def attach_file(db: Session, submission: Submission, *, slot: str, original_name
     )
     db.add(fo)
     db.flush()
+    draft = db.scalar(select(SubmissionDraft).where(SubmissionDraft.submission_id == submission.id))
+    if draft is not None:
+        files = json.loads(draft.slot_file_ids_json)
+        files.setdefault(slot, []).append(fo.file_id)
+        draft.slot_file_ids_json = json.dumps(files)
+        db.flush()
     return fo
 
 
@@ -263,6 +313,9 @@ def formal_submit(db: Session, task: Task, submission: Submission, *, fields: di
     db.flush()
     submission.current_revision_id = rev.id
     submission.state = SUBMISSION_FORMAL
+    # Formal submission also invalidates drafts open in other tabs.
+    submission.draft_version += 1
+    _write_draft(db, submission, fields, slot_file_ids)
     task_service.audit(db, "submission.formal", "revision",
                        {"revision": rev.id, "version": version, "receipt": rev.receipt}, task.id)
     return rev

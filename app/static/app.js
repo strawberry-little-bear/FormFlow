@@ -8,12 +8,16 @@ const subToken = () => localStorage.getItem(SUB_KEY) || "";
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g,
   c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
-function fmtTime(s) {
+function fmtTime(s, timeZone = "Asia/Shanghai") {
   if (!s) return "未设置";
-  const d = new Date(s);
-  if (isNaN(d)) return String(s);
-  const p = n => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  const raw = String(s);
+  const d = new Date(/(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw) ? raw : raw + "Z");
+  if (isNaN(d)) return raw;
+  return new Intl.DateTimeFormat("sv-SE", { timeZone, year: "numeric", month: "2-digit",
+    day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(d) + " " + timeZone;
+}
+function navigate(hash) {
+  if (location.hash === hash) route(); else location.hash = hash;
 }
 async function api(path, opts = {}) {
   const headers = {};
@@ -33,8 +37,10 @@ async function api(path, opts = {}) {
   try { data = text ? JSON.parse(text) : {}; } catch (e) { data = { detail: text }; }
   if (!r.ok) {
     const detail = data.detail;
-    throw new Error(Array.isArray(detail) ? detail.map(x => x.msg || JSON.stringify(x)).join("；")
+    const error = new Error(Array.isArray(detail) ? detail.map(x => x.msg || JSON.stringify(x)).join("；")
       : (typeof detail === "string" ? detail : "请求失败，请稍后重试（" + r.status + "）"));
+    error.status = r.status;
+    throw error;
   }
   return data;
 }
@@ -90,6 +96,10 @@ const ruleCard = (r) => `
 
 /* ---------------------------------------------------------------- 路由 */
 function route() {
+  cacheSubmissionDraft();
+  state.routeEpoch = (state.routeEpoch || 0) + 1;
+  state.reviewConflict = false;
+  state.reviewDraft = null;
   state.designEpoch++;
   state.agentBusy = false;
   clearTimeout(_wbTimer);
@@ -146,7 +156,7 @@ function renderNav() {
 function logout() {
   localStorage.removeItem(ORG_KEY); localStorage.removeItem(SUB_KEY);
   state.chat = []; state.draft = null;
-  location.hash = "#/login"; route();
+  navigate("#/login");
 }
 
 /* ---------------------------------------------------------------- 登录 */
@@ -185,7 +195,7 @@ function viewLogin() {
       <div id="pane-sub" style="display:none">
         <label>提交凭证</label>
         <textarea id="lg-cred" placeholder="粘贴组织者发放的提交凭证（形如 v9MhIdcn_1_EUt...）"
-          onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();doSubLogin()}"></textarea>
+          oninput="cacheSubmissionDraft()" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();doSubLogin()}"></textarea>
         <button onclick="doSubLogin()" style="width:100%">进入我的提交空间</button>
         <p class="kv" style="margin-top:10px">凭证不见了？请联系组织者核验后重发，旧凭证会被撤销。</p>
       </div>
@@ -210,7 +220,7 @@ async function doLogin() {
   try {
     const r = await api("/api/auth/login", { method: "POST", form: { username, password } });
     localStorage.setItem(ORG_KEY, r.token);
-    location.hash = "#/tasks"; route();
+    navigate("#/tasks");
   } catch (e) { loginErr(e.message || "登录失败"); }
 }
 async function doRegister() {
@@ -229,7 +239,7 @@ async function doSubLogin() {
   try {
     await api("/api/me", { sub: true, token: cred });   // 校验本次输入，而不是上次保存的凭证
     localStorage.setItem(SUB_KEY, cred);
-    location.hash = "#/submit"; route();
+    navigate("#/submit");
   } catch (e) { loginErr("凭证无效或已失效：" + (e.message || "")); }
 }
 
@@ -472,7 +482,7 @@ function renderDraftPanel() {
     <div class="draft-content" role="tabpanel">${state.designTab === 'preview' ? `<div class="form-preview"><div class="preview-banner"><span>${scope.mode === 'open' ? '开放报名' : '名册收集'}</span><span>填写预览 · 不会提交</span></div><h2>${esc(scope.name || state.task?.name || '收集任务')}</h2><p class="muted">${esc(scope.description || '请按以下要求登记信息并提交材料。')}</p>
       <div class="preview-section-title"><b>01</b> 登记信息</div>${(bp.fields || []).map(f => `<div class="preview-field"><label>${esc(f.label)}${f.required ? '<em> *</em>' : ' <small>选填</small>'}</label>${f.type === 'enum' ? `<select disabled aria-label="${esc(f.label)}"><option>请选择${esc(f.label)}</option>${(f.options || []).map(o => `<option>${esc(o)}</option>`).join('')}</select>` : `<input disabled aria-label="${esc(f.label)}" placeholder="请填写${esc(f.label)}">`}${f.required_condition ? `<p class="field-help">条件：${esc(f.required_condition)}</p>` : ''}${f.purpose ? `<p class="field-help">用途：${esc(f.purpose)}</p>` : ''}</div>`).join('') || '<p class="muted">尚未设置登记字段</p>'}
       <div class="preview-section-title"><b>02</b> 提交材料</div>${(bp.slots || []).map(sl => `<div class="upload-preview">${icon('delivery')}<div><strong>${esc(sl.label)}</strong><p>${(sl.formats || []).map(x=>esc(x.toUpperCase())).join(' / ') || '未限定格式'} · 最多 ${sl.max_count} 份${sl.max_size_mib ? ` · 每份 ≤ ${sl.max_size_mib} MiB` : ''}${sl.max_pages ? ` · ≤ ${sl.max_pages} 页` : ''}</p>${sl.required_condition ? `<p>条件：${esc(sl.required_condition)}</p>` : ''}</div><span>上传区域</span></div>`).join('') || '<p class="muted">尚未设置材料</p>'}
-      <div class="preview-section-title"><b>03</b> 时间与验收</div><dl class="kv-list"><dt>时区</dt><dd>${esc(tp.timezone || 'Asia/Shanghai')}</dd><dt>开始收集</dt><dd>${esc(fmtTime(tp.open_at))}</dd><dt>首次截止</dt><dd>${esc(fmtTime(tp.first_deadline))}</dd><dt>补正截止</dt><dd>${esc(fmtTime(tp.correction_deadline))}</dd><dt>最终验收</dt><dd>${bp.manual_acceptance ? '组织者人工确认' : '按规则处理'}</dd></dl></div>` : `<div class="rules-preview"><h2>每条要求，都有依据</h2><p class="muted">程序校验、语义审核与人工判断分别标注，不把不确定的结论当成通过。</p>${rules.map((r,i) => `<article class="rule-preview"><div><span class="rule-number">${String(i+1).padStart(2,'0')}</span>${CAP_BADGE[r.capability] || ''}<span class="badge">${esc(EXECUTOR_LABEL[r.executor] || r.executor)}</span></div><h3>${esc(r.statement)}</h3><blockquote>${esc(r.requirement_source || '模板预置要求，请组织者核对')}</blockquote><p class="field-help">${r.severity === 'blocking' ? '阻塞项 · 未处理时不能验收' : '提醒项'}${r.clarification_question ? ' · ' + esc(r.clarification_question) : ''}</p></article>`).join('') || '<div class="empty">尚未设置检查规则</div>'}<details><summary>原始要求与修订依据</summary><p class="source-text">${esc(state.requirement || '当前使用模板预置要求，尚无自然语言输入。')}</p></details><details><summary>交付与数据治理</summary><pre>${esc(JSON.stringify({delivery:bp.delivery, governance:bp.governance},null,2))}</pre></details></div>`}</div>
+      <div class="preview-section-title"><b>03</b> 时间与验收</div><dl class="kv-list"><dt>时区</dt><dd>${esc(tp.timezone || 'Asia/Shanghai')}</dd><dt>开始收集</dt><dd>${esc(fmtTime(tp.open_at, tp.timezone))}</dd><dt>首次截止</dt><dd>${esc(fmtTime(tp.first_deadline, tp.timezone))}</dd><dt>补正截止</dt><dd>${esc(fmtTime(tp.correction_deadline, tp.timezone))}</dd><dt>最终验收</dt><dd>${bp.manual_acceptance ? '组织者人工确认' : '按规则处理'}</dd></dl></div>` : `<div class="rules-preview"><h2>每条要求，都有依据</h2><p class="muted">程序校验、语义审核与人工判断分别标注，不把不确定的结论当成通过。</p>${rules.map((r,i) => `<article class="rule-preview"><div><span class="rule-number">${String(i+1).padStart(2,'0')}</span>${CAP_BADGE[r.capability] || ''}<span class="badge">${esc(EXECUTOR_LABEL[r.executor] || r.executor)}</span></div><h3>${esc(r.statement)}</h3><blockquote>${esc(r.requirement_source || '模板预置要求，请组织者核对')}</blockquote><p class="field-help">${r.severity === 'blocking' ? '阻塞项 · 未处理时不能验收' : '提醒项'}${r.clarification_question ? ' · ' + esc(r.clarification_question) : ''}</p></article>`).join('') || '<div class="empty">尚未设置检查规则</div>'}<details><summary>原始要求与修订依据</summary><p class="source-text">${esc(state.requirement || '当前使用模板预置要求，尚无自然语言输入。')}</p></details><details><summary>交付与数据治理</summary><pre>${esc(JSON.stringify({delivery:bp.delivery, governance:bp.governance},null,2))}</pre></details></div>`}</div>
     <div class="publish-bar"><div><strong>${viewing ? `历史版本 v${viewing.version}（只读）` : state.draftStatus === 'published' ? '当前版本已发布' : blocking.length ? '发布前还有内容必须处理' : '准备好后，由你确认发布'}</strong><span>${clar.length ? `${clar.length} 项待澄清 · ` : ''}${blocking.length ? `${blocking.length} 项阻塞 · ` : ''}${advisories.length ? `${advisories.length} 项提醒 · ` : ''}${rules.length} 条规则 · 修改将保留版本记录</span></div><button data-publish onclick="publishBp(${state.taskId})" ${state.agentBusy || !hasContents || state.draftStatus === 'published' || blocking.length || viewing ? 'disabled' : ''}>${state.draftStatus === 'published' ? '已发布' : '核对并发布'} ${icon('arrow')}</button></div>`;
 }
 
@@ -516,7 +526,7 @@ function publishBp(taskId) {
     <div class="publish-group"><div class="eyebrow">登记字段（${fields.length}）</div><p>${fields.map(f => `${esc(f.label)}${f.required ? '*' : ''}${f.required_condition ? `（${esc(f.required_condition)}）` : ''}`).join('、') || '无'}</p></div>
     <div class="publish-group"><div class="eyebrow">材料（${slots.length}）</div><p>${slots.map(s => `${esc(s.label)}：${(s.formats || []).map(x => esc(x.toUpperCase())).join('/') || '不限格式'}，最多 ${s.max_count} 份${s.max_size_mib ? `，≤${s.max_size_mib}MiB` : ''}${s.required_condition ? `，条件 ${esc(s.required_condition)}` : ''}`).join('<br>') || '无'}</p></div>
     <div class="publish-group"><div class="eyebrow">检查规则（${rules.length}）</div><ul class="publish-rules">${rules.map(r => `<li><span class="badge ${r.capability === 'supported' ? 'ok' : 'warn'}">${esc((CAP_BADGE[r.capability] || '').replace(/<[^>]+>/g, ''))}</span>${esc(r.statement)}</li>`).join('') || '<li>无</li>'}</ul></div>
-    <div class="publish-group"><div class="eyebrow">时间</div><p>时区 ${esc(tp.timezone || 'Asia/Shanghai')} · 开始 ${esc(fmtTime(tp.open_at))} · 首次截止 ${esc(fmtTime(tp.first_deadline))} · 补正截止 ${esc(fmtTime(tp.correction_deadline))}</p></div>
+    <div class="publish-group"><div class="eyebrow">时间</div><p>时区 ${esc(tp.timezone || 'Asia/Shanghai')} · 开始 ${esc(fmtTime(tp.open_at, tp.timezone))} · 首次截止 ${esc(fmtTime(tp.first_deadline, tp.timezone))} · 补正截止 ${esc(fmtTime(tp.correction_deadline, tp.timezone))}</p></div>
     ${advisories.length ? `<div class="draft-warning"><b>${advisories.length} 项提醒（不阻止发布）</b><ul>${advisories.map(w => `<li>${esc(w)}</li>`).join('')}</ul></div>` : ''}
   </div>`;
   document.getElementById('publish-error').textContent = ''; document.getElementById('publish-consent').checked = false;
@@ -722,13 +732,15 @@ function viewWorkbench(taskId) {
 }
 
 async function refreshWorkbench() {
-  const taskId = state.wbTaskId; if (!taskId) return;
+  const taskId = state.wbTaskId, epoch = state.routeEpoch;
+  if (!taskId || location.hash !== `#/workbench/${taskId}`) return;
   try {
     const [data, notif] = await Promise.all([
       api(`/api/tasks/${taskId}/workbench`),
       api(`/api/tasks/${taskId}/notifications`),
     ]);
-    if (state.wbTaskId !== taskId) return;
+    if (state.wbTaskId !== taskId || epoch !== state.routeEpoch) return;
+    state.wbCounts = data.counts || {};
     state.wbTask = data.task || {}; state.wbRows = data.rows || [];
     state.reminder = {
       view: notif.view || { targets: [], exempt: [], submitted: [], overdue: [] },
@@ -745,10 +757,10 @@ async function refreshWorkbench() {
 }
 
 function wbMatches(r, filter) {
-  const hasRevision = r.revision != null && r.summary !== "未正式提交";
+  const hasRevision = r.formal ?? (r.revision != null && r.summary !== "未正式提交");
   if (filter === "todo") return hasRevision && ["待补正", "待人工", "检查未完成"].includes(r.summary);
   if (filter === "submitted") return hasRevision;
-  if (filter === "missing") return !hasRevision;
+  if (filter === "missing") return !hasRevision && !r.exempt;
   return true;
 }
 function paintWorkbench() {
@@ -762,12 +774,14 @@ function paintWorkbench() {
   if (roBox) roBox.innerHTML = ro ? `<div class="notice-warn">任务已${esc(label)}，处于只读状态：提交、上传、检查与修订均已停止；历史数据仍可查看与导出。</div>` : "";
 
   const count = (pred) => rows.filter(pred).length;
-  const metrics = [
-    ["应交主体", rows.length, "roster"],
-    ["已正式提交", count(r => r.revision != null), "workbench"],
-    ["待补正", count(r => r.summary === "待补正"), "design"],
-    ["待人工", count(r => r.summary === "待人工"), "review"],
-    ["检查中", count(r => ["queued", "running", "retry_wait"].includes(r.run_status)), "delivery"],
+  const c = state.wbCounts || {};
+  const metrics = t.mode === "open" ? [
+    ["已登记", c.registered || 0, "roster"], ["已正式提交", c.submitted || 0, "workbench"],
+    ["已验收", c.accepted || 0, "review"],
+  ] : [
+    ["名册主体", c.roster || 0, "roster"], ["免交", c.exempt || 0, "roster"],
+    ["应交", c.required || 0, "roster"], ["已正式提交", c.submitted || 0, "workbench"],
+    ["未正式提交", c.unsubmitted || 0, "delivery"], ["已验收", c.accepted || 0, "review"],
   ];
   const stats = document.getElementById("wb-stats");
   if (stats) stats.innerHTML = metrics.map(([label2, value, ic]) =>
@@ -789,7 +803,7 @@ function paintWorkbench() {
   box.innerHTML = `<div class="wb-list-head"><span>提交者</span><span>状态</span><span>待办</span><span>操作</span></div>` +
     visible.map(r => {
       const b = r.buckets || {};
-      const hasRevision = r.revision != null && r.summary !== "未正式提交";
+      const hasRevision = r.formal ?? (r.revision != null && r.summary !== "未正式提交");
       const tags = [
         ...(b.blocking || []).map(x => `<span class="badge bad">阻塞 ${esc(x)}</span>`),
         ...(b.unknown || []).map(x => `<span class="badge warn">待确认 ${esc(x)}</span>`),
@@ -799,10 +813,10 @@ function paintWorkbench() {
       ].join("");
       const canRetry = !ro && r.run_status === "failed";
       return `<article class="wb-row">
-        <div class="wb-person"><span class="wb-avatar" aria-hidden="true">${esc((r.name || "?").slice(0, 1))}</span><div><b>${esc(r.name)}</b><span>主体 #${r.subject_id}${hasRevision ? ` · v${r.revision}` : ""}</span></div></div>
-        <div class="wb-state"><span class="badge ${WB_BADGE[r.summary] ?? ""}">${esc(r.summary)}</span>${r.acceptance === "accepted" && r.summary !== "已验收" ? '<span class="badge ok">已验收</span>' : ""}</div>
-        <div class="wb-buckets">${tags || `<span class="muted">${hasRevision ? "暂无待办" : "等待提交"}</span>`}</div>
-        <div class="wb-actions">${hasRevision ? `<a class="ghost sm" href="#/review/${taskId}/${r.subject_id}">复核 ${icon("arrow")}</a>` : `<button class="ghost sm" onclick="remindTarget(${r.subject_id})">提醒</button>`}
+        <div class="wb-person"><span class="wb-avatar" aria-hidden="true">${esc((r.name || "?").slice(0, 1))}</span><div><b>${esc(r.name)}</b><span>${r.subject_id ? `主体 #${r.subject_id}` : "尚未发放凭证"}${hasRevision ? ` · v${r.revision}` : ""}</span></div></div>
+        <div class="wb-state"><span class="badge ${WB_BADGE[r.summary] ?? ""}">${esc(r.exempt ? (hasRevision ? "免交 · 已正式提交" : "免交") : r.summary)}</span>${r.acceptance === "accepted" && r.summary !== "已验收" ? '<span class="badge ok">已验收</span>' : ""}</div>
+        <div class="wb-buckets">${tags || `<span class="muted">${hasRevision ? "暂无待办" : (r.exempt ? "无需提交" : "等待提交")}</span>`}</div>
+        <div class="wb-actions">${hasRevision ? `<a class="ghost sm" href="#/review/${taskId}/${r.subject_id}">复核 ${icon("arrow")}</a>` : (r.exempt ? "" : r.subject_id ? `<button class="ghost sm" onclick="remindTarget(${r.subject_id})">提醒</button>` : `<a class="ghost sm" href="#/roster/${taskId}">发放凭证</a>`)}
           ${hasRevision && !ro ? `<button class="ghost sm" onclick="runCheck(${taskId},${r.subject_id})">重新检查</button>` : ""}
           ${canRetry ? `<button class="ghost sm" onclick="retryCheck(${taskId},${r.subject_id})" title="上次检查技术失败：重试生成新运行，旧运行标记被取代并保留">重试</button>` : ""}
         </div></article>`;
@@ -939,6 +953,8 @@ async function retryCheck(taskId, sid, back) {
 
 /* ---------------------------------------------------------------- P03 证据复核 */
 async function viewReview(taskId, sid) {
+  const epoch = state.routeEpoch;
+  state.reviewDraft = null; state.reviewConflict = false;
   document.getElementById("app").innerHTML = `
     <div class="breadcrumb"><a href="#/tasks">我的任务</a><span>/</span><a href="#/workbench/${taskId}">收集工作台</a><span>/</span><span id="rv-name">证据复核</span></div>
     <div class="page-heading"><div><div class="eyebrow">EVIDENCE REVIEW</div><h1>逐条核对证据<span class="heading-dot">.</span></h1><p>每处判断都附原文位置。解释不改变机器结论，最终由你决定。</p></div><div id="review-retry"></div></div>
@@ -946,6 +962,7 @@ async function viewReview(taskId, sid) {
     <div id="rv"><p class="empty">正在读取检查结果…</p></div>`;
   try {
     const d = await api(`/api/tasks/${taskId}/subjects/${sid}/findings`);
+    if (epoch !== state.routeEpoch) return;
     state.reviewData = d; state.reviewRule = state.reviewRule || null;
     document.getElementById("rv-name").textContent = d.subject.name;
     paintReview(taskId, sid);
@@ -954,6 +971,10 @@ async function viewReview(taskId, sid) {
 
 function paintReview(taskId, sid) {
   const d = state.reviewData; if (!d) return;
+  if (document.getElementById("dc-reason")) {
+    state.reviewDraft = Object.fromEntries(["dc-type", "dc-rule", "dc-exp", "dc-reason"]
+      .map(id => [id, document.getElementById(id).value]));
+  }
   const rules = d.rules || [];
   if (!state.reviewRule && rules.length) state.reviewRule = rules.find(r => r.result !== "satisfied" && r.result !== "not_applicable")?.rule_id || rules[0].rule_id;
   const active = rules.find(r => r.rule_id === state.reviewRule) || null;
@@ -1003,7 +1024,8 @@ function paintReview(taskId, sid) {
         <div><label for="dc-rule">作用域规则（可空）</label><input id="dc-rule" value="${esc(active ? active.rule_id : "")}" placeholder="rule_id"></div></div>
       <label for="dc-exp">过期时间（可空，ISO）</label><input id="dc-exp" placeholder="2026-12-31T23:59:59+08:00">
       <label for="dc-reason">理由（必填）</label><textarea id="dc-reason" placeholder="为什么这样做决定；提交者解释会显示在上方"></textarea>
-      <button onclick="submitDecision(${taskId},${sid})">提交决定 ${icon("arrow")}</button>
+      <div id="review-conflict" role="alert"></div>
+      <button id="decision-submit" ${state.reviewConflict ? "disabled" : ""} onclick="submitDecision(${taskId},${sid})">提交决定 ${icon("arrow")}</button>
     </div>
     <div class="decision-history"><h3>决定历史</h3>
       ${(d.decisions || []).map(x => `<div class="decision-row"><div><span class="badge ${x.revoked ? "" : "info"}">${esc(x.decision)}${x.revoked ? "（已撤销）" : ""}</span><span class="muted">${x.scope_rule_id ? "规则 " + esc(x.scope_rule_id) + " · " : ""}${esc(fmtTime(x.created_at))}</span></div><p>${esc(x.reason)}</p>${x.revoked ? "" : `<button class="link" onclick="revokeDecision(${taskId},${sid},${x.id})">撤销</button>`}</div>`).join("") || `<p class="muted">还没有人工决定。</p>`}
@@ -1019,25 +1041,55 @@ function paintReview(taskId, sid) {
 
   document.getElementById("rv").innerHTML = `${meta}${sameName}
     <div class="review-layout"><div class="review-list-col">${list}</div><div class="review-detail-col">${evidence}${notesHtml}${decision}${covHtml}</div></div>`;
+  if (state.reviewDraft) Object.entries(state.reviewDraft).forEach(([id, value]) => {
+    const el = document.getElementById(id); if (el) el.value = value;
+  });
+  if (!d.revision) {
+    document.querySelectorAll("#dc-type option").forEach(o => { o.disabled = o.value !== "exempt"; });
+    document.getElementById("dc-type").value = "exempt";
+  }
+  if (state.reviewConflict) showReviewConflict(taskId, sid);
 }
 function selectReviewRule(ruleId, taskId, sid) {
   state.reviewRule = ruleId;
   paintReview(taskId, sid);
   const box = document.querySelector(".review-layout"); if (box) box.scrollIntoView({block: "nearest"});
 }
+function showReviewConflict(taskId, sid) {
+  document.getElementById("decision-submit").disabled = true;
+  document.getElementById("review-conflict").innerHTML = `<div class="notice-warn">提交版本已变化，决定未保存。下方理由与当前证据已保留；请先核对新版本。<button class="ghost sm" onclick="refreshReview(${taskId},${sid})">刷新并核对最新版本</button></div>`;
+}
+async function refreshReview(taskId, sid) {
+  if (document.getElementById("dc-reason")?.value.trim() &&
+      !confirm("刷新将清空尚未提交的决定。请先复制需要保留的理由，再核对最新版本。")) return;
+  await viewReview(taskId, sid);
+}
 async function submitDecision(taskId, sid) {
-  await guard(async () => {
+  if (state.reviewConflict || state.deciding) return;
+  const epoch = state.routeEpoch;
+  state.deciding = true;
+  const btn = document.getElementById("decision-submit"); btn.disabled = true;
+  try {
     const form = {
       decision: document.getElementById("dc-type").value,
       reason: document.getElementById("dc-reason").value.trim(),
       scope_rule_id: document.getElementById("dc-rule").value.trim(),
+      expected_current_revision: state.reviewData?.revision?.id || 0,
     };
     const exp = document.getElementById("dc-exp").value.trim();
     if (exp) form.expires_at = exp;
     await api(`/api/tasks/${taskId}/subjects/${sid}/decisions`, { method: "POST", form });
-    setFlash("决定已记录", "ok");
+    if (epoch !== state.routeEpoch) return;
     await viewReview(taskId, sid);
-  });
+    setFlash("决定已记录", "ok");
+  } catch (e) {
+    if (epoch !== state.routeEpoch) return;
+    if (e.status === 409) { state.reviewConflict = true; showReviewConflict(taskId, sid); }
+    else setFlash(e.message);
+  } finally {
+    state.deciding = false;
+    if (epoch === state.routeEpoch && !state.reviewConflict && btn.isConnected) btn.disabled = false;
+  }
 }
 async function revokeDecision(taskId, sid, did) {
   await guard(async () => {
@@ -1107,16 +1159,16 @@ function refreshSlotConditions(slots) {
     const r = evalSlotCondition(s.required_condition, values);
     if (r === true) {
       note.innerHTML = `<span class="badge ok">当前填写下需要提交</span>`;
-      if (input) input.disabled = false;
-      if (btn) btn.disabled = false;
+      if (input) input.disabled = !!state.sub?.ro;
+      if (btn) btn.disabled = !!state.sub?.ro;
     } else if (r === false) {
       note.innerHTML = `<span class="badge">当前填写下不适用</span>`;
       if (input) input.disabled = true;
       if (btn) btn.disabled = true;
     } else {
       note.innerHTML = `<span class="badge warn">条件「${esc(s.required_condition)}」暂不支持自动判定，将转人工核验</span>`;
-      if (input) input.disabled = false;
-      if (btn) btn.disabled = false;
+      if (input) input.disabled = !!state.sub?.ro;
+      if (btn) btn.disabled = !!state.sub?.ro;
     }
   });
 }
@@ -1126,8 +1178,9 @@ function setFilesFromDraft(slotFileIds) {
   Object.entries(slotFileIds || {}).forEach(([slot, list]) => {
     state.files[slot] = [];
     (list || []).forEach(f => {
-      state.files[slot].push(f.file_id);
-      state.fileMeta[f.file_id] = f;
+      const fid = typeof f === "string" ? f : f.file_id;
+      state.files[slot].push(fid);
+      state.fileMeta[fid] = typeof f === "string" ? { file_id: fid, name: fid } : f;
     });
   });
 }
@@ -1173,7 +1226,47 @@ function requiredSlotMissing(slots) {
   });
 }
 
+function draftCacheKey() {
+  return state.me ? `ff_draft:${state.me.task.id}:${state.me.subject.id}` : null;
+}
+function collectDraftFields() {
+  const fields = {};
+  document.querySelectorAll("[data-field]").forEach(el => { fields[el.dataset.field] = el.value; });
+  const pending = document.getElementById("sub-ans");
+  if (pending && state.sub?.mode === "chat" && state.sub.phase === "fields") {
+    const field = state.sub.fields[state.sub.fIdx];
+    if (field) fields[field.id] = pending.value;
+  }
+  return fields;
+}
+function cacheSubmissionDraft() {
+  if (!document.getElementById("sub") || !state.me || state.draftVersion === null) return;
+  if (READONLY_STATUSES.includes(state.me.task.status)) return;
+  const key = draftCacheKey();
+  const draft = { fields: collectDraftFields(), slot_file_ids: state.files, draft_version: state.draftVersion, file_meta: state.fileMeta };
+  try {
+    sessionStorage.setItem(key, JSON.stringify(draft));
+    state.cacheFailed = false;
+    const el = document.getElementById("draft-hint");
+    if (el) el.textContent = "已在本标签页暂存；刷新或切页可恢复。尚未保存到服务器。";
+  } catch (e) {
+    state.cacheFailed = true;
+    setFlash("浏览器暂存不可用，请先保存草稿再离开页面");
+  }
+}
+window.addEventListener("beforeunload", event => {
+  cacheSubmissionDraft();
+  if (state.cacheFailed) { event.preventDefault(); event.returnValue = ""; }
+});
+async function reloadServerDraft() {
+  if (!confirm("用服务端草稿替换本页暂存内容？未保存到服务器的填写会被替换。")) return;
+  sessionStorage.removeItem(draftCacheKey());
+  await viewSubmit();
+}
+
 async function viewSubmit() {
+  const epoch = state.routeEpoch, token = subToken();
+  state.me = null; state.draftVersion = null;
   document.getElementById("app").innerHTML = `<div id="flash" role="status" aria-live="polite"></div><div id="sub"><p class="empty">正在打开你的提交空间…</p></div>`;
   try {
     const [me, draft, receipt] = await Promise.all([
@@ -1181,8 +1274,18 @@ async function viewSubmit() {
       api("/api/me/draft", { sub: true }),
       api("/api/me/receipt", { sub: true }),
     ]);
+    if (epoch !== state.routeEpoch || token !== subToken()) return;
     state.me = me; state.draftVersion = draft.draft_version || null;
+    let local = null;
+    try { local = JSON.parse(sessionStorage.getItem(draftCacheKey()) || "null"); } catch (e) {}
+    const localConflict = local && local.draft_version !== draft.draft_version;
+    if (local) {
+      draft.fields = local.fields || {};
+      draft.slot_file_ids = local.slot_file_ids || {};
+      state.draftVersion = local.draft_version;
+    }
     setFilesFromDraft(draft.slot_file_ids);
+    if (local?.file_meta) Object.assign(state.fileMeta, local.file_meta);
     const fields = (me.blueprint && me.blueprint.fields) || [];
     const slots = (me.blueprint && me.blueprint.slots) || [];
     const ro = READONLY_STATUSES.includes(me.task.status);
@@ -1199,7 +1302,7 @@ async function viewSubmit() {
           <span class="badge ${ro ? "warn" : "ok"}"><span class="badge-dot"></span>${esc(TASK_STATUS_LABEL[me.task.status] || me.task.status)}</span></div>
         ${ro ? `<div class="notice-warn">任务已${esc(TASK_STATUS_LABEL[me.task.status] || me.task.status)}，处于只读状态：不能保存草稿、上传或正式提交；已提交内容与回执仍可查看。</div>` : ""}
         <section class="submit-overview">
-          <div class="overview-stats">${[["登记字段", `${done}/${fields.length}`, "design"], ["已上传材料", uploaded, "delivery"], ["首次截止", fmtTime(me.task.first_deadline).slice(5), "workbench"], ["补正截止", fmtTime(me.task.correction_deadline).slice(5), "workbench"]].map(([l, v, ic]) => `<div class="overview-stat"><span>${esc(l)}</span><strong class="stat-text">${esc(v)}</strong><i>${icon(ic)}</i></div>`).join("")}</div>
+          <div class="overview-stats">${[["登记字段", `${done}/${fields.length}`, "design"], ["已上传材料", uploaded, "delivery"], ["首次截止", fmtTime(me.task.first_deadline, me.task.timezone).slice(5), "workbench"], ["补正截止", fmtTime(me.task.correction_deadline, me.task.timezone).slice(5), "workbench"]].map(([l, v, ic]) => `<div class="overview-stat"><span>${esc(l)}</span><strong class="stat-text">${esc(v)}</strong><i>${icon(ic)}</i></div>`).join("")}</div>
           ${receiptHtml}
         </section>
         <div class="submit-layout">
@@ -1215,7 +1318,7 @@ async function viewSubmit() {
               <h3>登记信息</h3>
               ${fields.map(f => `<div class="submit-field"><label for="field-${esc(f.id)}">${esc(f.label)}${f.required ? " <em>*</em>" : ' <small>选填</small>'}</label>
                 ${f.type === "enum"
-                  ? `<select id="field-${esc(f.id)}" data-field="${esc(f.id)}">${["", ...(f.options || [])].map(o => `<option value="${esc(o)}" ${((draft.fields || {})[f.id] || "") === o ? "selected" : ""}>${o ? esc(o) : "请选择"}</option>`).join("")}</select>`
+                  ? `<select id="field-${esc(f.id)}" data-field="${esc(f.id)}" ${ro ? "disabled" : ""}>${["", ...(f.options || [])].map(o => `<option value="${esc(o)}" ${((draft.fields || {})[f.id] || "") === o ? "selected" : ""}>${o ? esc(o) : "请选择"}</option>`).join("")}</select>`
                   : `<input id="field-${esc(f.id)}" data-field="${esc(f.id)}" value="${esc((draft.fields || {})[f.id] || "")}" placeholder="请填写${esc(f.label)}" ${ro ? "disabled" : ""}>`}
                 ${f.required_condition ? `<p class="field-help">必填条件：${esc(f.required_condition)}</p>` : ""}
                 ${f.purpose ? `<p class="field-help">${esc(f.purpose)}</p>` : ""}</div>`).join("") || '<p class="muted">本次收集没有登记字段。</p>'}
@@ -1233,6 +1336,7 @@ async function viewSubmit() {
               }).join("") || '<p class="muted">本次收集没有材料要求。</p>'}
             </div>
             <div class="submit-actions">
+              <button class="ghost sm" onclick="reloadServerDraft()">重新加载服务器草稿</button>
               <button class="ghost" onclick="saveDraft()" ${ro ? "disabled" : ""}>保存草稿</button>
               <button onclick="doSubmit()" ${ro ? "disabled" : ""}>${receipt.formal ? "提交补正版本并检查" : "正式提交并检查"} ${icon("arrow")}</button>
               <span class="muted" id="draft-hint">${draft.draft_version ? `草稿版本 ${draft.draft_version}` : "尚未保存草稿"}${draft.updated_at ? ` · ${esc(fmtTime(draft.updated_at))}` : ""}</span>
@@ -1241,7 +1345,7 @@ async function viewSubmit() {
           </section>
           <aside class="submit-side">
             <section class="card side-note"><div class="eyebrow">BEFORE YOU SUBMIT</div><h2>提交前核对</h2>
-              <ul class="check-list"><li>首次截止：<b>${esc(fmtTime(me.task.first_deadline))}</b></li><li>补正截止：<b>${esc(fmtTime(me.task.correction_deadline))}</b></li><li>正式提交会形成不可篡改的版本；再次提交将形成补正版本。</li><li>上传成功 ≠ 正式提交，记得点击正式提交。</li></ul>
+              <ul class="check-list"><li>首次截止：<b>${esc(fmtTime(me.task.first_deadline, me.task.timezone))}</b></li><li>补正截止：<b>${esc(fmtTime(me.task.correction_deadline, me.task.timezone))}</b></li><li>正式提交会形成不可篡改的版本；再次提交将形成补正版本。</li><li>上传成功 ≠ 正式提交，记得点击正式提交。</li></ul>
             </section>
             <section class="card side-note"><div class="eyebrow">NEED HELP?</div><h2>提交之后</h2>
               <p class="field-help">检查结果会逐条列出问题、原文位置与改法。对结论有异议可提交解释，组织者核对原文后决定；解释不改变机器结论。</p>
@@ -1254,12 +1358,19 @@ async function viewSubmit() {
       el.addEventListener("input", () => {
         refreshSlotConditions(slots);
         if (state.sub && state.sub.mode === "chat") syncSubAnswersFromForm();
+        cacheSubmissionDraft();
       }));
     refreshSlotConditions(slots);
     initSubChat(fields, slots, ro, me.subject.name, draft.fields || {});
     setSubMode(ro ? "form" : "chat");
+    if (local) {
+      document.getElementById("draft-hint").textContent = localConflict
+        ? "服务端已有更新，已保留本地填写；请先核对，旧版本保存会被拦截。"
+        : "已恢复本标签页暂存内容；尚未保存到服务器。";
+    }
     loadMyResults();
   } catch (e) {
+    if (epoch !== state.routeEpoch) return;
     document.getElementById("sub").innerHTML =
       `<div class="flash err">${esc(e.message)}（请重新用凭证登录）</div>`;
   }
@@ -1289,6 +1400,7 @@ async function uploadSlot(slot) {
 function afterSlotUpload(slot, fileId, meta) {
   (state.files[slot] = state.files[slot] || []).push(fileId);
   state.fileMeta[fileId] = { file_id: fileId, name: (meta && meta.name) || fileId, size: meta && meta.size };
+  cacheSubmissionDraft();
   const ro = state.sub ? state.sub.ro : false;
   paintSlotFiles(slot, ro);
   if (state.sub && state.sub.slots) refreshSlotConditions(state.sub.slots);
@@ -1306,53 +1418,66 @@ async function deleteSlotFile(slot, fileId) {
     await api(`/api/me/files/${encodeURIComponent(fileId)}`, { method: "DELETE", sub: true });
     state.files[slot] = (state.files[slot] || []).filter(x => x !== fileId);
     delete state.fileMeta[fileId];
+    cacheSubmissionDraft();
     paintSlotFiles(slot, state.sub ? state.sub.ro : false);
     if (state.sub && state.sub.slots) refreshSlotConditions(state.sub.slots);
     setFlash("文件已从草稿中删除", "ok");
   });
 }
 async function saveDraft() {
+  const epoch = state.routeEpoch, key = draftCacheKey();
   await guard(async () => {
-    const fields = {};
-    document.querySelectorAll("[data-field]").forEach(el => { fields[el.dataset.field] = el.value; });
+    const fields = collectDraftFields();
+    const snapshot = JSON.stringify({fields, files: state.files});
     const r = await api("/api/me/draft", { method: "POST", sub: true,
-      json: { fields, expected_version: state.draftVersion } });
+      json: { fields, slot_file_ids: state.files, expected_version: state.draftVersion } });
+    if (epoch !== state.routeEpoch || key !== draftCacheKey()) return;
     state.draftVersion = r.draft_version;
-    // 逐步向导与表单共享同一份草稿：保存后两边的答案一起刷新
-    if (state.sub) Object.entries(fields).forEach(([k, v]) => {
-      if (String(v).trim()) state.sub.answers[k] = v; else delete state.sub.answers[k];
-    });
-    const hint = document.getElementById("draft-hint");
-    if (hint) hint.textContent = `草稿版本 ${r.draft_version} · 刚刚保存`;
-    setFlash(`草稿已保存（版本 ${r.draft_version}）。刷新页面后字段与已上传文件都会恢复。`, "ok");
+    cacheSubmissionDraft();
+    const changed = snapshot !== JSON.stringify({fields: collectDraftFields(), files: state.files});
+    document.getElementById("draft-hint").textContent = changed
+      ? "本次快照已保存；保存期间的新修改尚未保存。"
+      : `已保存到服务器（草稿 v${r.draft_version}），不是正式提交。`;
+    setFlash("草稿已保存到服务器", "ok");
   });
 }
 async function doSubmit() {
-  await guard(async () => {
-    const slots = state.sub ? state.sub.slots : [];
-    const missing = requiredSlotMissing(slots);
-    if (missing.length) {
-      setFlash(`还有必交材料没上传：${missing.map(s => s.label).join("、")}。传好后再正式提交。`);
-      const first = document.querySelector(`[data-slot-card="${missing[0].id}"]`);
-      if (first) first.scrollIntoView({ behavior: "smooth", block: "center" });
-      return;
-    }
-    const fields = {};
-    document.querySelectorAll("[data-field]").forEach(el => { fields[el.dataset.field] = el.value; });
-    const slotFiles = {};
-    Object.entries(state.files).forEach(([slot, ids]) => { if (ids.length) slotFiles[slot] = ids; });
-    const key = "web-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8);
-    const r = await api("/api/me/submit", { method: "POST", sub: true,
-      json: { fields, slot_file_ids: slotFiles, idempotency_key: key } });
-    document.getElementById("receipt-out").innerHTML = `
-      <div class="receipt"><div><span class="eyebrow">SUBMITTED</span><b>正式提交成功 · v${r.revision}</b><span class="receipt-no">${esc(r.receipt)}</span></div><div class="receipt-meta"><span>服务端时间</span><b>${esc(fmtTime(r.formal_submitted_at))}</b></div></div>`;
-    setFlash(`正式提交成功，回执 ${r.receipt}（v${r.revision}）`, "ok");
-    await loadMyResults();
-  });
+  if (state.submitting) return;
+  const epoch = state.routeEpoch, subject = draftCacheKey();
+  state.submitting = true;
+  try {
+    await guard(async () => {
+      const fields = collectDraftFields();
+      document.querySelectorAll("[data-field]").forEach(el => { el.value = fields[el.dataset.field] ?? ""; });
+      const missing = requiredSlotMissing(state.sub?.slots || []);
+      if (missing.length) {
+        setFlash(`还有必交材料没上传：${missing.map(s => s.label).join("、")}。传好后再正式提交。`);
+        document.querySelector(`[data-slot-card="${missing[0].id}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+        return;
+      }
+      const slotFiles = Object.fromEntries(Object.entries(state.files).filter(([, ids]) => ids.length));
+      const signature = JSON.stringify({subject, fields, files: slotFiles});
+      if (!state.pendingSubmission || state.pendingSubmission.signature !== signature) {
+        state.pendingSubmission = {signature, key: "web-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8)};
+      }
+      const r = await api("/api/me/submit", { method: "POST", sub: true,
+        json: { fields, slot_file_ids: slotFiles, idempotency_key: state.pendingSubmission.key } });
+      if (epoch !== state.routeEpoch || subject !== draftCacheKey()) return;
+      state.pendingSubmission = null;
+      state.draftVersion = r.draft_version;
+      cacheSubmissionDraft();
+      document.getElementById("receipt-out").innerHTML = `
+        <div class="receipt"><div><span class="eyebrow">SUBMITTED</span><b>正式提交成功 · v${r.revision}</b><span class="receipt-no">${esc(r.receipt)}</span></div><div class="receipt-meta"><span>服务端时间</span><b>${esc(fmtTime(r.formal_submitted_at, state.me.task.timezone))}</b></div></div>`;
+      setFlash(`正式提交成功，回执 ${r.receipt}（v${r.revision}）`, "ok");
+      await loadMyResults();
+    });
+  } finally { state.submitting = false; }
 }
 async function loadMyResults() {
+  const epoch = state.routeEpoch, token = subToken();
   try {
     const r = await api("/api/me/results", { sub: true });
+    if (epoch !== state.routeEpoch || token !== subToken()) return;
     const b = r.buckets || {};
     let html = `
       <p>状态：<b>${esc(r.summary)}</b>${r.revision ? `（v${r.revision}）` : ""}</p>
@@ -1477,6 +1602,9 @@ function setSubStep(n) {
 }
 function setSubMode(m) {
   if (!state.sub) return;
+  const fields = collectDraftFields();
+  document.querySelectorAll("[data-field]").forEach(el => { el.value = fields[el.dataset.field] ?? ""; });
+  cacheSubmissionDraft();
   state.sub.mode = m;
   const bc = document.getElementById("submode-chat"), bf = document.getElementById("submode-form");
   if (bc) { bc.classList.toggle("on", m === "chat"); bc.setAttribute("aria-selected", String(m === "chat")); }
@@ -1527,7 +1655,7 @@ function subFieldCard(i) {
     ${f.purpose ? `<div class="mini">${esc(f.purpose)}</div>` : ""}
     ${opts}
     <input id="sub-ans" placeholder="请输入${esc(f.label)}" value="${esc(val)}"
-      onkeydown="if(event.key===String.fromCharCode(13)&&!event.isComposing){event.preventDefault();subAnswerField(${i})}">
+      oninput="cacheSubmissionDraft()" onkeydown="if(event.key===String.fromCharCode(13)&&!event.isComposing){event.preventDefault();subAnswerField(${i})}">
     <div class="row">
       <button class="sm" onclick="subAnswerField(${i})">${i + 1 === state.sub.fields.length ? "填好了，去上传材料" : "下一题"}</button>
       ${req ? "" : `<button class="ghost sm" onclick="subSkipField(${i})">跳过</button>`}
@@ -1539,6 +1667,7 @@ function subPickOption(i, k, el) {
   const f = state.sub.fields[i];
   const input = document.getElementById("sub-ans");
   if (input) input.value = f.options[k];
+  cacheSubmissionDraft();
   el.parentElement.querySelectorAll(".chip").forEach(c => c.classList.remove("on"));
   el.classList.add("on");
 }

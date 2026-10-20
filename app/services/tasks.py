@@ -259,6 +259,12 @@ def publish(db: Session, task: Task, blueprint_version_id: int) -> BlueprintVers
     blocking, advisories = split_publish_checks(blueprint, bp, draft)
     if blocking:
         raise PublishBlocked("；".join(blocking))
+    # Keep API display and server-side submission windows on the same UTC instant.
+    policy = blueprint.time_policy
+    task.timezone = policy.timezone
+    task.open_at = policy.open_at
+    task.first_deadline = policy.first_deadline
+    task.correction_deadline = policy.correction_deadline
     bp.status = "published"
     bp.published_at = utcnow()
     task.current_blueprint_id = bp.id

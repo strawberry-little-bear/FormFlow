@@ -9,7 +9,9 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from .timeutils import as_utc
 
 
 # ---------------------------------------------------------------- 枚举
@@ -87,6 +89,17 @@ class TimePolicy(BaseModel):
     open_at: Optional[datetime] = None
     first_deadline: Optional[datetime] = None       # 首次截止
     correction_deadline: Optional[datetime] = None  # 补正截止（仅已正式提交者可用）
+
+
+    @model_validator(mode="after")
+    def normalize_times(self):
+        try:
+            ZoneInfo(self.timezone)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError(f"未知任务时区：{self.timezone}") from exc
+        for name in ("open_at", "first_deadline", "correction_deadline"):
+            setattr(self, name, as_utc(getattr(self, name), self.timezone))
+        return self
 
 
 class Blueprint(BaseModel):

@@ -1,0 +1,44 @@
+"""Roster denominators and subject state are separate from check/acceptance state."""
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from ..models import Exemption, RosterEntry, Submission, Subject, Task
+from .checks import current_summary
+
+
+def exempt_subject_ids(db: Session, task: Task) -> set[int]:
+    return set(db.scalars(select(Exemption.subject_id).where(
+        Exemption.task_id == task.id, Exemption.kind == "exempt", Exemption.status == "active")))
+
+
+def workbench_data(db: Session, task: Task) -> dict:
+    exempt = exempt_subject_ids(db, task)
+    formal = set(db.scalars(select(Submission.subject_id).where(
+        Submission.task_id == task.id, Submission.state == "formal",
+        Submission.current_revision_id.is_not(None))))
+    entries = db.scalars(select(RosterEntry).where(RosterEntry.task_id == task.id)).all()
+    linked = {e.subject_id for e in entries if e.subject_id is not None}
+    subjects = db.scalars(select(Subject).where(Subject.task_id == task.id)).all()
+    rows = []
+    for subject in subjects:
+        summary = current_summary(db, task, subject.id)
+        rows.append({"subject_id": subject.id, "name": subject.display_name,
+                     **summary, "exempt": subject.id in exempt,
+                     "formal": subject.id in formal,
+                     "in_roster": subject.id in linked})
+    if task.mode == "roster":
+        for e in entries:
+            if e.subject_id is None:
+                rows.append({"subject_id": None, "roster_entry_id": e.id, "name": e.name,
+                             "summary": "未发放凭证", "exempt": False, "formal": False,
+                             "in_roster": True})
+        required_entries = [e for e in entries if e.subject_id not in exempt]
+        submitted = sum(e.subject_id in formal for e in required_entries)
+        counts = {"roster": len(entries), "exempt": len(entries) - len(required_entries),
+                  "required": len(required_entries), "submitted": submitted,
+                  "unsubmitted": len(required_entries) - submitted}
+    else:
+        # Open enrollment has no required denominator or completion percentage.
+        counts = {"registered": len(subjects), "submitted": len(formal)}
+    counts["accepted"] = sum(r.get("acceptance") == "accepted" and not r["exempt"]
+                             and (task.mode != "roster" or r["in_roster"]) for r in rows)
+    return {"rows": rows, "counts": counts}
