@@ -49,8 +49,8 @@ function setFlash(msg, kind = "err") {
   const el = document.getElementById("flash");
   if (el) el.innerHTML = msg ? `<div class="flash ${kind}">${esc(msg)}</div>` : "";
 }
-async function guard(fn) {
-  try { await fn(); } catch (e) { setFlash(e.message || String(e)); }
+async function guard(fn, isCurrent = () => true) {
+  try { await fn(); } catch (e) { if (isCurrent()) setFlash(e.message || String(e)); }
 }
 
 /* 规则结果徽标与规则卡片：P03 与 P04 共用同一渲染，避免两端说法不一致 */
@@ -1226,6 +1226,17 @@ function requiredSlotMissing(slots) {
   });
 }
 
+function draftFingerprint(fields, files) {
+  const ids = Object.fromEntries(Object.entries(files || {}).filter(([, list]) => list.length)
+    .map(([slot, list]) => [slot, list.map(f => typeof f === "string" ? f : f.file_id)]));
+  return JSON.stringify({ fields: fields || {}, files: ids }, (_, value) =>
+    value && typeof value === "object" && !Array.isArray(value)
+      ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b))) : value);
+}
+function submissionContext() {
+  const epoch = state.routeEpoch, key = draftCacheKey(), token = subToken();
+  return () => epoch === state.routeEpoch && key === draftCacheKey() && token === subToken();
+}
 function draftCacheKey() {
   return state.me ? `ff_draft:${state.me.task.id}:${state.me.subject.id}` : null;
 }
@@ -1243,12 +1254,16 @@ function cacheSubmissionDraft() {
   if (!document.getElementById("sub") || !state.me || state.draftVersion === null) return;
   if (READONLY_STATUSES.includes(state.me.task.status)) return;
   const key = draftCacheKey();
-  const draft = { fields: collectDraftFields(), slot_file_ids: state.files, draft_version: state.draftVersion, file_meta: state.fileMeta };
+  const draft = { fields: collectDraftFields(), slot_file_ids: state.files, draft_version: state.draftVersion,
+    file_meta: state.fileMeta, pending_submission: state.pendingSubmission };
+  const dirty = draftFingerprint(draft.fields, draft.slot_file_ids) !== state.serverDraftFingerprint;
+  state.localDrafts = state.localDrafts || {};
+  state.localDrafts[key] = JSON.stringify(draft);
   try {
     sessionStorage.setItem(key, JSON.stringify(draft));
     state.cacheFailed = false;
     const el = document.getElementById("draft-hint");
-    if (el) el.textContent = "已在本标签页暂存；刷新或切页可恢复。尚未保存到服务器。";
+    if (el) el.textContent = dirty ? "已在本标签页暂存；刷新或切页可恢复。尚未保存到服务器。" : `已与服务器草稿同步（v${state.draftVersion}），不是正式提交。`;
   } catch (e) {
     state.cacheFailed = true;
     setFlash("浏览器暂存不可用，请先保存草稿再离开页面");
@@ -1260,13 +1275,15 @@ window.addEventListener("beforeunload", event => {
 });
 async function reloadServerDraft() {
   if (!confirm("用服务端草稿替换本页暂存内容？未保存到服务器的填写会被替换。")) return;
-  sessionStorage.removeItem(draftCacheKey());
+  const key = draftCacheKey();
+  try { sessionStorage.removeItem(key); } catch (e) {}
+  if (state.localDrafts) delete state.localDrafts[key];
   await viewSubmit();
 }
 
 async function viewSubmit() {
   const epoch = state.routeEpoch, token = subToken();
-  state.me = null; state.draftVersion = null;
+  state.me = null; state.draftVersion = null; state.sub = null;
   document.getElementById("app").innerHTML = `<div id="flash" role="status" aria-live="polite"></div><div id="sub"><p class="empty">正在打开你的提交空间…</p></div>`;
   try {
     const [me, draft, receipt] = await Promise.all([
@@ -1276,8 +1293,11 @@ async function viewSubmit() {
     ]);
     if (epoch !== state.routeEpoch || token !== subToken()) return;
     state.me = me; state.draftVersion = draft.draft_version || null;
-    let local = null;
-    try { local = JSON.parse(sessionStorage.getItem(draftCacheKey()) || "null"); } catch (e) {}
+    state.serverDraftFingerprint = draftFingerprint(draft.fields, draft.slot_file_ids);
+    let cached = null;
+    try { cached = JSON.parse(state.localDrafts?.[draftCacheKey()] || sessionStorage.getItem(draftCacheKey()) || "null"); } catch (e) {}
+    state.pendingSubmission = cached?.pending_submission || null;
+    const local = cached && draftFingerprint(cached.fields, cached.slot_file_ids) !== state.serverDraftFingerprint ? cached : null;
     const localConflict = local && local.draft_version !== draft.draft_version;
     if (local) {
       draft.fields = local.fields || {};
@@ -1387,15 +1407,17 @@ async function uploadFile(slot, file) {
   return data;
 }
 async function uploadSlot(slot) {
+  const current = submissionContext();
   await guard(async () => {
     const input = document.getElementById("file-" + slot);
     if (!input || !input.files.length) throw new Error("请先选择文件");
     const file = input.files[0];
     const data = await uploadFile(slot, file);
+    if (!current()) return;
     afterSlotUpload(slot, data.file_id, { name: file.name, size: file.size || data.size });
     input.value = "";
     setFlash(`「${file.name}」已上传（上传成功不等于正式提交）`, "ok");
-  });
+  }, current);
 }
 function afterSlotUpload(slot, fileId, meta) {
   (state.files[slot] = state.files[slot] || []).push(fileId);
@@ -1414,36 +1436,39 @@ function afterSlotUpload(slot, fileId, meta) {
   }
 }
 async function deleteSlotFile(slot, fileId) {
+  const current = submissionContext();
   await guard(async () => {
     await api(`/api/me/files/${encodeURIComponent(fileId)}`, { method: "DELETE", sub: true });
+    if (!current()) return;
     state.files[slot] = (state.files[slot] || []).filter(x => x !== fileId);
     delete state.fileMeta[fileId];
     cacheSubmissionDraft();
     paintSlotFiles(slot, state.sub ? state.sub.ro : false);
     if (state.sub && state.sub.slots) refreshSlotConditions(state.sub.slots);
     setFlash("文件已从草稿中删除", "ok");
-  });
+  }, current);
 }
 async function saveDraft() {
-  const epoch = state.routeEpoch, key = draftCacheKey();
+  const current = submissionContext();
   await guard(async () => {
     const fields = collectDraftFields();
-    const snapshot = JSON.stringify({fields, files: state.files});
+    const snapshot = draftFingerprint(fields, state.files);
     const r = await api("/api/me/draft", { method: "POST", sub: true,
       json: { fields, slot_file_ids: state.files, expected_version: state.draftVersion } });
-    if (epoch !== state.routeEpoch || key !== draftCacheKey()) return;
+    if (!current()) return;
+    state.serverDraftFingerprint = snapshot;
     state.draftVersion = r.draft_version;
     cacheSubmissionDraft();
-    const changed = snapshot !== JSON.stringify({fields: collectDraftFields(), files: state.files});
+    const changed = snapshot !== draftFingerprint(collectDraftFields(), state.files);
     document.getElementById("draft-hint").textContent = changed
       ? "本次快照已保存；保存期间的新修改尚未保存。"
       : `已保存到服务器（草稿 v${r.draft_version}），不是正式提交。`;
     setFlash("草稿已保存到服务器", "ok");
-  });
+  }, current);
 }
 async function doSubmit() {
   if (state.submitting) return;
-  const epoch = state.routeEpoch, subject = draftCacheKey();
+  const epoch = state.routeEpoch, subject = draftCacheKey(), current = submissionContext();
   state.submitting = true;
   try {
     await guard(async () => {
@@ -1456,13 +1481,15 @@ async function doSubmit() {
         return;
       }
       const slotFiles = Object.fromEntries(Object.entries(state.files).filter(([, ids]) => ids.length));
-      const signature = JSON.stringify({subject, fields, files: slotFiles});
+      const signature = subject + ":" + draftFingerprint(fields, slotFiles);
       if (!state.pendingSubmission || state.pendingSubmission.signature !== signature) {
         state.pendingSubmission = {signature, key: "web-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8)};
       }
+      cacheSubmissionDraft();
       const r = await api("/api/me/submit", { method: "POST", sub: true,
         json: { fields, slot_file_ids: slotFiles, idempotency_key: state.pendingSubmission.key } });
-      if (epoch !== state.routeEpoch || subject !== draftCacheKey()) return;
+      if (!current()) return;
+      state.serverDraftFingerprint = draftFingerprint(fields, slotFiles);
       state.pendingSubmission = null;
       state.draftVersion = r.draft_version;
       cacheSubmissionDraft();
@@ -1470,7 +1497,7 @@ async function doSubmit() {
         <div class="receipt"><div><span class="eyebrow">SUBMITTED</span><b>正式提交成功 · v${r.revision}</b><span class="receipt-no">${esc(r.receipt)}</span></div><div class="receipt-meta"><span>服务端时间</span><b>${esc(fmtTime(r.formal_submitted_at, state.me.task.timezone))}</b></div></div>`;
       setFlash(`正式提交成功，回执 ${r.receipt}（v${r.revision}）`, "ok");
       await loadMyResults();
-    });
+    }, current);
   } finally { state.submitting = false; }
 }
 async function loadMyResults() {
@@ -1735,6 +1762,7 @@ function subSlotCard(i) {
   </div></div>`;
 }
 async function subUploadSlot(i) {
+  const current = submissionContext();
   const s = state.sub.slots[i];
   const input = document.getElementById("sub-file");
   const msg = document.getElementById("sub-slot-msg");
@@ -1746,11 +1774,13 @@ async function subUploadSlot(i) {
   msg.innerHTML = `<span class="muted">上传中…</span>`;
   try {
     const data = await uploadFile(s.id, file);
+    if (!current()) return;
     msg.innerHTML = "";
     afterSlotUpload(s.id, data.file_id, { name: file.name, size: file.size || data.size });
     subUser(`上传了「${esc(s.label)}」：${esc(file.name)}`);
     advanceSlot(i);
   } catch (e) {
+    if (!current()) return;
     msg.innerHTML = `<div class="flash err" style="margin:6px 0">${esc(e.message)}</div>`;
   }
 }

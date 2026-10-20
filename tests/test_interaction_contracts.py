@@ -16,6 +16,7 @@ from app.services import submissions as sub
 from app.services import tasks
 from app.services.decisions import DecisionConflict, record_decision
 from app.services.progress import workbench_data
+from app.services.notifications import reminder_view
 from tests.conftest import make_task, publish_blueprint
 from tests.test_authz import _register
 
@@ -197,3 +198,39 @@ def test_publish_uses_same_instant_after_sqlite_roundtrip(db_session, scenario, 
 def test_invalid_timezone_is_validation_error():
     with pytest.raises(ValueError, match="未知任务时区"):
         TimePolicy(timezone="not/a/zone")
+
+
+def test_formal_without_check_still_exposes_workbench_version(db_session, scenario):
+    task, subject, _ = scenario
+    rev = formal(db_session, task, subject, "without-check")
+    row = next(r for r in workbench_data(db_session, task)["rows"]
+               if r["subject_id"] == subject.id)
+    assert row["formal"] is True
+    assert row["revision"] == rev.version
+
+
+def test_special_deadline_stays_in_required_and_reminder_pool(db_session, scenario):
+    task, subject, _ = scenario
+    db_session.add_all([
+        RosterEntry(task_id=task.id, subject_id=subject.id, name="张三"),
+        Exemption(task_id=task.id, subject_id=subject.id,
+                  kind="special_deadline", status="active"),
+    ])
+    db_session.flush()
+    counts = workbench_data(db_session, task)["counts"]
+    assert counts["required"] == 1 and counts["unsubmitted"] == 1
+    view = reminder_view(db_session, task)
+    assert view["exempt"] == []
+    assert [r["subject_id"] for r in view["targets"]] == [subject.id]
+
+
+def test_explicit_empty_draft_does_not_restore_old_formal_fields(db_session, scenario):
+    task, subject, _ = scenario
+    rev = formal(db_session, task, subject, "old-formal")
+    submission = sub.get_or_create_draft(db_session, task, subject.id)
+    sub.save_draft(db_session, submission, {}, expected_version=submission.draft_version,
+                   slot_file_ids={})
+    db_session.commit()
+    db_session.expire_all()
+    assert sub.read_draft(db_session, submission)["fields"] == {}
+    assert submission.current_revision_id == rev.id

@@ -17,9 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..models import (
-    EXEMPTION_ACTIVE,
     SUBMISSION_FORMAL,
-    Exemption,
     NotificationIntent,
     Submission,
     Subject,
@@ -27,6 +25,7 @@ from ..models import (
 )
 from ..security import utcnow
 from . import tasks as task_service
+from .progress import exempt_subject_ids
 
 # 状态机只有两态：ready（待复制）→ copied（已复制）。
 # 刻意不定义 sent / delivered——不宣称发送与送达。
@@ -50,9 +49,7 @@ def reminder_view(db: Session, task: Task, now: Optional[datetime] = None) -> di
     返回 targets（可催交）/ exempt（免交）/ submitted（已正式提交）/ overdue（缺交）。
     """
     now = now or utcnow()
-    exempt_ids = set(db.scalars(select(Exemption.subject_id).where(
-        Exemption.task_id == task.id,
-        Exemption.status == EXEMPTION_ACTIVE)).all())
+    exempt_ids = exempt_subject_ids(db, task)
     formal_ids = set(db.scalars(select(Submission.subject_id).where(
         Submission.task_id == task.id,
         Submission.state == SUBMISSION_FORMAL,
