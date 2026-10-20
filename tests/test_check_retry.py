@@ -33,7 +33,7 @@ from app.schemas import Blueprint, RuleDef
 from app.services import submissions as sub
 from app.services import tasks as task_service
 from app.services.checks import create_run, current_summary, execute_run, retry_run
-from tests.conftest import make_task, publish_blueprint
+from tests.conftest import class_report_payload, make_task, publish_blueprint
 
 
 @pytest.fixture()
@@ -212,8 +212,7 @@ def _publish_template(client, headers, task_id, template="class_report"):
 
 def _submit(client, sub_headers, key="k1"):
     return client.post("/api/me/submit", headers=sub_headers,
-                       json={"fields": {"name": "张三"}, "slot_file_ids": {},
-                             "idempotency_key": key})
+                       json={**class_report_payload(client, sub_headers), "idempotency_key": key})
 
 
 def test_api_retry_after_failure(client, db_session, monkeypatch):

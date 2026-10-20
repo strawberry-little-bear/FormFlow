@@ -14,12 +14,13 @@ from app.services import export as export_service
 from app.services.checks import create_run, execute_run
 from app.services.submissions import attach_file, formal_submit, get_or_create_draft
 from tests.conftest import make_task, publish_blueprint
-from app.schemas import Blueprint, FieldDef
+from app.schemas import Blueprint, FieldDef, SlotDef
 
 
 def _setup(db):
     task = make_task(db)
-    publish_blueprint(db, task, Blueprint(fields=[FieldDef(id="name", label="姓名")], rules=[]))
+    publish_blueprint(db, task, Blueprint(fields=[FieldDef(id="name", label="姓名")],
+        slots=[SlotDef(id="report", label="报告")], rules=[]))
     s1 = Subject(task_id=task.id, kind="individual", display_name="张三")
     s2 = Subject(task_id=task.id, kind="individual", display_name="李四")
     db.add_all([s1, s2])
@@ -115,9 +116,7 @@ def test_reopened_v2_excluded_from_new_package(db_session, stub_llm):
     snap1 = json.loads(export_service.create_snapshot(db_session, task, kind="formal").manifest_json)
     assert snap1["entries"][0]["included"] is True
 
-    rev2 = formal_submit(db_session, task, get_or_create_draft(db_session, task, s1.id),
-                         fields={"name": "张三"}, slot_file_ids={"report": []},
-                         idempotency_key="k2", is_correction=True)
+    rev2, _ = _formal_with_file(db_session, task, s1, "k2")
     assert rev2.version == 2
     snap2 = json.loads(export_service.create_snapshot(db_session, task, kind="formal").manifest_json)
     assert snap2["entries"][0]["included"] is False  # v2 未验收，不回退引用 v1

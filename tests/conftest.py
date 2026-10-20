@@ -74,3 +74,39 @@ def publish_blueprint(db, task, blueprint):
     db.flush()
     task.current_blueprint_id = bp.id
     return bp
+
+
+def legacy_revision(db, submission, *, fields, files, key):
+    """Seed an immutable pre-validation snapshot, never bypass the new submit API."""
+    import secrets
+    from app.security import utcnow
+    from app.services.submissions import _payload_hash
+    rev = models.Revision(submission_id=submission.id, version=1,
+                          fields_json=json.dumps(fields, ensure_ascii=False),
+                          slot_file_ids_json=json.dumps(files), idempotency_key=key,
+                          payload_hash=_payload_hash(fields, files),
+                          receipt="LEGACY-" + secrets.token_hex(8),
+                          formal_submitted_at=utcnow())
+    db.add(rev)
+    db.flush()
+    submission.current_revision_id = rev.id
+    submission.state = "formal"
+    return rev
+
+
+def class_report_payload(client, headers):
+    """Valid input for API tests about lifecycle/retry, not submission validation."""
+    me = client.get("/api/me", headers=headers).json()
+    files = {}
+    if me.get("blueprint") and me["task"]["status"] == "collecting":
+        draft = client.get("/api/me/draft", headers=headers).json()
+        existing = draft.get("slot_file_ids", {}).get("report", [])
+        if existing:
+            files = {"report": [existing[0]["file_id"]]}
+        else:
+            upload = client.post("/api/me/files", headers=headers, data={"slot": "report"},
+                                 files={"file": ("report.pdf", b"%PDF-1.4 test", "application/pdf")})
+            assert upload.status_code == 200, upload.text
+            files = {"report": [upload.json()["file_id"]]}
+    return {"fields": {"name": "张三", "term": "2026 秋季第 1 期", "class_name": "一班"},
+            "slot_file_ids": files}

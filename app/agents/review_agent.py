@@ -94,7 +94,8 @@ def _eval_condition(expr: Optional[str], fields: dict) -> Optional[bool]:
     if not m:
         return None
     fid, op, val = m.group(1), m.group(2), m.group(3).strip().strip(chr(39) + chr(34))
-    actual = str(fields.get(fid, ""))
+    value = fields.get(fid)
+    actual = "" if value is None else str(value).strip()
     return actual == val if op == "==" else actual != val
 
 

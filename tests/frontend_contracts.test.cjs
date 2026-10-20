@@ -12,22 +12,25 @@ function storage() {
 }
 function element(value = '') {
   return {value, innerHTML: '', textContent: '', dataset: {}, disabled: false, isConnected: true,
-    classList: {toggle() {}}, setAttribute() {}, addEventListener() {},
+    classList: {toggle() {}}, attributes: {}, listeners: {},
+    setAttribute(k, v) {this.attributes[k] = v;}, addEventListener(k, fn) {this.listeners[k] = fn;},
+    querySelectorAll() {return [];}, scrollIntoView() {this.scrolled = true;},
     insertAdjacentHTML(_, html) {this.innerHTML = html + this.innerHTML;},
     focus() {this.focused = true;}, setSelectionRange(start, end) {this.selectionStart = start; this.selectionEnd = end;}};
 }
 function setup() {
   const els = Object.fromEntries(['sub', 'draft-hint', 'flash', 'receipt-out', 'decision-submit',
     'review-conflict', 'dc-type', 'dc-rule', 'dc-reason', 'dc-exp', 'acceptance-reason', 'acceptance-submit',
-    'app', 'rv', 'rv-name', 'my-results', 'nav', 'role-label', 'btn-logout'].map(id => [id, element()]));
+    'submission-errors', 'field-error-name', 'app', 'rv', 'rv-name', 'my-results', 'nav', 'role-label', 'btn-logout'].map(id => [id, element()]));
   const fields = [Object.assign(element('old'), {dataset: {field:'name'}})];
+  els['field-name'] = fields[0];
   const document = {getElementById: id => els[id] || null,
     querySelectorAll: sel => sel === '[data-field]' ? fields : [], querySelector: () => null};
   const context = vm.createContext({document, localStorage: storage(), sessionStorage: storage(),
     window: {addEventListener() {}}, location: {hash:'#/submit'}, Intl, URLSearchParams, FormData,
     setTimeout, clearTimeout, confirm: () => true, console,
     fetch: async () => {throw new Error('Unexpected request');}});
-  vm.runInContext(source + '\nthis.app = {state, fmtTime, draftFingerprint, collectDraftFields, cacheSubmissionDraft, setSubMode, refreshSlotConditions, wbMatches, api, submitDecision, saveDraft, doSubmit, uploadSlot, cacheReviewDraft, selectReviewRule, viewReview, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder};', context);
+  vm.runInContext(source + '\nthis.app = {state, fmtTime, draftFingerprint, collectDraftFields, cacheSubmissionDraft, setSubMode, refreshSlotConditions, wbMatches, api, submitDecision, saveDraft, doSubmit, uploadSlot, cacheReviewDraft, selectReviewRule, viewReview, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, submissionIssues, showSubmissionIssues, initSubChat};', context);
   Object.assign(context.app.state, {routeEpoch: 1, me:{task:{id:1, status:'collecting', timezone:'Asia/Shanghai'},subject:{id:2}},
     draftVersion:1, fileMeta:{}, sub:{mode:'chat',phase:'fields',fIdx:0, fields:[{id:'name'}],slots:[],answers:{}}});
   context.localStorage.setItem('ff_sub_token', 'test-only-credential');
@@ -219,4 +222,97 @@ test('workbench refresh preserves even an empty reminder and prunes only ineligi
   assert.doesNotMatch(els['remind-body'].innerHTML,/你好/);
   els['remind-content'].value='newly edited notice';app.paintReminder();
   assert.equal(app.state.reminder.draftContent,'newly edited notice');
+});
+
+
+test('formal-submit preflight aggregates required fields and conditional slots; zero remains valid', () => {
+  const {app} = setup();
+  app.state.sub.fields = [{id:'name', label:'姓名', required:true},
+    {id:'address', label:'地址', required:true, required_condition:'track==实物'},
+    {id:'optional', required:false}];
+  app.state.sub.slots = [{id:'photo', label:'实物照片', max_count:1, required_condition:'track==实物'}];
+  let issues = app.submissionIssues({name:'  ', track:'实物'});
+  assert.equal(issues.length,3);
+  assert.deepEqual(Array.from(issues, i => i.id), ['name','address','photo']);
+  assert.equal(app.submissionIssues({name:0,track:'数字'}).length,0);
+  app.state.files.photo=['a','b'];
+  assert.ok(app.submissionIssues({name:'A',track:'数字'}).some(i => i.code==='max_count'));
+});
+test('guide submit failure exposes form, focuses summary, links inline errors, preserves pending answer', async () => {
+  const {app,context,els,fields} = setup();
+  els['sub-ans']=element('not-yet-next');
+  app.state.sub.fields=[{id:'name',label:'姓名',required:true}];
+  app.state.sub.slots=[{id:'report',label:'报告',max_count:1}];
+  let calls=0;context.fetch=async()=>{calls++;throw new Error('must not submit');};
+  await app.doSubmit();
+  assert.equal(calls,0);assert.equal(app.state.sub.mode,'form');
+  assert.equal(els['submission-errors'].focused,true);
+  assert.match(els['submission-errors'].innerHTML,/请上传/);
+  assert.equal(fields[0].value,'not-yet-next');
+  assert.equal(app.state.submitting,false);
+  assert.equal(JSON.parse(context.sessionStorage.getItem('ff_draft:1:2')).fields.name,'not-yet-next');
+});
+test('inline validation and summary navigation target the input; next attempt clears invalid state', () => {
+  const {app,els,fields} = setup();
+  app.state.sub.fields=[{id:'name',label:'姓名',required:true}];
+  const link=element();els['submission-errors'].querySelectorAll=()=>[link];
+  app.showSubmissionIssues([{target:'field',id:'name',code:'required',message:'请填写姓名'}]);
+  assert.equal(fields[0].attributes['aria-invalid'],'true');
+  assert.equal(els['field-error-name'].textContent,'请填写姓名');
+  link.listeners.click();assert.equal(fields[0].focused,true);assert.equal(fields[0].scrolled,true);
+  els['submission-errors'].querySelectorAll=()=>[];
+  app.showSubmissionIssues([]);
+  assert.equal(fields[0].attributes['aria-invalid'],'false');
+  assert.equal(els['field-error-name'].hidden,true);assert.equal(els['submission-errors'].hidden,true);
+});
+test('structured server errors preserve inputs and attachment references without fabricating a receipt', async () => {
+  const {app,context,els,fields} = setup();app.state.sub.mode='form';app.state.files={report:['file-a']};
+  context.fetch=async()=>response({detail:{code:'submission_validation',message:'请核对',
+    issues:[{target:'field',id:'name',code:'required',message:'<script>不是 HTML</script>'}]}},422);
+  await app.doSubmit();
+  assert.equal(fields[0].value,'old');assert.equal(app.state.files.report[0],'file-a');
+  assert.match(els['submission-errors'].innerHTML,/&lt;script&gt;/);
+  assert.equal(els['receipt-out'].innerHTML,'');assert.equal(app.state.draftVersion,1);
+});
+test('late validation response cannot paint errors in another subject page', async () => {
+  const {app,context,els} = setup();app.state.sub.mode='form';
+  const pending=deferred();context.fetch=()=>pending.promise;
+  const sent=app.doSubmit();app.state.routeEpoch++;app.state.me.subject.id=99;
+  pending.resolve(response({detail:{message:'old',issues:[{target:'field',id:'name',message:'old'}]}},422));
+  await sent;assert.equal(els['submission-errors'].innerHTML,'');assert.equal(els.flash.innerHTML,'');
+});
+test('unsupported field/slot conditions surface as configuration errors, never quietly optional', () => {
+  const {app} = setup();app.state.sub.fields=[{id:'name',required:true,required_condition:'len(name)>0'}];
+  app.state.sub.slots=[{id:'r',required_condition:'track in [数字]'}];
+  assert.equal(app.submissionIssues({}).filter(i => i.code==='unsupported_condition').length,2);
+});
+
+
+test('progress reflects current empty fields, numeric zero and uploaded references', () => {
+  const {app,els,fields} = setup(); app.state.sub.mode='form';
+  els['submission-field-count']=element();els['submission-file-count']=element();
+  app.state.files={report:['one','two']};fields[0].value='   ';
+  app.cacheSubmissionDraft();
+  assert.equal(els['submission-field-count'].textContent,'0/1');
+  assert.equal(els['submission-file-count'].textContent,'2');
+  fields[0].value=0;app.cacheSubmissionDraft();
+  assert.equal(els['submission-field-count'].textContent,'1/1');
+});
+
+test('returning to guide revisits a field cleared in the full form', () => {
+  const {app,els,fields} = setup();app.state.sub.mode='form';app.state.sub.phase='slots';
+  app.state.sub.answers={name:'old'};app.state.sub.msgs=[];fields[0].value='';
+  els['sub-chat-scroll']=element();
+  app.setSubMode('chat');
+  assert.equal(app.state.sub.phase,'fields');assert.equal(app.state.sub.fIdx,0);
+  assert.equal(app.state.sub.answers.name,undefined);
+});
+
+
+test('restored guide answers exclude blanks but retain numeric zero', () => {
+  const {app,fields}=setup();fields[0].value='';
+  app.initSubChat([{id:'name'},{id:'count'}],[],false,'演示',{name:'  ',count:0});
+  assert.equal(app.state.sub.answers.name,undefined);
+  assert.equal(app.state.sub.answers.count,'0');
+  assert.equal(app.state.sub.fIdx,0);
 });

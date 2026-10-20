@@ -18,7 +18,7 @@ from app.schemas import Blueprint, FieldDef, RuleDef, SlotDef
 from app.services import submissions as sub
 from app.services.checks import (create_run, current_summary, execute_run,
                                  retry_run)
-from tests.conftest import StubLLM, make_task, publish_blueprint
+from tests.conftest import legacy_revision, StubLLM, make_task, publish_blueprint
 
 SAMPLES = Path(__file__).resolve().parent.parent / "data" / "samples"
 
@@ -128,9 +128,16 @@ def test_legacy_doc_rejected_as_technical(db_session):
     """旧版 OLE2 文档：提示另存 docx，技术原因非资格拒绝。"""
     task, subject, submission = _setup(db_session)
     f = _attach_sample(db_session, submission, "legacy.doc")
-    _rev, _run, results = _run_and_get(
-        db_session, task, submission, {"name": "张三"}, "k-legacy",
-        StubLLM(), {"report": [f.file_id]})
+    with pytest.raises(sub.SubmissionValidationError, match="只接受"):
+        sub.formal_submit(db_session, task, submission, fields={"name": "张三"},
+                          slot_file_ids={"report": [f.file_id]}, idempotency_key="new-doc")
+    # Already-recorded legacy files still get technical feedback, not disqualification.
+    _rev = legacy_revision(db_session, submission, fields={"name": "张三"},
+                           files={"report": [f.file_id]}, key="k-legacy")
+    _run = create_run(db_session, task, _rev)
+    execute_run(db_session, _run, client=StubLLM())
+    results = {r.rule_id: r for r in db_session.scalars(
+        select(RuleResult).where(RuleResult.run_id == _run.id)).all()}
     fo = db_session.get(FileObject, f.id)
     assert fo.status == "failed"
     r = _result_of(results, "C-FILE")

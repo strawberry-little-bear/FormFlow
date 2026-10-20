@@ -38,8 +38,9 @@ async function api(path, opts = {}) {
   if (!r.ok) {
     const detail = data.detail;
     const error = new Error(Array.isArray(detail) ? detail.map(x => x.msg || JSON.stringify(x)).join("；")
-      : (typeof detail === "string" ? detail : "请求失败，请稍后重试（" + r.status + "）"));
+      : (typeof detail === "string" ? detail : detail?.message || "请求失败，请稍后重试（" + r.status + "）"));
     error.status = r.status;
+    error.issues = Array.isArray(detail?.issues) ? detail.issues : [];
     throw error;
   }
   return data;
@@ -1291,17 +1292,53 @@ function slotMetaText(s) {
           s.max_size_mib ? `单份 ≤ ${s.max_size_mib} MiB` : "",
           s.max_pages ? `≤ ${s.max_pages} 页` : ""].filter(Boolean).join(" · ");
 }
-function fieldValueMap() {
-  const values = {};
-  document.querySelectorAll("[data-field]").forEach(el => { values[el.dataset.field] = el.value.trim(); });
-  return values;
+function submissionIssues(fields) {
+  const issues = [];
+  const values = Object.fromEntries(Object.entries(fields).map(([id, v]) => [id, String(v ?? "").trim()]));
+  const add = (target, id, code, message) => issues.push({target, id, code, message});
+  for (const f of state.sub?.fields || []) {
+    if (f.type === "enum" && values[f.id] && !(f.options || []).includes(values[f.id])) {
+      add("field", f.id, "invalid_option", `请从「${f.label}」的选项中选择`);
+    }
+    if (!f.required) continue;
+    const required = evalSlotCondition(f.required_condition, values);
+    if (required === null) add("field", f.id, "unsupported_condition", `「${f.label}」的必填条件无法判断，请联系组织者核对要求`);
+    else if (required && !values[f.id]) add("field", f.id, "required", `请填写「${f.label}」`);
+  }
+  for (const slot of state.sub?.slots || []) {
+    const required = evalSlotCondition(slot.required_condition, values);
+    const ids = state.files[slot.id] || [];
+    if (required === null) add("slot", slot.id, "unsupported_condition", `「${slot.label}」的必交条件无法判断，请联系组织者核对要求`);
+    else if (required && !ids.length) add("slot", slot.id, "required", `请上传「${slot.label}」`);
+    if (ids.length > slot.max_count) add("slot", slot.id, "max_count", `「${slot.label}」最多 ${slot.max_count} 份`);
+  }
+  return issues;
 }
-function requiredSlotMissing(slots) {
-  const values = fieldValueMap();
-  return (slots || []).filter(s => {
-    const cond = s.required_condition ? evalSlotCondition(s.required_condition, values) : true;
-    return cond !== false && !(state.files[s.id] || []).length;
-  });
+function submissionIssueControl(issue) {
+  return document.getElementById((issue.target === "field" ? "field-" : "file-") + issue.id);
+}
+function showSubmissionIssues(issues) {
+  // Always expose the full form, including errors discovered while using the guide.
+  if (issues.length) setSubMode("form");
+  for (const [target, defs] of [["field", state.sub?.fields || []], ["slot", state.sub?.slots || []]]) {
+    for (const def of defs) {
+      const matching = issues.filter(i => i.target === target && i.id === def.id);
+      const message = document.getElementById(`${target}-error-${def.id}`);
+      if (message) { message.textContent = matching.map(i => i.message).join("；"); message.hidden = !matching.length; }
+      submissionIssueControl({target, id: def.id})?.setAttribute("aria-invalid", String(!!matching.length));
+    }
+  }
+  const box = document.getElementById("submission-errors");
+  if (!box) return;
+  box.hidden = !issues.length;
+  box.innerHTML = issues.length ? `<h3>还有 ${issues.length} 项需要核对，尚未正式提交</h3>
+    <p>填写和附件仍保留，可以继续修改或保存草稿。</p>
+    <ul>${issues.map(i => `<li><button type="button" class="validation-link">${esc(i.message)}</button></li>`).join("")}</ul>` : "";
+  box.querySelectorAll("button").forEach((button, index) => button.addEventListener("click", () => {
+    const control = submissionIssueControl(issues[index]);
+    if (control) { control.scrollIntoView({behavior: "smooth", block: "center"}); control.focus(); }
+  }));
+  if (issues.length) { box.scrollIntoView({behavior: "smooth", block: "center"}); box.focus(); }
 }
 
 function draftFingerprint(fields, files) {
@@ -1328,12 +1365,21 @@ function collectDraftFields() {
   }
   return fields;
 }
+function updateSubmissionProgress(fields) {
+  const defs = state.sub?.fields || [];
+  const filled = defs.filter(f => String(fields[f.id] ?? "").trim()).length;
+  const fieldCount = document.getElementById("submission-field-count");
+  const fileCount = document.getElementById("submission-file-count");
+  if (fieldCount) fieldCount.textContent = `${filled}/${defs.length}`;
+  if (fileCount) fileCount.textContent = String(Object.values(state.files).reduce((n, ids) => n + ids.length, 0));
+}
 function cacheSubmissionDraft() {
   if (!document.getElementById("sub") || !state.me || state.draftVersion === null) return;
   if (READONLY_STATUSES.includes(state.me.task.status)) return;
   const key = draftCacheKey();
   const draft = { fields: collectDraftFields(), slot_file_ids: state.files, draft_version: state.draftVersion,
     file_meta: state.fileMeta, pending_submission: state.pendingSubmission };
+  updateSubmissionProgress(draft.fields);
   const dirty = draftFingerprint(draft.fields, draft.slot_file_ids) !== state.serverDraftFingerprint;
   state.localDrafts = state.localDrafts || {};
   state.localDrafts[key] = JSON.stringify(draft);
@@ -1387,7 +1433,7 @@ async function viewSubmit() {
     const fields = (me.blueprint && me.blueprint.fields) || [];
     const slots = (me.blueprint && me.blueprint.slots) || [];
     const ro = READONLY_STATUSES.includes(me.task.status);
-    const done = fields.filter(f => (draft.fields || {})[f.id]).length;
+    const done = fields.filter(f => String((draft.fields || {})[f.id] ?? "").trim()).length;
     const uploaded = Object.values(state.files).reduce((n, ids) => n + ids.length, 0);
     const receiptHtml = receipt.formal
       ? `<div class="receipt"><div><span class="eyebrow">RECEIPT</span><b>已正式提交 · v${receipt.revision}</b><span class="receipt-no">${esc(receipt.receipt)}</span></div><div class="receipt-meta"><span>服务端时间</span><b>${esc(fmtTime(receipt.formal_submitted_at))}</b></div></div>`
@@ -1400,7 +1446,7 @@ async function viewSubmit() {
           <span class="badge ${ro ? "warn" : "ok"}"><span class="badge-dot"></span>${esc(TASK_STATUS_LABEL[me.task.status] || me.task.status)}</span></div>
         ${ro ? `<div class="notice-warn">任务已${esc(TASK_STATUS_LABEL[me.task.status] || me.task.status)}，处于只读状态：不能保存草稿、上传或正式提交；已提交内容与回执仍可查看。</div>` : ""}
         <section class="submit-overview">
-          <div class="overview-stats">${[["登记字段", `${done}/${fields.length}`, "design"], ["已上传材料", uploaded, "delivery"], ["首次截止", fmtTime(me.task.first_deadline, me.task.timezone).slice(5), "workbench"], ["补正截止", fmtTime(me.task.correction_deadline, me.task.timezone).slice(5), "workbench"]].map(([l, v, ic]) => `<div class="overview-stat"><span>${esc(l)}</span><strong class="stat-text">${esc(v)}</strong><i>${icon(ic)}</i></div>`).join("")}</div>
+          <div class="overview-stats">${[["登记字段", `${done}/${fields.length}`, "design"], ["已上传材料", uploaded, "delivery"], ["首次截止", fmtTime(me.task.first_deadline, me.task.timezone).slice(5), "workbench"], ["补正截止", fmtTime(me.task.correction_deadline, me.task.timezone).slice(5), "workbench"]].map(([l, v, ic]) => `<div class="overview-stat"><span>${esc(l)}</span><strong class="stat-text" ${l === "登记字段" ? 'id="submission-field-count"' : l === "已上传材料" ? 'id="submission-file-count"' : ""}>${esc(v)}</strong><i>${icon(ic)}</i></div>`).join("")}</div>
           ${receiptHtml}
         </section>
         <div class="submit-layout">
@@ -1412,12 +1458,14 @@ async function viewSubmit() {
               <div class="chat"><div class="chat-scroll" id="sub-chat-scroll"></div></div>
               <p class="field-help">逐步填写与下方表单是同一份草稿，答案实时同步；向导不调用模型，也不代替材料检查。</p>
             </div>
+            <div id="submission-errors" class="submission-errors" role="alert" tabindex="-1" hidden></div>
             <div id="sub-fields-card" hidden>
               <h3>登记信息</h3>
               ${fields.map(f => `<div class="submit-field"><label for="field-${esc(f.id)}">${esc(f.label)}${f.required ? " <em>*</em>" : ' <small>选填</small>'}</label>
                 ${f.type === "enum"
-                  ? `<select id="field-${esc(f.id)}" data-field="${esc(f.id)}" ${ro ? "disabled" : ""}>${["", ...(f.options || [])].map(o => `<option value="${esc(o)}" ${((draft.fields || {})[f.id] || "") === o ? "selected" : ""}>${o ? esc(o) : "请选择"}</option>`).join("")}</select>`
-                  : `<input id="field-${esc(f.id)}" data-field="${esc(f.id)}" value="${esc((draft.fields || {})[f.id] || "")}" placeholder="请填写${esc(f.label)}" ${ro ? "disabled" : ""}>`}
+                  ? `<select id="field-${esc(f.id)}" data-field="${esc(f.id)}" aria-describedby="field-error-${esc(f.id)}" ${ro ? "disabled" : ""}>${["", ...(f.options || [])].map(o => `<option value="${esc(o)}" ${((draft.fields || {})[f.id] || "") === o ? "selected" : ""}>${o ? esc(o) : "请选择"}</option>`).join("")}</select>`
+                  : `<input id="field-${esc(f.id)}" data-field="${esc(f.id)}" aria-describedby="field-error-${esc(f.id)}" value="${esc((draft.fields || {})[f.id] ?? "")}" placeholder="请填写${esc(f.label)}" ${ro ? "disabled" : ""}>`}
+                <p id="field-error-${esc(f.id)}" class="validation-message" hidden></p>
                 ${f.required_condition ? `<p class="field-help">必填条件：${esc(f.required_condition)}</p>` : ""}
                 ${f.purpose ? `<p class="field-help">${esc(f.purpose)}</p>` : ""}</div>`).join("") || '<p class="muted">本次收集没有登记字段。</p>'}
             </div>
@@ -1428,8 +1476,9 @@ async function viewSubmit() {
                   <div class="slot-head"><div><b>${esc(s.label)}</b>${s.required_condition ? ` <span class="badge warn">条件必交</span>` : ' <span class="badge bad">必交</span>'}<span class="field-help">${esc(slotMetaText(s))}</span></div>${s.max_count ? `<span class="slot-count" id="slot-count-${esc(s.id)}"></span>` : ""}</div>
                   ${s.required_condition ? `<p class="field-help">条件：${esc(s.required_condition)}</p>` : ""}
                   ${naNote}
+                  <p id="slot-error-${esc(s.id)}" class="validation-message" hidden></p>
                   <div class="file-chips" id="slot-files-${esc(s.id)}">${fileChips(s.id, ro)}</div>
-                  ${ro ? "" : `<div class="upload-row"><input type="file" id="file-${esc(s.id)}" aria-label="选择 ${esc(s.label)} 文件" ${(s.formats || []).length ? `accept="${(s.formats || []).map(x => "." + esc(x)).join(",")}"` : ""}><button class="ghost sm" id="upload-${esc(s.id)}" onclick="uploadSlot('${esc(s.id)}')">上传</button></div>`}
+                  ${ro ? "" : `<div class="upload-row"><input type="file" id="file-${esc(s.id)}" aria-describedby="slot-error-${esc(s.id)}" aria-label="选择 ${esc(s.label)} 文件" ${(s.formats || []).length ? `accept="${(s.formats || []).map(x => "." + esc(x)).join(",")}"` : ""}><button class="ghost sm" id="upload-${esc(s.id)}" onclick="uploadSlot('${esc(s.id)}')">上传</button></div>`}
                 </article>`;
               }).join("") || '<p class="muted">本次收集没有材料要求。</p>'}
             </div>
@@ -1552,20 +1601,25 @@ async function doSubmit() {
     await guard(async () => {
       const fields = collectDraftFields();
       document.querySelectorAll("[data-field]").forEach(el => { el.value = fields[el.dataset.field] ?? ""; });
-      const missing = requiredSlotMissing(state.sub?.slots || []);
-      if (missing.length) {
-        setFlash(`还有必交材料没上传：${missing.map(s => s.label).join("、")}。传好后再正式提交。`);
-        document.querySelector(`[data-slot-card="${missing[0].id}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
-        return;
-      }
+      cacheSubmissionDraft();
+      const issues = submissionIssues(fields);
+      showSubmissionIssues(issues);
+      if (issues.length) return;
       const slotFiles = Object.fromEntries(Object.entries(state.files).filter(([, ids]) => ids.length));
       const signature = subject + ":" + draftFingerprint(fields, slotFiles);
       if (!state.pendingSubmission || state.pendingSubmission.signature !== signature) {
         state.pendingSubmission = {signature, key: "web-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8)};
       }
       cacheSubmissionDraft();
-      const r = await api("/api/me/submit", { method: "POST", sub: true,
-        json: { fields, slot_file_ids: slotFiles, idempotency_key: state.pendingSubmission.key } });
+      let r;
+      try {
+        r = await api("/api/me/submit", { method: "POST", sub: true,
+          json: { fields, slot_file_ids: slotFiles, idempotency_key: state.pendingSubmission.key } });
+      } catch (error) {
+        if (!current()) return;
+        if (error.issues?.length) { showSubmissionIssues(error.issues); return; }
+        throw error;
+      }
       if (!current()) return;
       state.serverDraftFingerprint = draftFingerprint(fields, slotFiles);
       state.pendingSubmission = null;
@@ -1697,7 +1751,8 @@ async function withdrawAppeal(noteId) {
 function initSubChat(fields, slots, ro, subjectName, initialAnswers) {
   state.sub = { fields: fields || [], slots: slots || [], ro: !!ro,
                 mode: "chat", msgs: [], phase: "fields", fIdx: 0, sIdx: 0,
-                answers: { ...(initialAnswers || {}) }, doneSlots: {} };
+                answers: Object.fromEntries(Object.entries(initialAnswers || {})
+                  .map(([id, value]) => [id, String(value ?? "").trim()]).filter(([, value]) => value)), doneSlots: {} };
   document.querySelectorAll("[data-field]").forEach(el => {
     if (el.value.trim()) state.sub.answers[el.dataset.field] = el.value.trim();
   });
@@ -1743,7 +1798,12 @@ function setSubMode(m) {
   const cc = document.getElementById("sub-chat-card"), fc = document.getElementById("sub-fields-card");
   if (cc) cc.hidden = m !== "chat";
   if (fc) fc.hidden = m !== "form";
-  if (m === "chat") { syncSubAnswersFromForm(); renderSubStep(); }
+  if (m === "chat") {
+    syncSubAnswersFromForm();
+    const firstEmpty = state.sub.fields.findIndex(f => !state.sub.answers[f.id]);
+    if (firstEmpty >= 0) { state.sub.phase = "fields"; state.sub.fIdx = firstEmpty; }
+    renderSubStep();
+  }
 }
 function syncSubAnswersFromForm() {
   document.querySelectorAll("[data-field]").forEach(el => {

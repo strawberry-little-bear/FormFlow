@@ -507,11 +507,18 @@ def formal_submit(body: SubmitIn,
         raise HTTPException(409, str(e))
     except sub_service.IdempotencyConflict as e:
         raise HTTPException(409, str(e))
+    except sub_service.SubmissionValidationError as e:
+        raise HTTPException(422, {"code": "submission_validation", "message": str(e),
+                                  "issues": e.issues})
     except sub_service.SubmitError as e:
         raise HTTPException(422, str(e))
     # 正式版本与检查意图在同一可靠边界记录（W4/W5）
     try:
-        run = create_run(db, task, rev)
+        # A receipt replay must not create another run/job (or recheck a closed task).
+        run = db.scalar(select(CheckRun).where(CheckRun.revision_id == rev.id)
+                        .order_by(CheckRun.id.desc()))
+        if run is None:
+            run = create_run(db, task, rev)
     except ValueError as e:
         raise HTTPException(422, str(e))
     except task_service.TaskNotWritable as e:

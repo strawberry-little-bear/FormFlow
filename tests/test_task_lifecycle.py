@@ -31,7 +31,7 @@ from app.schemas import Blueprint, DraftResult, SlotDef
 from app.services import submissions as sub
 from app.services import tasks as task_service
 from app.services.checks import create_run
-from tests.conftest import StubLLM, make_task, publish_blueprint
+from tests.conftest import StubLLM, make_task, publish_blueprint, class_report_payload
 
 
 @pytest.fixture()
@@ -54,8 +54,12 @@ def scenario(db_session):
 
 
 def _formal(db, task, submission, key="k1"):
+    existing = sub.read_draft(db, submission)["slot_file_ids"].get("report", [])
+    if not existing:
+        existing = [sub.attach_file(db, submission, slot="report", original_name="report.pdf",
+                    content=b"%PDF-1.4 test", sha256="", mime="application/pdf").file_id]
     return sub.formal_submit(db, task, submission, fields={"name": "张三"},
-                             slot_file_ids={}, idempotency_key=key)
+                             slot_file_ids={"report": existing}, idempotency_key=key)
 
 
 # ---------------------------------------------------------------- 服务层
@@ -211,8 +215,7 @@ def _grant_headers(client, headers, task_id, name="张三"):
 
 def _submit(client, sub_headers, key="k1"):
     return client.post("/api/me/submit", headers=sub_headers,
-                       json={"fields": {"name": "张三"}, "slot_file_ids": {},
-                             "idempotency_key": key})
+                       json={**class_report_payload(client, sub_headers), "idempotency_key": key})
 
 
 def _publish_template(client, headers, task_id, template="class_report"):
