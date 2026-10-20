@@ -19,9 +19,8 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from ..models import (
-    RESULT_FAILED,
     SUBMISSION_FORMAL,
-    TASK_COLLECTING,
+    BlueprintVersion,
     FileObject,
     Revision,
     Submission,
@@ -29,11 +28,20 @@ from ..models import (
     Task,
 )
 from ..schemas import Blueprint
+from ..agents.review_agent import _eval_condition
 from . import tasks as task_service
 
 
 class SubmitError(Exception):
     """提交被拒绝（权限/时间/版本/文件）。"""
+
+
+class SubmissionValidationError(SubmitError):
+    """Incomplete/invalid formal payload, with stable field and slot locations."""
+
+    def __init__(self, issues: list[dict]):
+        self.issues = issues
+        super().__init__("提交前请修正以下内容：" + "；".join(i["message"] for i in issues))
 
 
 class IdempotencyConflict(SubmitError):
@@ -289,14 +297,7 @@ def formal_submit(db: Session, task: Task, submission: Submission, *, fields: di
     task_service.ensure_task_writable(task)  # V24 readonly
     _check_window(task, has_formal=has_formal, now=_now_utc())
 
-    # 文件就绪校验：未就绪/失败的文件不进入正式快照
-    for slot, fids in slot_file_ids.items():
-        for fid in fids:
-            fo = db.scalar(select(FileObject).where(FileObject.file_id == fid))
-            if fo is None or fo.submission_id != submission.id:
-                raise SubmitError(f"文件 {fid} 不属于当前提交")
-            if fo.status == "failed":
-                raise SubmitError(f"文件 {fo.original_name} 处理失败，请重新上传")
+    validate_formal_payload(db, task, submission, fields, slot_file_ids)
 
     latest = db.scalar(select(Revision).where(Revision.submission_id == submission.id)
                        .order_by(Revision.version.desc()))
@@ -319,6 +320,80 @@ def formal_submit(db: Session, task: Task, submission: Submission, *, fields: di
     task_service.audit(db, "submission.formal", "revision",
                        {"revision": rev.id, "version": version, "receipt": rev.receipt}, task.id)
     return rev
+
+
+def validate_formal_payload(db: Session, task: Task, submission: Submission,
+                           fields: dict, files: dict) -> None:
+    """Only structural completeness is a gate; content checks still run after receipt.
+
+    Drafts remain partial. Use the currently published blueprint, not a client copy.
+    File metadata is rechecked here because upload-time limits may have changed.
+    """
+    bp = db.get(BlueprintVersion, task.current_blueprint_id) if task.current_blueprint_id else None
+    blueprint = Blueprint.model_validate_json(bp.blueprint_json) if bp else None
+    issues: list[dict] = []
+
+    def issue(target: str, ident: str, code: str, message: str) -> None:
+        issues.append(dict(target=target, id=ident, code=code, message=message))
+
+    # Conditions use the same evaluator as post-submission checks. Whitespace-only
+    # input is empty, but numeric zero is a legitimate required value.
+    if blueprint:
+        for field in blueprint.fields:
+            value = fields.get(field.id)
+            if field.type.value == "enum" and value is not None and (
+                    not isinstance(value, str) or value.strip()):
+                if not isinstance(value, str) or value.strip() not in field.options:
+                    issue("field", field.id, "invalid_option", f"请从「{field.label}」的选项中选择")
+            if not field.required:
+                continue
+            required = _eval_condition(field.required_condition, fields)
+            if required is None:
+                issue("field", field.id, "unsupported_condition",
+                      f"「{field.label}」的必填条件无法判断，请联系组织者核对要求")
+            elif required:
+                value = fields.get(field.id)
+                if (value is None or (isinstance(value, str) and not value.strip())
+                        or value == [] or value == {}):
+                    issue("field", field.id, "required", f"请填写「{field.label}」")
+
+        for slot in blueprint.slots:
+            required = _eval_condition(slot.required_condition, fields)
+            if required is None:
+                issue("slot", slot.id, "unsupported_condition",
+                      f"「{slot.label}」的必交条件无法判断，请联系组织者核对要求")
+            elif required and not files.get(slot.id):
+                issue("slot", slot.id, "required", f"请上传「{slot.label}」")
+
+    slots = {s.id: s for s in blueprint.slots} if blueprint else {}
+    for slot_id, ids in files.items():
+        if not isinstance(ids, list) or any(not isinstance(fid, str) or not fid for fid in ids):
+            issue("slot", slot_id, "invalid_files", "材料引用必须是文件 ID 列表")
+            continue
+        if blueprint and slot_id not in slots:
+            issue("slot", slot_id, "unknown_slot", f"槽位 {slot_id} 不在当前收集要求中，请重新核对")
+            continue
+        slot = slots.get(slot_id)
+        if len(ids) != len(set(ids)):
+            issue("slot", slot_id, "duplicate_file", "同一材料不能重复计入份数，请移除重复引用")
+        if slot and len(ids) > slot.max_count:
+            issue("slot", slot_id, "max_count", f"「{slot.label}」最多 {slot.max_count} 份")
+        for fid in dict.fromkeys(ids):
+            fo = db.scalar(select(FileObject).where(FileObject.file_id == fid))
+            if fo is None or fo.submission_id != submission.id or fo.slot != slot_id:
+                issue("slot", slot_id, "invalid_file", "材料不存在或不属于当前提交的槽位，请重新上传")
+                continue
+            if fo.status == "failed":
+                issue("slot", slot_id, "failed_file", f"文件「{fo.original_name}」处理失败，请重新上传")
+                continue
+            if blueprint:
+                try:
+                    validate_upload(task, blueprint, slot=slot_id,
+                                    original_name=fo.original_name, size=fo.size)
+                except SubmitError as exc:
+                    issue("slot", slot_id, "file_constraints", str(exc))
+    if issues:
+        raise SubmissionValidationError(issues)
 
 
 def new_idempotency_key() -> str:

@@ -3510,3 +3510,11 @@ dialog p {
   .wb-layout, .review-layout, .submit-layout, .roster-grid, .delivery-layout,
   .draft-panel, .grid-chat { min-width:0; }
 }
+
+/* Formal-submit validation stays next to the editable form, not just a toast. */
+.submission-errors { padding: 16px; margin: 16px 0; border: 1px solid var(--bad); border-radius: 12px; background: var(--bad-bg); overflow-wrap: anywhere; }
+.submission-errors h3 { margin-top: 0; }
+.submission-errors ul { margin-bottom: 0; padding-left: 20px; }
+button.validation-link { border: 0; background: none; color: var(--bad); box-shadow: none; padding: 4px 0; text-align: left; white-space: normal; text-decoration: underline; }
+.validation-message { color: var(--bad); font-size: 13px; margin: 6px 0; }
+[aria-invalid="true"] { border-color: var(--bad); }
