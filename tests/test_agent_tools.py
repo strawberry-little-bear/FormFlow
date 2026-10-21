@@ -160,6 +160,29 @@ def test_skill_limits_allowed_tools_and_maximum_steps(db_session):
     assert len(calls) == 1
 
 
+def test_skill_can_stop_after_failure_and_record_human_handoffs(db_session):
+    def manual_result(_ctx, _args):
+        return ToolResult(status="unknown", summary="证据不足", data={
+            "rule_result": {"rule_id": "R-01"}}, needs_human=True)
+
+    harness, context, calls = _fixture(db_session, handler=manual_result)
+    runner = SkillRunner(SkillSpec(name="manual", description="handoff", allowed_tools=frozenset({"demo.echo"}),
+                                   max_steps=2, human_on_unknown=True), harness)
+    result = runner.invoke("demo.echo", {"value": "uncertain"}, context=context,
+                           db=db_session, idempotency_key="handoff")
+    assert result.needs_human and runner.human_required == ["R-01"]
+
+    failing, context, _ = _fixture(db_session, handler=lambda _ctx, _args: (_ for _ in ()).throw(RuntimeError()))
+    stopping = SkillRunner(SkillSpec(name="stop", description="stop on errors", allowed_tools=frozenset({"demo.echo"}),
+                                     max_steps=3, stop_on_failure=True), failing)
+    first = stopping.invoke("demo.echo", {"value": "fail"}, context=context,
+                            db=db_session, idempotency_key="failure")
+    second = stopping.invoke("demo.echo", {"value": "blocked"}, context=context,
+                             db=db_session, idempotency_key="after-failure")
+    assert first.status == second.status == "failed"
+    assert "已因前序失败停止" in second.summary
+
+
 def test_review_skill_routes_only_blueprint_rules_and_records_per_rule_tool_audit(db_session, stub_llm):
     context = CheckContext(
         blueprint=Blueprint(
@@ -190,4 +213,5 @@ def test_review_skill_routes_only_blueprint_rules_and_records_per_rule_tool_audi
     events = db_session.scalars(select(AuditEvent).where(
         AuditEvent.task_id == 2, AuditEvent.action == "agent.tool.invoked")).all()
     assert len(events) == 3
+    assert all(e.entity == "rule_result" for e in events)
     assert all(json.loads(e.payload_json)["run_id"] == 19 for e in events)

@@ -152,7 +152,7 @@ python scripts/smoke_review.py --stub  # 本地脚本化审核，不调用真实
 git diff --check
 ```
 
-2026-10-21 浏览器走查：工作台下一步建议和复核 Agent 分工卡在隔离演示库完成 1440px / 390px 检查，390px 页面宽度与滚动宽度均为 390px，浏览器 console/errors 为空。截图与数据状态见 [验收记录](docs/ux-review-2026-10-21/verification.md)。本轮后续自动化：**322 项 Python 测试、69 项 Node 前端契约测试通过**。Node 测试使用 VM / Mock DOM，不是浏览器 E2E；演示种子中的审核结果为脚本桩，真实模型质量与真实用户收益均未评估。
+2026-10-21 浏览器走查：工作台下一步建议和复核 Agent 分工卡在隔离演示库完成 1440px / 390px 检查，390px 页面宽度与滚动宽度均为 390px，浏览器 console/errors 为空。截图与数据状态见 [验收记录](docs/ux-review-2026-10-21/verification.md)。本轮后续自动化：**321 项 Python 测试、69 项 Node 前端契约测试通过**。Node 测试使用 VM / Mock DOM，不是浏览器 E2E；演示种子中的审核结果为脚本桩，真实模型质量与真实用户收益均未评估。
 
 ## 安全、数据与当前边界
 

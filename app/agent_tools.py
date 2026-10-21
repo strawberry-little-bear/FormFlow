@@ -110,6 +110,7 @@ class ToolInvocation:
     data: dict[str, Any] = field(default_factory=dict)
     duration_ms: int = 0
     idempotency_key: str = ""
+    needs_human: bool = False
 
 
 class ToolRegistry:
@@ -221,21 +222,23 @@ class AgentToolHarness:
             invocation = ToolInvocation(
                 tool_name=tool_name, status=normalized.status, summary=normalized.summary,
                 data=normalized.data, duration_ms=int((time.monotonic() - started) * 1000),
-                idempotency_key=idempotency_key)
+                idempotency_key=idempotency_key, needs_human=normalized.needs_human)
         except ToolFailure as exc:
             invocation = ToolInvocation(
                 tool_name=tool_name, status="failed", error_code=exc.code,
                 summary=str(exc)[:500], duration_ms=int((time.monotonic() - started) * 1000),
-                idempotency_key=idempotency_key[:128])
+                idempotency_key=idempotency_key[:128],
+                needs_human=exc.code in {ToolErrorCode.BUDGET_EXHAUSTED, ToolErrorCode.TIMEOUT,
+                                         ToolErrorCode.TOOL_FAILED, ToolErrorCode.RESULT_INVALID})
         except Exception as exc:  # noqa: BLE001 - harness boundary; fail closed
             invocation = ToolInvocation(
                 tool_name=tool_name, status="failed", error_code=ToolErrorCode.TOOL_FAILED,
                 summary=f"工具执行未完成（{type(exc).__name__}）；请重试或转人工",
                 duration_ms=int((time.monotonic() - started) * 1000),
-                idempotency_key=idempotency_key[:128])
+                idempotency_key=idempotency_key[:128], needs_human=True)
 
         self.trace.append(invocation)
-        _audit(db, context, invocation)
+        _audit(db, context, invocation, entity=spec.audit_entity if spec else "agent_tool")
         if spec is not None and spec.idempotent and idempotency_key and request_hash:
             self._replays[idempotency_key] = _Replay(request_hash, _copy_invocation(invocation))
         return invocation
@@ -248,9 +251,15 @@ class SkillRunner:
         self.spec = spec
         self.harness = harness
         self.steps = 0
+        self.stopped = False
+        self.human_required: list[str] = []
 
     def invoke(self, tool_name: str, arguments: Mapping[str, Any], *,
                context: ToolContext, db: Session, idempotency_key: str) -> ToolInvocation:
+        if self.stopped:
+            return ToolInvocation(tool_name=tool_name, status="failed",
+                                  error_code=ToolErrorCode.TOOL_FAILED,
+                                  summary=f"技能 {self.spec.name} 已因前序失败停止")
         if tool_name not in self.spec.allowed_tools:
             return ToolInvocation(tool_name=tool_name, status="failed",
                                   error_code=ToolErrorCode.FORBIDDEN,
@@ -262,8 +271,12 @@ class SkillRunner:
         self.steps += 1
         invocation = self.harness.invoke(tool_name, arguments, context=context,
                                          db=db, idempotency_key=idempotency_key)
+        if invocation.needs_human and self.spec.human_on_unknown:
+            rule = invocation.data.get("rule_result", {}) if isinstance(invocation.data, dict) else {}
+            rule_id = rule.get("rule_id") if isinstance(rule, dict) else None
+            self.human_required.append(str(rule_id or tool_name))
         if invocation.status == "failed" and self.spec.stop_on_failure:
-            return invocation
+            self.stopped = True
         return invocation
 
 
@@ -291,7 +304,8 @@ def _copy_invocation(invocation: ToolInvocation) -> ToolInvocation:
     return ToolInvocation(**invocation.__dict__)
 
 
-def _audit(db: Session, context: ToolContext, invocation: ToolInvocation) -> None:
+def _audit(db: Session, context: ToolContext, invocation: ToolInvocation,
+          *, entity: str = "agent_tool") -> None:
     """Append a compact audit event. Never persist raw tool arguments or results."""
     spec_name = invocation.tool_name[:64]
     payload = {
@@ -306,6 +320,6 @@ def _audit(db: Session, context: ToolContext, invocation: ToolInvocation) -> Non
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
     db.add(AuditEvent(task_id=context.task_id, actor=context.actor,
-                      action="agent.tool.invoked", entity="agent_tool",
+                      action="agent.tool.invoked", entity=entity[:64],
                       payload_json=json.dumps(payload, ensure_ascii=False, sort_keys=True)))
     db.flush()

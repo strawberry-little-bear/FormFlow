@@ -25,7 +25,7 @@
 git diff --check
 ```
 
-本轮复核基线结果为 311 项 Python 测试和 64 项 Node 前端契约测试通过。此后补入 4 项工作台/Agent UI 契约，之后又新增 9 项受限 Agent tool/skill/harness 运行时及接线测试；最新完整 `pytest` 结果为 320 项 Python 通过，Node 前端契约 69 项通过。前端契约测试使用 Node VM、Mock DOM 和 Mock fetch；浏览器视口试走见本页补充记录。离线 `smoke_review.py --stub` 未调用真实模型网关。
+本轮复核基线结果为 311 项 Python 测试和 64 项 Node 前端契约测试通过。此后补入 4 项工作台/Agent UI 契约，之后又新增 10 项受限 Agent tool/skill/harness 运行时及接线测试；最新完整 `pytest` 结果为 321 项 Python 通过，Node 前端契约 69 项通过。前端契约测试使用 Node VM、Mock DOM 和 Mock fetch；浏览器视口试走见本页补充记录。离线 `smoke_review.py --stub` 未调用真实模型网关。
 
 覆盖的关键情形包括：
 
