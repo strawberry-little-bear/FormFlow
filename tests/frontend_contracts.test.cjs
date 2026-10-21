@@ -31,7 +31,7 @@ function setup(sharedStorage = storage()) {
     window: {addEventListener() {}}, location: {hash:'#/submit'}, Intl, URLSearchParams, FormData,
     setTimeout, clearTimeout, confirm: () => true, console,
     fetch: async () => {throw new Error('Unexpected request');}});
-  vm.runInContext(source + '\nthis.app = {state, useVersionAsBase, loadDesignVersion, cacheDesignInputs, restoreDesignInputs, recoverDesignInput, paintChat, runAgent, canPublishDesign, publishDiffHtml, publishBp, confirmPublish, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, draftFingerprint, collectDraftFields, cacheSubmissionDraft, setSubMode, refreshSlotConditions, wbMatches, api, submitDecision, saveDraft, doSubmit, uploadSlot, cacheReviewDraft, discardReviewDraft, logout, nextPendingReview, selectReviewRule, viewReview, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, submissionIssues, showSubmissionIssues, initSubChat};', context);
+  vm.runInContext(source + '\nthis.app = {state, useVersionAsBase, loadDesignVersion, cacheDesignInputs, restoreDesignInputs, recoverDesignInput, paintChat, runAgent, canPublishDesign, publishDiffHtml, publishBp, confirmPublish, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, draftFingerprint, collectDraftFields, cacheSubmissionDraft, setSubMode, refreshSlotConditions, wbMatches, api, submitDecision, saveDraft, doSubmit, uploadSlot, cacheReviewDraft, discardReviewDraft, logout, nextPendingReview, setReviewFilter, selectReviewRule, viewReview, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, submissionIssues, showSubmissionIssues, initSubChat};', context);
   Object.assign(context.app.state, {routeEpoch: 1, me:{task:{id:1, status:'collecting', timezone:'Asia/Shanghai'},subject:{id:2}},
     draftVersion:1, fileMeta:{}, sub:{mode:'chat',phase:'fields',fIdx:0, fields:[{id:'name'}],slots:[],answers:{}}});
   context.localStorage.setItem('ff_sub_token', 'test-only-credential');
@@ -671,6 +671,20 @@ test('late input events while a different scope is loading do not cache under ei
   pending.resolve(response(reviewPage(reviewScope('b'),3)));await loading;
   assert.equal(env.els['dc-reason'].value,'');
   assert.equal(env.app.state.reviewDrafts[page.review_context].rules.A['dc-reason'],'原主体理由');
+});
+test('review filter narrows the rule queue without changing the loaded evidence scope', async () => {
+  const env=setup(),page=reviewPage(reviewScope('a'));
+  page.rules=[{rule_id:'A',result:'unknown'},{rule_id:'B',result:'satisfied'},{rule_id:'C',result:'manual_pending'}];
+  await openReview(env,page);
+  env.app.setReviewFilter('pending',1,2);
+  assert.equal(env.app.state.reviewFilter,'pending');
+  assert.equal(env.app.state.reviewRule,'A');
+  assert.match(env.els.rv.innerHTML,/只看待处理/);
+  assert.match(env.els.rv.innerHTML,/C/);
+  assert.doesNotMatch(env.els.rv.innerHTML,/data-review-rule="B"/);
+  env.app.setReviewFilter('all',1,2);
+  assert.equal(env.app.state.reviewFilter,'all');
+  assert.match(env.els.rv.innerHTML,/data-review-rule="B"/);
 });
 test('next pending review skips completed and confirmed-issue rules; shortcuts explain the final gate', async () => {
   const env=setup(),page=reviewPage(reviewScope('a'));

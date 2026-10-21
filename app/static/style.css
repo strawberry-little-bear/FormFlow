@@ -3555,3 +3555,18 @@ button.validation-link { border: 0; background: none; color: var(--bad); box-sha
   .review-workflow { gap:6px; }
   .review-workflow button { padding:10px 8px; font-size:12px; }
 }
+
+/* Review rule filters keep long evidence queues usable without hiding history. */
+.review-list-summary { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.review-filter { display:inline-flex; gap:4px; padding:3px; border:1px solid var(--line); border-radius:8px; background:#fff; }
+.review-filter button { padding:4px 8px; min-height:28px; font-size:11px; }
+.review-filter button.selected { background:var(--brand-soft); color:var(--brand-deep); border-color:#cfc6f0; }
+.review-filter button[aria-pressed="true"] { font-weight:650; }
+.review-filter-empty { display:flex; flex-direction:column; gap:4px; align-items:flex-start; padding:20px 14px; border:1px dashed var(--line); border-radius:9px; background:#fff; color:var(--muted); font-size:12px; }
+.review-filter-empty b { color:var(--ink); font-size:13px; }
+.review-filter-empty .link { padding:0; min-height:0; font-size:12px; }
+@media (max-width:600px) {
+  .review-list-actions { align-items:stretch; flex-direction:column; }
+  .review-list-summary { justify-content:space-between; }
+  .review-list-actions > button { width:100%; }
+}

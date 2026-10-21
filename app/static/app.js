@@ -1,7 +1,7 @@
 "use strict";
 /* 收齐啦 FormFlow 前端（P01–P05）。纯静态 SPA，直接调用 /api。 */
 const ORG_KEY = "ff_org_token", SUB_KEY = "ff_sub_token";
-const state = { taskId: null, chat: [], bpId: null, draft: null, requirement: "", answeredDone: false, files: {}, filesMeta: {}, draftVersion: null, me: null, lastJob: null, roster: {}, designEpoch: 0, agentBusy: false, draftStatus: "draft", draftVersionId: null, designTab: "preview", tasks: [], designBlocking: [], designAdvisories: [], designVersions: [], designHistory: [], viewingVersion: null, wbRows: [], wbFilter: "all", reviewRule: null };
+const state = { taskId: null, chat: [], bpId: null, draft: null, requirement: "", answeredDone: false, files: {}, filesMeta: {}, draftVersion: null, me: null, lastJob: null, roster: {}, designEpoch: 0, agentBusy: false, draftStatus: "draft", draftVersionId: null, designTab: "preview", tasks: [], designBlocking: [], designAdvisories: [], designVersions: [], designHistory: [], viewingVersion: null, wbRows: [], wbFilter: "all", reviewRule: null, reviewFilter: "all" };
 
 const orgToken = () => localStorage.getItem(ORG_KEY) || "";
 const subToken = () => localStorage.getItem(SUB_KEY) || "";
@@ -109,7 +109,7 @@ function route() {
   state.agentBusy = false;
   clearTimeout(_wbTimer);
   clearTimeout(_resultsTimer);
-  state.reviewData = null; state.reviewRule = null; state.reviewContext = null;
+  state.reviewData = null; state.reviewRule = null; state.reviewFilter = "all"; state.reviewContext = null;
   document.querySelectorAll("dialog[open]").forEach(d => d.close());
   const h = (location.hash || "#/login").replace(/^#/, "");
   const parts = h.split("/").filter(Boolean);
@@ -1288,14 +1288,21 @@ function paintReview(taskId, sid) {
     ${gap ? `<div class="notice-warn">材料共 ${gap} 页未能读取。这些页不构成「确认缺失」，相关规则按待确认处理；请让提交者补充清晰材料，或人工核对。</div>` : ""}
   </section>`;
 
-  const list = rules.length ? `<div class="review-list-actions"><span>${pending.length} 项待决定 / 共 ${rules.length} 项</span><button class="ghost sm" ${pending.length ? '' : 'disabled'} onclick="nextPendingReview(${taskId},${sid})">下一待处理 ↓</button></div><div class="review-rules" role="group" aria-label="检查规则">${rules.map(r => {
+  const visibleRules = state.reviewFilter === "pending" ? pending : rules;
+  const list = rules.length ? `<div class="review-list-actions">
+    <div class="review-list-summary"><span>${pending.length} 项待决定 / 共 ${rules.length} 项</span><span class="review-filter" role="group" aria-label="规则筛选">
+      <button class="ghost sm ${state.reviewFilter === "all" ? "selected" : ""}" aria-pressed="${state.reviewFilter === "all"}" onclick="setReviewFilter('all',${taskId},${sid})">全部</button>
+      <button class="ghost sm ${state.reviewFilter === "pending" ? "selected" : ""}" aria-pressed="${state.reviewFilter === "pending"}" ${pending.length ? "" : "disabled"} onclick="setReviewFilter('pending',${taskId},${sid})">只看待处理</button>
+    </span></div>
+    <button class="ghost sm" ${pending.length ? '' : 'disabled'} onclick="nextPendingReview(${taskId},${sid})">下一待处理 ↓</button>
+  </div>${visibleRules.length ? `<div class="review-rules" role="group" aria-label="检查规则">${visibleRules.map(r => {
     const on = r.rule_id === state.reviewRule;
     return `<button class="review-rule-item ${on ? "on" : ""}" aria-current="${on}" data-review-rule="${esc(r.rule_id)}">
       <span class="review-rule-id">${esc(r.rule_id)}</span>
       <span class="review-rule-text">${esc((r.requirement && r.requirement.statement) || r.explanation || r.rule_id)}</span>
       <span class="review-rule-side">${r.decision ? `<span class="badge ${r.decision.decision === "confirm_issue" ? "bad" : "info"}">${esc(DECISION_LABEL[r.decision.decision] || "已有人工决定")}</span>` : resultBadge(r.result)}<span class="badge">${esc(severityLabel(r.severity))}</span></span>
     </button>`;
-  }).join("")}</div>` : `<div class="empty-state"><div class="empty-icon">${icon("workbench")}</div><h3>${d.revision ? run?.status === 'success' ? "本版本没有材料检查规则" : "暂无规则结果" : "尚无正式提交"}</h3><p>${d.revision ? run?.status === 'success' ? "材料检查已完成，请核对独立资格与验收状态。" : "可能尚未检查。回到工作台发起检查，或稍后刷新。" : "现在可以处理主体免交或预核资格；正式提交后才能检查和验收材料。"}</p><p><a class="ghost sm" href="#/workbench/${taskId}">返回工作台</a></p></div>`;
+  }).join("")}</div>` : `<div class="review-filter-empty"><b>当前没有待处理规则</b><span>已处理的规则仍保留在“全部”中。</span><button class="link" onclick="setReviewFilter('all',${taskId},${sid})">查看全部规则</button></div>`}` : `<div class="empty-state"><div class="empty-icon">${icon("workbench")}</div><h3>${d.revision ? run?.status === 'success' ? "本版本没有材料检查规则" : "暂无规则结果" : "尚无正式提交"}</h3><p>${d.revision ? run?.status === 'success' ? "材料检查已完成，请核对独立资格与验收状态。" : "可能尚未检查。回到工作台发起检查，或稍后刷新。" : "现在可以处理主体免交或预核资格；正式提交后才能检查和验收材料。"}</p><p><a class="ghost sm" href="#/workbench/${taskId}">返回工作台</a></p></div>`;
 
   const evidence = active ? `
     <article class="evidence-detail" id="review-evidence" tabindex="-1">
@@ -1396,6 +1403,19 @@ function jumpReviewSection(id) {
   if (!section) return;
   section.scrollIntoView({block: "start"});
   section.focus({preventScroll: true});
+}
+function setReviewFilter(filter, taskId, sid) {
+  if (state.deciding) return;
+  cacheReviewDraft();
+  state.reviewFilter = filter === "pending" ? "pending" : "all";
+  const pending = (state.reviewData?.rules || []).filter(needsReview);
+  if (state.reviewFilter === "pending") {
+    if (pending.length && !pending.some(r => r.rule_id === state.reviewRule)) state.reviewRule = pending[0].rule_id;
+    if (!pending.length) state.reviewRule = null;
+  } else if (!state.reviewRule && state.reviewData?.rules?.length) {
+    state.reviewRule = state.reviewData.rules[0].rule_id;
+  }
+  paintReview(taskId, sid);
 }
 function nextPendingReview(taskId, sid) {
   if (state.deciding) return;
