@@ -31,7 +31,7 @@ function setup(sharedStorage = storage()) {
     window: {addEventListener() {}}, location: {hash:'#/submit'}, Intl, URLSearchParams, FormData,
     setTimeout, clearTimeout, confirm: () => true, console,
     fetch: async () => {throw new Error('Unexpected request');}});
-  vm.runInContext(source + '\nthis.app = {state, useVersionAsBase, loadDesignVersion, cacheDesignInputs, restoreDesignInputs, recoverDesignInput, paintChat, runAgent, canPublishDesign, publishDiffHtml, publishBp, confirmPublish, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, draftFingerprint, collectDraftFields, cacheSubmissionDraft, setSubMode, refreshSlotConditions, wbMatches, api, submitDecision, saveDraft, doSubmit, uploadSlot, cacheReviewDraft, discardReviewDraft, logout, nextPendingReview, setReviewFilter, selectReviewRule, viewReview, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, chooseWorkbenchNextStep, workbenchNextStepHtml, agentRunCard, submissionIssues, showSubmissionIssues, initSubChat};', context);
+  vm.runInContext(source + '\nthis.app = {state, useVersionAsBase, loadDesignVersion, cacheDesignInputs, restoreDesignInputs, recoverDesignInput, paintChat, runAgent, canPublishDesign, publishDiffHtml, publishBp, confirmPublish, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, draftFingerprint, collectDraftFields, cacheSubmissionDraft, setSubMode, refreshSlotConditions, wbMatches, api, submitDecision, saveDraft, doSubmit, uploadSlot, cacheReviewDraft, discardReviewDraft, logout, nextPendingReview, setReviewFilter, selectReviewRule, viewReview, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, chooseWorkbenchNextStep, workbenchNextStepHtml, agentRunCard, submitterGuidance, ruleCard, submissionIssues, showSubmissionIssues, initSubChat};', context);
   Object.assign(context.app.state, {routeEpoch: 1, me:{task:{id:1, status:'collecting', timezone:'Asia/Shanghai'},subject:{id:2}},
     draftVersion:1, fileMeta:{}, sub:{mode:'chat',phase:'fields',fIdx:0, fields:[{id:'name'}],slots:[],answers:{}}});
   context.localStorage.setItem('ff_sub_token', 'test-only-credential');
@@ -205,6 +205,24 @@ test('results poll only while pending, preserve explanation and ignore stale res
   pending.resolve(response({summary:'old context'}));await loading;
   assert.equal(els['my-results'].innerHTML,before);
 });
+test('submitter progress summarizes buckets in plain language rather than exposing rule IDs', async () => {
+  const {app,context,els}=setup();
+  context.fetch=async()=>response({summary:'待补正',revision:1,buckets:{
+    blocking:['r_term_match'],unknown:['r_name_clear'],human:['r_final_review'],incomplete:[],pending_jobs:[]},
+    details:[
+      {rule_id:'r_term_match',result:'issue',severity:'blocking',requirement:{statement:'报告期次与活动期次一致',requirement_source:'活动说明'},explanation:'期次不一致',next_step:'请核对期次'},
+      {rule_id:'r_name_clear',result:'unknown',severity:'blocking',requirement:{statement:'姓名清晰可读',requirement_source:'活动说明'},explanation:'技术分析文字',next_step:'转人工复核'},
+      {rule_id:'r_final_review',result:'manual_pending',severity:'blocking',requirement:{statement:'组织者人工核对',requirement_source:'活动说明'},explanation:'等待人工',next_step:'组织者会核对'},
+    ]});
+  await app.loadMyResults();
+  assert.match(els['my-results'].innerHTML,/当前进度：<b>有材料需要补充或更正/);
+  assert.match(els['my-results'].innerHTML,/需要更正 1 项/);
+  assert.match(els['my-results'].innerHTML,/组织者核对 1 项/);
+  assert.doesNotMatch(els['my-results'].innerHTML,/阻塞:r_term_match|待确认:r_name_clear|人工:r_final_review/);
+  assert.match(els['my-results'].innerHTML,/想补充说明，或请组织者再看一眼/);
+  assert.match(els['my-results'].innerHTML,/报告期次与活动期次一致/);
+  assert.doesNotMatch(els['my-results'].innerHTML,/技术分析文字/);
+});
 test('result load failure is visible and does not replace existing results', async () => {
   const {app,context,els}=setup();els['my-results'].innerHTML='existing receipt and results';
   context.fetch=async()=>response({detail:'offline'},503);await app.loadMyResults();
@@ -374,9 +392,9 @@ test('confirmed issues remain visible as problems in review and submitter detail
   assert.match(els.rv.innerHTML,/人工核对通过/);
   context.fetch=async()=>response({summary:'待补正',buckets:{blocking:['H']},details:app.state.reviewData.rules});
   await app.loadMyResults();
-  assert.match(els['my-results'].innerHTML,/待办事项（1）/);
+  assert.match(els['my-results'].innerHTML,/需要一起处理（1）/);
   assert.match(els['my-results'].innerHTML,/内容仍有问题/);
-  assert.doesNotMatch(els['my-results'].innerHTML,/已通过 1 项/);
+  assert.doesNotMatch(els['my-results'].innerHTML,/已按要求核对完成 1 项/);
 });
 test('human resolution moves raw unknown out of submitter todo without hiding evidence', async () => {
   const {app,els,context} = setup();
@@ -385,9 +403,10 @@ test('human resolution moves raw unknown out of submitter todo without hiding ev
     decision:{decision:'confirm_pass',reason:'人工核对原文通过',resolves:true}}]});
   await app.loadMyResults();
   assert.doesNotMatch(els['my-results'].innerHTML,/待办事项/);
-  assert.match(els['my-results'].innerHTML,/已通过 1 项/);
+  assert.match(els['my-results'].innerHTML,/已按要求核对完成 1 项/);
   assert.match(els['my-results'].innerHTML,/人工核对原文通过/);
-  assert.match(els['my-results'].innerHTML,/机器原先未读到/);
+  assert.match(els['my-results'].innerHTML,/系统当时还不能确认这一项/);
+  assert.match(els['my-results'].innerHTML,/组织者后续人工核对结果/);
 });
 
 
@@ -459,6 +478,40 @@ test('workbench next step falls back to missing, delivery, then neutral states',
   assert.equal(neutral.kind, 'roster');
   const outOfRoster = app.chooseWorkbenchNextStep([{name:'外部报名', in_roster:false, formal:false}], {id:7, mode:'roster'});
   assert.equal(outOfRoster.kind, 'roster');
+});
+test('submitter-facing result cards explain status in calm plain language without changing the result', () => {
+  const {app} = setup();
+  const issue = app.ruleCard({rule_id:'R-01', result:'issue', severity:'blocking',
+    requirement:{statement:'报告期次须与任务一致', requirement_source:'报名说明'},
+    explanation:'材料写的是 2026 秋季第 2 期。', next_step:'请核对报告封面上的期次，并替换为第 1 期。', evidence:[{locator:'p.1', method:'llm', quote:'2026 秋季第 2 期'}]});
+  assert.match(issue, /这项材料还需要核对；只针对这条收集要求，不是在评价你本人/);
+  assert.match(issue, /可以这样处理/);
+  assert.match(issue, /请核对报告封面上的期次/);
+  assert.match(issue, /2026 秋季第 2 期/);
+  assert.match(issue, /模型核对/);
+  assert.doesNotMatch(issue, / · llm\]/);
+  assert.match(issue, /验收前需要处理/);
+  assert.doesNotMatch(issue, /R-01/);
+  const satisfied = app.ruleCard({rule_id:'R-02', result:'satisfied', severity:'blocking',
+    requirement:{statement:'活动日期符合要求', requirement_source:'活动日期为 2026 年 11 月 14 日'},
+    next_step:'请继续提交身份证和紧急联系人电话。'});
+  assert.doesNotMatch(satisfied, /身份证/);
+  assert.doesNotMatch(satisfied, /紧急联系人/);
+  const unknown = app.ruleCard({rule_id:'R-03', result:'unknown', severity:'blocking',
+    requirement:{statement:'姓名清晰可读', requirement_source:'材料需包含本人姓名'},
+    explanation:'模型结论缺少可在原文定位的证据，按规则降级为 unknown', next_step:'转人工复核'});
+  assert.match(unknown, /不会把没读到或证据不足当成缺失/);
+  assert.match(unknown, /请联系组织者帮你确认/);
+  assert.doesNotMatch(unknown, /模型结论缺少/);
+  const failed = app.ruleCard({rule_id:'R-04', result:'failed', severity:'blocking',
+    requirement:{statement:'材料页数符合要求', requirement_source:'材料页数不超过 10 页'},
+    explanation:'网关连接失败: secret host detail', next_step:'检查服务暂不可用'});
+  assert.match(failed, /这次检查没能完成，材料已经收到/);
+  assert.doesNotMatch(failed, /网关连接失败|secret host detail/);
+  const failedGuidance = app.submitterGuidance({result:'failed'});
+  assert.match(failedGuidance, /检查没能完成，材料已经收到；这不代表不合格/);
+  const unknownGuidance = app.submitterGuidance({result:'unknown'});
+  assert.match(unknownGuidance, /这不代表缺失/);
 });
 test('review makes deterministic, semantic, and human handoffs visible without implying every rule used a model call', () => {
   const {app} = setup();

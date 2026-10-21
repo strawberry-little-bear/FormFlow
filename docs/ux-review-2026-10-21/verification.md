@@ -25,7 +25,7 @@
 git diff --check
 ```
 
-本轮复核基线结果为 311 项 Python 测试和 64 项 Node 前端契约测试通过。此后补入 4 项工作台/Agent UI 契约，之后又新增 10 项受限 Agent tool/skill/harness 运行时及接线测试；最新完整 `pytest` 结果为 321 项 Python 通过，Node 前端契约 69 项通过。前端契约测试使用 Node VM、Mock DOM 和 Mock fetch；浏览器视口试走见本页补充记录。离线 `smoke_review.py --stub` 未调用真实模型网关。
+本轮复核基线结果为 311 项 Python 测试和 64 项 Node 前端契约测试通过。此后补入 4 项工作台/Agent UI 契约，之后又新增 10 项受限 Agent tool/skill/harness 运行时及接线测试和 2 项提交者友好文案契约；最新完整 `pytest` 结果为 321 项 Python 通过，Node 前端契约 71 项通过。前端契约测试使用 Node VM、Mock DOM 和 Mock fetch；浏览器视口试走见本页补充记录。离线 `smoke_review.py --stub` 未调用真实模型网关。
 
 覆盖的关键情形包括：
 
@@ -80,6 +80,21 @@ git diff --check
 - [工作台下一步建议 · 390px](workbench-next-step-mobile.png)
 - [Agent 分工说明 · 1440px](agent-run-desktop.png)
 - [Agent 分工说明 · 390px](agent-run-mobile.png)
+
+### 提交者结果文案的人性化走查
+
+继续使用隔离虚构数据服务 `127.0.0.1:8164` 与临时数据库 `/tmp/formflow-human-20261021/demo.db`，登录虚构提交者李四，只查看预置的演示检查记录。将页面解释改为不责备的日常语言：问题只针对当前要求；证据不足不等于缺失；技术检查未完成不等于不合格；人工项由组织者处理；隐藏内部规则 ID 和 `llm/program` 字样；已满足规则不附加模型生成的“继续提交其他材料”建议。顶部待办改成按人可理解的数量摘要，解释入口允许用规则标题定位。
+
+桌面 / 390×844 手机两种视口检查；手机整页 `clientWidth === scrollWidth === 390`，console/errors 为空。
+
+- [提交者核对说明 · 1440px](submitter-human-results-desktop.png)
+- [提交者核对说明 · 390px](submitter-human-results-mobile.png)
+
+### 真实模型接入冒烟
+
+网关 base URL、模型名与 API key 由用户提供。`.env` 在本机按示例配置并由 `.gitignore` 排除；没有把凭证纳入提交或文档。最小 API ping 成功。随后用一条虚构的“活动日期”规则通过现有 `run_semantic_rule` 做真实调用：模型结论为 `satisfied`，其引用内容经本地精确核验后保留，`next_step` 为“这一项已核对完成”。该单例只验证端到端可连及引用门槛，不是质量评估。
+
+对较长的完整需求 Agent 蓝图起草请求（仅合成的活动说明）曾遇一次 HTTP 读超时、一次上游断开；应用保留草案并返回清晰暂不可用提示，没有将失败伪装成成功。尚需核对网关对长响应/超时的支持，再决定是否使用降级模型。真实材料未发送给网关。
 
 ### Agent 工具运行时的本轮增量
 

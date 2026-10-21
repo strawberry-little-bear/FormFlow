@@ -108,19 +108,78 @@ const agentRunCard = (run, rules) => {
     ${run.coverage ? `<div class="agent-run-more">${esc(methods.length ? `材料处理：${methods.join("、")}` : "材料读取记录见下方")}${run.llm_calls_used ? ` · 语义检查预算使用 ${run.llm_calls_used} 次` : " · 本次未使用语义检查预算"}</div>` : ""}
   </details>`;
 };
-const ruleCard = (r) => `
-  <div class="card">
-    <h3>${esc(r.rule_id)} ${resultBadge(r.result)}
-      <span class="badge">${esc(r.severity || "")}</span></h3>
+function submitterGuidance(r) {
+  if (r.decision) return r.decision.resolves
+    ? r.result === "unknown"
+      ? "系统当时还不能确认这一项；组织者已经人工核对，原始意见和后续处理分开展示。"
+      : "组织者已记录处理结果；原始检查意见和人工决定会分开展示。"
+    : "组织者确认这项还需要处理；可以按下方建议补充或核对。";
+  if (r.result === "issue") return "这项材料还需要核对；只针对这条收集要求，不是在评价你本人。";
+  if (r.result === "unknown") return "目前还没能从材料中找到足够清楚、可核对的依据；这不代表缺失，组织者可以帮你确认。";
+  if (r.result === "failed") return "这次检查没能完成，材料已经收到；这不代表不合格。你可以稍后再看，组织者也可以重试或人工核对。";
+  if (r.result === "manual_pending") return "这一项由组织者来确认，你暂时不用修改材料。";
+  if (r.result === "satisfied") return "这一项已经按任务要求核对完成。";
+  if (r.result === "not_applicable") return "按你当前填写的信息，这项要求不适用。";
+  return "检查状态已更新；如有疑问，可以请组织者一起核对。";
+}
+function submitterExplanation(r) {
+  if (["satisfied", "manual_pending", "not_applicable", "failed"].includes(r.result)) return "";
+  if (r.result === "unknown" && r.decision?.resolves) return "原始检查当时缺少足够清楚、可定位的依据；上方是组织者后续人工核对结果。";
+  if (r.result === "unknown") return "暂时无法确认是否满足这一项；不会把没读到或证据不足当成缺失。";
+  return r.explanation || "";
+}
+function submitterNextStep(r) {
+  if (r.result === "satisfied") return "";
+  if (r.decision?.resolves) return "组织者已处理这一项，无需重复提交。";
+  const raw = String(r.next_step || "").trim();
+  if (r.result === "unknown" && (!raw || /转人工|人工复核|模型结论|无法判断/.test(raw)))
+    return "请联系组织者帮你确认；如果方便，也可以补一份更清晰的材料。";
+  if (r.result === "failed") return "稍后刷新查看；如果赶截止时间，请联系组织者协助核对。";
+  if (r.result === "manual_pending") return "";
+  return raw;
+}
+function submitterSeverity(value) {
+  return value === "blocking" ? "验收前需要处理" : value === "advisory" ? "给你提个醒" : severityLabel(value);
+}
+function submitterRequirementSource(value) {
+  const source = String(value || "").replace(/^(?:原始要求|原始输入|任务要求)\s*[：:]\s*/, "").trim();
+  return source || "任务说明";
+}
+function submitterEvidenceMethod(value) {
+  return ({llm: "模型核对", program: "程序核对", manual: "人工核对",
+    text: "文字提取", ocr: "OCR 识别", coverage: "读取范围记录", parse: "文件读取"})[value] || value || "检查记录";
+}
+function submitterSummary(value) {
+  return ({
+    "待补正": "有材料需要补充或更正",
+    "待人工": "有几项需要组织者确认",
+    "检查未完成": "检查暂时没有完成",
+    "检查中": "材料正在核对",
+    "排队中": "材料已收到，正在等待核对",
+    "规则通过（待人工验收）": "材料检查已完成，等待组织者验收",
+    "规则通过": "材料检查已完成",
+    "已验收": "本版本已验收",
+    "未正式提交": "还没有正式提交",
+  })[value] || value || "正在更新进度";
+}
+const ruleCard = (r) => {
+  const explanation = submitterExplanation(r), nextStep = submitterNextStep(r);
+  const evidence = (r.evidence || []).map(e =>
+    `<div class="evidence">[${esc(e.locator || "未标位置")} · ${esc(submitterEvidenceMethod(e.method))}] ${esc(e.quote || "")}</div>`).join("");
+  const noEvidence = ["manual_pending", "failed"].includes(r.result) ? ""
+    : `<p class="muted">这条结果暂时没有可展示的原文位置。</p>`;
+  return `<div class="card result-rule-card">
+    <h3>${esc(r.requirement?.statement || r.rule_id)} ${resultBadge(r.result)}
+      <span class="badge">${esc(submitterSeverity(r.severity))}</span></h3>
+    <p class="result-human-note">${esc(submitterGuidance(r))}</p>
     ${r.decision ? `<div class="notice-warn"><b>${esc(DECISION_LABEL[r.decision.decision] || r.decision.decision)}</b><p>${esc(r.decision.reason)}</p><span>人工决定与原始检查结论分开保留。</span></div>` : ""}
-    ${r.explanation ? `<p>${esc(r.explanation)}</p>` : ""}
-    ${r.next_step ? `<p class="kv">${r.decision ? "原始检查建议" : "下一步"}：${esc(r.next_step)}</p>` : ""}
+    ${explanation ? `<p>${esc(explanation)}</p>` : ""}
+    ${nextStep ? `<div class="result-next-step"><b>${r.decision ? "组织者记录的后续建议" : "可以这样处理"}</b><p>${esc(nextStep)}</p></div>` : ""}
     ${r.requirement && r.requirement.statement ?
-      `<p class="kv">要求来源：${esc(r.requirement.requirement_source || "")} ｜ ${esc(r.requirement.statement)}</p>` : ""}
-    ${(r.evidence || []).map(e => `
-      <div class="evidence">[${esc(e.locator || "-")} · ${esc(e.method || "-")}] ${esc(e.quote || "")}</div>
-    `).join("") || `<p class="muted">无证据</p>`}
+      `<p class="kv">对应要求：${esc(submitterRequirementSource(r.requirement.requirement_source))}</p>` : ""}
+    ${evidence || noEvidence}
   </div>`;
+};
 
 /* ---------------------------------------------------------------- 路由 */
 function route() {
@@ -1939,7 +1998,7 @@ async function viewSubmit() {
             <div class="submit-actions">
               <button class="ghost sm" onclick="reloadServerDraft()">重新加载服务器草稿</button>
               <button class="ghost" onclick="saveDraft()" ${ro ? "disabled" : ""}>保存草稿</button>
-              <button onclick="doSubmit()" ${ro ? "disabled" : ""}>${receipt.formal ? "提交补正版本并检查" : "正式提交并检查"} ${icon("arrow")}</button>
+              <button onclick="doSubmit()" ${ro ? "disabled" : ""}>${receipt.formal ? "提交更正版本并重新核对" : "提交材料并开始核对"} ${icon("arrow")}</button>
               <span class="muted" id="draft-hint">${draft.draft_version ? `草稿版本 ${draft.draft_version}` : "尚未保存草稿"}${draft.updated_at ? ` · ${esc(fmtTime(draft.updated_at))}` : ""}</span>
             </div>
             <div id="receipt-out"></div>
@@ -1948,12 +2007,12 @@ async function viewSubmit() {
             <section class="card side-note"><div class="eyebrow">BEFORE YOU SUBMIT</div><h2>提交前核对</h2>
               <ul class="check-list"><li>首次截止：<b>${esc(fmtTime(me.task.first_deadline, me.task.timezone))}</b></li><li>补正截止：<b>${esc(fmtTime(me.task.correction_deadline, me.task.timezone))}</b></li><li>正式提交会形成不可篡改的版本；再次提交将形成补正版本。</li><li>上传成功 ≠ 正式提交，记得点击正式提交。</li></ul>
             </section>
-            <section class="card side-note"><div class="eyebrow">NEED HELP?</div><h2>提交之后</h2>
-              <p class="field-help">检查结果会逐条列出问题、原文位置与改法。对结论有异议可提交解释，组织者核对原文后决定；解释不改变机器结论。</p>
+            <section class="card side-note"><div class="eyebrow">如果有疑问</div><h2>提交之后</h2>
+              <p class="field-help">核对后会列出对应的材料、原文位置和建议做法。觉得有一处没看清，可以补充说明请组织者再核对；需要更正时也可以直接补交材料。</p>
             </section>
           </aside>
         </div>
-        <section class="card my-results-card"><div class="section-heading"><div><div class="eyebrow">CHECK RESULTS</div><h2>我的检查结果</h2></div><span class="muted">与组织者复核页使用同一份证据</span></div><div id="my-results"><p class="muted">—</p></div></section>
+        <section class="card my-results-card"><div class="section-heading"><div><div class="eyebrow">材料进度</div><h2>这份材料核对到哪了</h2></div><span class="muted">需要你处理的内容会放在前面</span></div><div id="my-results"><p class="muted">—</p></div></section>
       </div>`;
     document.querySelectorAll("[data-field]").forEach(el =>
       el.addEventListener("input", () => {
@@ -2096,15 +2155,18 @@ async function loadMyResults() {
     const r = await api("/api/me/results", { sub: true });
     if (epoch !== state.routeEpoch || token !== subToken() || requestId !== state.resultsRequestId) return;
     const b = r.buckets || {};
+    const details = r.details || [];
+    const countBadge = (items, label, kind) => items?.length
+      ? `<span class="badge ${kind}">${label} ${items.length} 项</span>` : "";
     let html = `
-      <p>状态：<b>${esc(r.summary)}</b>${r.revision ? `（v${r.revision}）` : ""}</p>
+      <p>当前进度：<b>${esc(submitterSummary(r.summary))}</b>${r.revision ? ` · 第 ${r.revision} 版` : ""}</p>
       <p>${[
-        ...(b.blocking || []).map(x => `<span class="badge bad">阻塞:${esc(x)}</span>`),
-        ...(b.unknown || []).map(x => `<span class="badge warn">待确认:${esc(x)}</span>`),
-        ...(b.human || []).map(x => `<span class="badge info">人工:${esc(x)}</span>`),
-        ...(b.incomplete || []).map(x => `<span class="badge bad">失败:${esc(x)}</span>`),
-        ...(b.pending_jobs || []).map(x => `<span class="badge info">${esc(RUN_LABEL[x] || x)}</span>`),
-      ].join("") || '<span class="muted">暂无待办</span>'}</p>`;
+        countBadge(b.blocking, "需要更正", "bad"),
+        countBadge(b.unknown, "待确认", "warn"),
+        countBadge(b.human, "组织者核对", "info"),
+        countBadge(b.incomplete, "检查未完成", "warn"),
+        ...(b.pending_jobs || []).map(x => `<span class="badge info">${esc(RUN_LABEL[x] || "正在核对")}</span>`),
+      ].filter(Boolean).join("") || '<span class="muted">暂时没有需要你处理的事项</span>'}</p>`;
     if (r.eligibility && (r.eligibility.required || r.eligibility.status !== 'not_assessed')) {
       html += `<div class="notice-warn">${eligibilityBadge(r.eligibility)}<p>${esc(r.eligibility.status_reason)}</p><p>${r.eligibility.reason ? '资格记录依据：' + esc(r.eligibility.reason) : ''}</p><span>资格由组织者独立核实，材料检查不会自动决定资格。</span></div>`;
     }
@@ -2112,50 +2174,46 @@ async function loadMyResults() {
     const cov = r.coverage || {};
     const gap = (cov.unread_pages || 0) + (cov.failed_pages || 0);
     if (gap) {
-      html += `<div class="flash err">有 ${gap} 页材料未能读取：系统不把没读到的内容判为缺失，`
-        + `请补充清晰可读的材料后重新正式提交。</div>`;
+      html += `<div class="notice-warn"><b>有 ${gap} 页暂时没读清</b><p>这不代表材料缺失。你可以换一份更清晰的文件再提交，或请组织者一起核对。</p></div>`;
     }
     // 规则明细：哪里有问题、怎么改、引用证据、剩余待办
-    const details = r.details || [];
     const todo = details.filter(x => x.decision?.decision === "confirm_issue"
       || (!x.decision?.resolves && ["issue", "unknown", "failed", "manual_pending"].includes(x.result)));
     const done = details.filter(x => x.decision?.resolves
       || (!x.decision && ["satisfied", "not_applicable"].includes(x.result)));
     if (todo.length) {
-      html += `<h3>待办事项（${todo.length}）</h3>` + todo.map(ruleCard).join("");
+      html += `<h3>需要一起处理（${todo.length}）</h3>` + todo.map(ruleCard).join("");
     }
     if (done.length) {
-      html += `<p class="kv">已通过 ${done.length} 项：`
-        + `${done.map(x => esc(x.rule_id)).join("、")}</p>`;
+      html += `<p class="kv">已按要求核对完成 ${done.length} 项。</p>`;
       const reviewed = done.filter(x => x.decision);
-      if (reviewed.length) html += `<details><summary>查看人工核对依据（${reviewed.length} 项）</summary>${reviewed.map(ruleCard).join("")}</details>`;
+      if (reviewed.length) html += `<details><summary>查看组织者的核对记录（${reviewed.length} 项）</summary>${reviewed.map(ruleCard).join("")}</details>`;
     }
     if (!details.length && r.summary && r.summary !== "未正式提交") {
-      html += `<p class="muted">暂无规则明细（可能尚未检查）</p>`;
+      html += `<p class="muted">目前还没有可展示的核对明细；检查完成后会在这里更新。</p>`;
     }
-    // 申诉入口：补交或解释（第 10 节）。解释不改变机器结论。
+    const ruleLabel = id => details.find(x => x.rule_id === id)?.requirement?.statement || "一项要求";
     if (todo.length) {
-      html += `<div class="card"><h3>申诉复核 / 补充说明</h3>
-        <p class="kv">解释不改变机器结论，也不替代组织者决定；
-          组织者核对原文后再决定。也可以选择直接补交更正材料。</p>
+      html += `<div class="card"><h3>想补充说明，或请组织者再看一眼？</h3>
+        <p class="kv">如果你觉得有一处没核对到，可以告诉组织者在哪里；也可以直接补交更正后的材料。组织者会结合原文处理，并保留原来的检查记录。</p>
         <div class="row">
-          <div><label>作用域规则</label><select id="ap-rule">
-            <option value="">整体提交（不指定规则）</option>
-            ${todo.map(x => `<option value="${esc(x.rule_id)}">${esc(x.rule_id)}</option>`).join("")}
+          <div><label>想说明哪一项（可选）</label><select id="ap-rule">
+            <option value="">整份材料</option>
+            ${todo.map(x => `<option value="${esc(x.rule_id)}">${esc(ruleLabel(x.rule_id))}</option>`).join("")}
           </select></div>
         </div>
-        <label>说明/理由（必填）</label>
-        <textarea id="ap-content" placeholder="例如：姓名与登记一致，报告封面第 2 页写的就是本人姓名"></textarea>
-        <button onclick="submitAppeal()">提交解释</button>
+        <label>补充说明（必填）</label>
+        <textarea id="ap-content" placeholder="说说希望组织者再核对哪里，例如：封面第二页的期次可能没识别清楚。"></textarea>
+        <button onclick="submitAppeal()">发给组织者</button>
       </div>`;
     }
     const appeals = r.appeals || [];
     if (appeals.length) {
-      html += `<div class="card"><h3>我的解释与复核申诉</h3>
-        ${appeals.map(a => `<p>#${a.id} ${a.rule_id ? esc(a.rule_id) : "整体"}
+      html += `<div class="card"><h3>我发出的补充说明</h3>
+        ${appeals.map(a => `<p>针对：${a.rule_id ? esc(ruleLabel(a.rule_id)) : "整份材料"}
           <span class="badge${a.status === "withdrawn" ? "" : (a.handled ? " ok" : " warn")}">${
-            a.status === "withdrawn" ? "已撤回" : (a.handled ? "组织者已处理" : "待组织者处理")}</span>
-          <span class="kv">${esc(a.content)}，${esc(a.created_at)}</span>
+            a.status === "withdrawn" ? "已撤回" : (a.handled ? "组织者已处理" : "等待组织者查看")}</span>
+          <span class="kv">${esc(a.content)} · ${esc(fmtTime(a.created_at))}</span>
           ${a.status === "pending" && !a.handled ?
             `<button class="link" onclick="withdrawAppeal(${a.id})">撤回</button>` : ""}</p>`).join("")}
       </div>`;
@@ -2193,8 +2251,7 @@ async function submitAppeal() {
     if (epoch !== state.routeEpoch || token !== subToken()) return;
     const input = document.getElementById("ap-content");
     if (input && input.value.trim() === content) input.value = "";
-    setFlash(`已提交解释 #${r.note_id}（待组织者处理）；`
-      + `解释不改变机器结论`, "ok");
+      setFlash("说明已发给组织者，原有核对记录不会被覆盖；需要更正时也可以直接补交材料。", "ok");
     await loadMyResults();
   });
 }

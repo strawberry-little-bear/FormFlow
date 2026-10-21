@@ -3557,8 +3557,18 @@ a.wb-next-action:hover, button.wb-next-action:hover { background:var(--brand-dee
 .my-results-card .card + .card { border-top:1px solid var(--line-soft); padding-top:14px; margin-top:14px; }
 .my-results-card > h3 { font-size:14px; margin:20px 0 8px; }
 .my-results-card .evidence { margin-top:7px; }
+.result-rule-card h3 { display:flex; flex-wrap:wrap; align-items:center; gap:7px; }
+.result-human-note {
+  margin:10px 0; padding:10px 12px; border-left:3px solid var(--brand);
+  border-radius:0 8px 8px 0; background:#f8f7fd; color:#454354;
+  font-size:12px; line-height:1.7;
+}
+.result-next-step { padding:10px 12px; margin:10px 0; border:1px solid var(--line-soft); border-radius:9px; background:#fbfcfd; }
+.result-next-step b { display:block; color:var(--brand-deep); font-size:11px; margin-bottom:3px; }
+.result-next-step p { margin:0; color:#484c57; font-size:12px; line-height:1.7; }
 @media(max-width:700px) {
   .my-results-card { padding:17px; }
+  .result-rule-card h3 { font-size:14px; }
 }
 
 /* 移动端横向滚动条本身不应撑开页面宽度 */
