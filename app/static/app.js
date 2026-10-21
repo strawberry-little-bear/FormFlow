@@ -165,6 +165,7 @@ function renderNav() {
 
 function logout() {
   cacheDesignInputs();
+  try { sessionStorage.removeItem(REVIEW_DRAFT_KEY); } catch (e) {}
   localStorage.removeItem(ORG_KEY); localStorage.removeItem(SUB_KEY);
   state.chat = []; state.draft = null; state.reviewDrafts = {}; state.reviewContext = null; state.reminder = null;
   navigate("#/login");
@@ -1148,19 +1149,75 @@ function restoreTextFocus(saved) {
   el.focus({preventScroll: true});
   if (typeof saved.start === "number") el.setSelectionRange(saved.start, saved.end);
 }
+// Session-only storage: refresh-safe, never sent as a decision automatically.
+const REVIEW_DRAFT_KEY = "ff_review_drafts:v1";
+const REVIEW_DRAFT_TTL = 7 * 24 * 60 * 60 * 1000;
+function loadReviewDrafts() {
+  if (state.reviewDraftsLoaded) return;
+  state.reviewDraftsLoaded = true;
+  state.reviewDrafts ||= {};
+  try {
+    const stored = JSON.parse(sessionStorage.getItem(REVIEW_DRAFT_KEY) || "{}");
+    if (!stored || typeof stored !== "object" || Array.isArray(stored)) throw new Error("invalid draft");
+    for (const [key, draft] of Object.entries(stored)) {
+      if (!/^[a-f0-9]{64}$/.test(key) || !draft || typeof draft !== "object" ||
+          !Number.isFinite(draft.updatedAt) || Date.now() - draft.updatedAt > REVIEW_DRAFT_TTL ||
+          draft.updatedAt > Date.now() || !draft.rules || typeof draft.rules !== "object" || Array.isArray(draft.rules)) continue;
+      const rules = Object.create(null);
+      for (const [rule, values] of Object.entries(draft.rules)) {
+        if (!values || typeof values !== "object") continue;
+        rules[rule] = Object.fromEntries(["dc-type", "dc-exp", "dc-reason"]
+          .filter(id => typeof values[id] === "string").map(id => [id, values[id]]));
+      }
+      state.reviewDrafts[key] = {rules, acceptanceReason: typeof draft.acceptanceReason === "string" ? draft.acceptanceReason : "",
+        eligibility: Object.fromEntries(["eligibility-result", "eligibility-reason", "eligibility-exp"]
+          .filter(id => typeof draft.eligibility?.[id] === "string").map(id => [id, draft.eligibility[id]])),
+        activeRule: typeof draft.activeRule === "string" ? draft.activeRule : null, updatedAt: draft.updatedAt};
+    }
+  } catch (e) { state.reviewCacheFailed = true; }
+}
+function reviewDraftStatus() {
+  const el = document.getElementById("review-draft-status");
+  if (el) el.textContent = state.reviewCacheFailed
+    ? "暂存不可用：理由仅保留在当前页面，请勿刷新或关闭。"
+    : "理由已在本标签页暂存 · 刷新可恢复 · 尚未提交决定";
+}
+function persistReviewDrafts() {
+  try {
+    const entries = Object.entries(state.reviewDrafts || {}).filter(([key, d]) =>
+      /^[a-f0-9]{64}$/.test(key) && Date.now() - d.updatedAt <= REVIEW_DRAFT_TTL)
+      .sort((a, b) => b[1].updatedAt - a[1].updatedAt).slice(0, 50);
+    sessionStorage.setItem(REVIEW_DRAFT_KEY, JSON.stringify(Object.fromEntries(entries)));
+    state.reviewDrafts = Object.fromEntries(entries);
+    state.reviewCacheFailed = false;
+  } catch (e) { state.reviewCacheFailed = true; }
+  reviewDraftStatus();
+}
 function cacheReviewDraft() {
   if (!state.reviewContext || !document.getElementById("dc-reason")) return;
-  state.reviewDrafts ||= {};
-  const draft = state.reviewDrafts[state.reviewContext] ||= {rules: {}};
-  draft.rules[state.reviewRule || ""] = Object.fromEntries(["dc-type", "dc-rule", "dc-exp", "dc-reason"]
+  loadReviewDrafts();
+  const draft = state.reviewDrafts[state.reviewContext] ||= {rules: Object.create(null)};
+  draft.rules[state.reviewRule || ""] = Object.fromEntries(["dc-type", "dc-exp", "dc-reason"]
     .map(id => [id, document.getElementById(id)?.value || ""]));
-  draft.acceptanceReason = document.getElementById("acceptance-reason")?.value || "";
-  draft.eligibilityMembersHash = state.reviewData?.eligibility?.members_hash;
-  draft.eligibility = Object.fromEntries(["eligibility-result", "eligibility-reason", "eligibility-exp"]
-    .map(id => [id, document.getElementById(id)?.value || ""]));
+  const acceptance = document.getElementById("acceptance-reason");
+  if (acceptance) draft.acceptanceReason = acceptance.value;
+  if (document.getElementById("eligibility-reason")) draft.eligibility = Object.fromEntries(
+    ["eligibility-result", "eligibility-reason", "eligibility-exp"].map(id => [id, document.getElementById(id)?.value || ""]));
+  draft.activeRule = state.reviewRule;
+  draft.updatedAt = Date.now();
+  persistReviewDrafts();
 }
+function discardReviewDraft(taskId, sid) {
+  if (state.deciding || !confirm("清空此主体、版本和成员范围内所有未提交的理由？已提交的决定不受影响。")) return;
+  delete state.reviewDrafts?.[state.reviewContext];
+  persistReviewDrafts();
+  paintReview(taskId, sid);
+  setFlash("已清空当前复核范围的理由草稿，已提交决定不受影响。", "ok");
+}
+window.addEventListener("pagehide", cacheReviewDraft);
 async function viewReview(taskId, sid) {
   cacheReviewDraft();
+  state.reviewContext = null;
   const epoch = state.routeEpoch, requestId = (state.reviewRequestId || 0) + 1;
   state.reviewRequestId = requestId;
   state.reviewConflict = false;
@@ -1178,8 +1235,12 @@ async function viewReview(taskId, sid) {
   try {
     const d = await api(`/api/tasks/${taskId}/subjects/${sid}/findings`);
     if (epoch !== state.routeEpoch || requestId !== state.reviewRequestId) return;
-    const context = `${taskId}:${sid}:${d.revision?.id || 0}`;
-    if (context !== state.reviewContext) state.reviewRule = null;
+    loadReviewDrafts();
+    if (!/^[a-f0-9]{64}$/.test(d.review_context || "")) throw new Error("复核范围缺失，请刷新后重试；未提交理由不会套用到未知范围。");
+    const context = d.review_context;
+    const saved = state.reviewDrafts[context];
+    if (saved && Date.now() - saved.updatedAt > REVIEW_DRAFT_TTL) delete state.reviewDrafts[context];
+    state.reviewRule = state.reviewDrafts[context]?.activeRule || null;
     state.reviewContext = context;
     state.reviewData = d;
     document.getElementById("rv-name").textContent = d.subject.name;
@@ -1210,14 +1271,24 @@ function paintReview(taskId, sid) {
   const cov = run && run.coverage ? run.coverage : null;
   const gap = cov ? (cov.unread_pages || 0) + (cov.failed_pages || 0) : 0;
 
+  const pending = rules.filter(needsReview);
+  const evidenceStep = rules.length
+    ? `<button class="ghost sm" onclick="jumpReviewSection('review-evidence')"><b>01</b> 核对材料 <span>${pending.length} 项待决定</span></button>`
+    : `<button class="ghost sm" disabled title="本版本没有材料检查规则"><b>01</b> 核对材料 <span>本版本无规则</span></button>`;
+  const workflow = `<nav class="review-workflow" aria-label="复核步骤">
+    ${evidenceStep}
+    <button class="ghost sm" onclick="jumpReviewSection('review-eligibility')" ${qualification ? '' : 'disabled'}><b>02</b> 核实资格 <span>${esc(ELIGIBILITY_LABEL[qualification?.status] || '未启用')}</span></button>
+    <button class="ghost sm" onclick="jumpReviewSection('review-acceptance')"><b>03</b> 验收版本 <span>${d.acceptance?.accepted ? '已验收' : d.acceptance?.ready ? '可验收' : '尚有前置待办'}</span></button>
+  </nav>`;
   const meta = `<section class="review-summary card">
     <div class="review-subject"><span class="wb-avatar">${esc((d.subject.name || "?").slice(0, 1))}</span><div><h2>${esc(d.subject.name)}</h2><span>主体 #${d.subject.id}${d.revision ? ` · 当前版本 v${d.revision.version} · 回执 ${esc(d.revision.receipt)}` : ""}${run ? ` · 运行 #${run.id}（${esc(RUN_LABEL[run.status] || run.status)}）` : ""}</span></div></div>
     ${qualification && (qualification.required || qualification.status !== 'not_assessed') ? `<div>${eligibilityBadge(qualification)} <span class="muted">${esc(qualification.status_reason)}</span></div>` : ''}
+    <div class="review-scope"><span class="badge info">本次复核范围</span><span>主体 #${d.subject.id} · ${d.revision ? `正式 v${d.revision.version}` : "尚未正式提交"} · ${qualification?.members?.length ? `登记成员：${qualification.members.map(esc).join("、")}` : "个人 / 未登记团队成员"}</span><p>理由只恢复到相同账号、主体、版本、成员与检查证据；范围变化后请重新核对。</p></div>
     <div class="review-metrics">${[["问题", counts.issue, "bad"], ["待人工核对", counts.unknown + counts.manual, "warn"], ["失败", counts.failed, "bad"], ["满足", counts.satisfied, "ok"]].map(([l, n, c]) => `<div class="review-metric"><strong class="${c}">${n}</strong><span>${l}</span></div>`).join("")}</div>
     ${gap ? `<div class="notice-warn">材料共 ${gap} 页未能读取。这些页不构成「确认缺失」，相关规则按待确认处理；请让提交者补充清晰材料，或人工核对。</div>` : ""}
   </section>`;
 
-  const list = rules.length ? `<div class="review-rules" role="list">${rules.map(r => {
+  const list = rules.length ? `<div class="review-list-actions"><span>${pending.length} 项待决定 / 共 ${rules.length} 项</span><button class="ghost sm" ${pending.length ? '' : 'disabled'} onclick="nextPendingReview(${taskId},${sid})">下一待处理 ↓</button></div><div class="review-rules" role="group" aria-label="检查规则">${rules.map(r => {
     const on = r.rule_id === state.reviewRule;
     return `<button class="review-rule-item ${on ? "on" : ""}" aria-current="${on}" data-review-rule="${esc(r.rule_id)}">
       <span class="review-rule-id">${esc(r.rule_id)}</span>
@@ -1227,16 +1298,16 @@ function paintReview(taskId, sid) {
   }).join("")}</div>` : `<div class="empty-state"><div class="empty-icon">${icon("workbench")}</div><h3>${d.revision ? run?.status === 'success' ? "本版本没有材料检查规则" : "暂无规则结果" : "尚无正式提交"}</h3><p>${d.revision ? run?.status === 'success' ? "材料检查已完成，请核对独立资格与验收状态。" : "可能尚未检查。回到工作台发起检查，或稍后刷新。" : "现在可以处理主体免交或预核资格；正式提交后才能检查和验收材料。"}</p><p><a class="ghost sm" href="#/workbench/${taskId}">返回工作台</a></p></div>`;
 
   const evidence = active ? `
-    <article class="evidence-detail">
+    <article class="evidence-detail" id="review-evidence" tabindex="-1">
       <header><div><span class="eyebrow">RULE ${esc(active.rule_id)}</span><h2>${esc((active.requirement && active.requirement.statement) || active.rule_id)}</h2></div>${resultBadge(active.result)}</header>
       <div class="evidence-meta">${(active.requirement && active.requirement.executor) ? `<span class="badge">${esc(EXECUTOR_LABEL[active.requirement.executor] || active.requirement.executor)}</span>` : ""}${(active.requirement && active.requirement.capability) ? (CAP_BADGE[active.requirement.capability] || "") : ""}<span class="badge">${esc(severityLabel(active.severity))}</span>${(active.requirement && active.requirement.requirement_source) ? `<span class="source-quote">来源：${esc(active.requirement.requirement_source)}</span>` : ""}</div>
       ${active.decision ? `<div class="notice-warn"><b>${esc(DECISION_LABEL[active.decision.decision] || active.decision.decision)}</b><p>${esc(active.decision.reason)}</p><span class="muted">人工决定不改写原始检查结果；撤销后可重新核对。</span></div>` : ""}
       ${active.explanation ? `<p class="evidence-explanation">${esc(active.explanation)}</p>` : ""}
       ${(active.evidence || []).length ? `<div class="evidence-list">${active.evidence.map(e => `<blockquote class="evidence"><span class="evidence-loc">${esc(e.locator || "未标注位置")} · ${esc(e.method || "-")}</span>${esc(e.quote || "")}</blockquote>`).join("")}</div>` : `<p class="muted">这条规则没有可引用的原文证据。</p>`}
       ${active.next_step ? `<div class="evidence-next"><b>${active.decision ? "原始检查建议" : "下一步"}</b><p>${esc(active.next_step)}</p></div>` : ""}
-    </article>` : `<article class="evidence-detail"><p class="muted">${rules.length ? "选择左侧任一规则查看证据。" : "暂无可展示的规则证据。"}</p></article>`;
+    </article>` : `<article class="evidence-detail" id="review-evidence" tabindex="-1"><p class="muted">${rules.length ? "选择左侧任一规则查看证据。" : "暂无可展示的规则证据。"}</p></article>`;
 
-  const decision = `<section class="card decision-panel" aria-label="人工决定">
+  const decision = `<section class="card decision-panel" id="review-decision" tabindex="-1" aria-label="人工决定">
     <div class="section-heading"><div><div class="eyebrow">DECISION</div><h2>${active ? "人工决定" : "免交与决定历史"}</h2></div><span class="muted">撤销只追加记录，不删历史</span></div>
     <div class="decision-form">
       <div class="grid2"><div><label for="dc-type">决定</label><select id="dc-type">
@@ -1250,7 +1321,7 @@ function paintReview(taskId, sid) {
       ${active ? '<p class="field-help">确认问题会保留补正待办；核对通过、纠正误报或批准例外只解除当前规则，之后仍需单独验收。</p>' : ''}
       <p class="field-help">免交对整个任务生效；到期或撤销后重新计入应交，已有正式提交和历史回执保留。</p><label for="dc-exp">过期时间（可空，ISO；无偏移时按任务时区）</label><input id="dc-exp" placeholder="2026-12-31T23:59:59+08:00">
       <label for="dc-reason">理由（必填）</label><textarea id="dc-reason" placeholder="为什么这样做决定；提交者解释会显示在上方"></textarea>
-      <p class="muted">切换规则或页面会暂存理由；浏览器刷新或关闭后不保留。</p>
+      <div class="review-draft-note"><p id="review-draft-status" role="status" aria-live="polite"></p><p class="muted">仅当前浏览器标签页，最长 7 天；关闭标签页或退出登录后不再保证保留，不跨设备同步。</p><button class="link" onclick="discardReviewDraft(${taskId},${sid})">清空本次理由草稿</button></div>
       <div id="review-conflict" role="alert"></div>
       <button id="decision-submit" ${state.reviewConflict ? "disabled" : ""} onclick="submitDecision(${taskId},${sid})">提交决定 ${icon("arrow")}</button>
     </div>
@@ -1260,13 +1331,13 @@ function paintReview(taskId, sid) {
   </section>`;
 
   const acceptance = d.acceptance || {ready: false, blockers: ["请刷新复核状态"]};
-  const acceptPanel = `<section class="card acceptance-panel" aria-label="验收本版本">
+  const acceptPanel = `<section class="card acceptance-panel" id="review-acceptance" tabindex="-1" aria-label="验收本版本">
     <h2>${acceptance.accepted ? "本版本已验收" : "验收本版本"}</h2>
     <p>验收只针对${d.revision ? ` v${d.revision.version}` : "当前版本"}，不豁免尚未处置的规则，也不自动验收后续补交。</p>
     ${acceptance.blockers.length ? `<div class="notice-warn"><b>验收前还需处理</b><ul>${acceptance.blockers.map(x => `<li>${esc(x)}</li>`).join("")}</ul></div>` : ""}
     ${acceptance.accepted ? '<span class="badge ok">已记录验收决定</span>' : `<label for="acceptance-reason">验收依据（必填）</label><textarea id="acceptance-reason" placeholder="核对了哪些材料，为什么可以验收"></textarea><button id="acceptance-submit" ${!acceptance.ready || state.reviewConflict ? "disabled" : ""} onclick="submitDecision(${taskId},${sid},'accept_current')">确认验收${d.revision ? ` v${d.revision.version}` : "本版本"}</button>`}
   </section>`;
-  const eligibilityPanel = qualification ? `<section class="card eligibility-panel" aria-label="资格核实">
+  const eligibilityPanel = qualification ? `<section class="card eligibility-panel" id="review-eligibility" tabindex="-1" aria-label="资格核实">
     <div class="section-heading"><h2>独立核实资格</h2>${eligibilityBadge(qualification)}</div>
     <p>${qualification.required ? '本任务要求资格符合后才能验收材料。' : '本任务未启用资格前提；资格结论单独记录。'}材料检查不会推导资格结论。</p>
     <p class="field-help">${esc(qualification.status_reason)}${qualification.reason ? '；资格记录依据：' + esc(qualification.reason) : ''}</p>
@@ -1284,47 +1355,80 @@ function paintReview(taskId, sid) {
   const sameName = (d.same_name_subjects || []).length ? `<section class="card notice-warn"><b>同名主体待核</b><p>${esc(d.same_name_hint || "")}</p>${d.same_name_subjects.map(s => `<p>主体 #${s.id}（${esc(s.name)}）——以主体 ID 为准人工核对，系统不自动合并。</p>`).join("")}</section>` : "";
   const covHtml = coverageCard(run);
 
-  document.getElementById("rv").innerHTML = `${meta}${sameName}
-    <div class="review-layout ${rules.length ? '' : 'no-rule-layout'}">${rules.length ? `<div class="review-list-col">${list}</div>` : ''}<div class="review-detail-col">${rules.length ? evidence : `<div class="notice-warn">${d.revision ? '本版本没有材料检查规则。请直接核对独立资格与验收状态。' : '尚无正式提交，现在可以预核资格或处理免交；正式提交后才能验收。'}</div>`}${notesHtml}${eligibilityPanel}${decision}${acceptPanel}${covHtml}</div></div>`;
+  document.getElementById("rv").innerHTML = `${meta}${workflow}${sameName}
+    <div class="review-layout ${rules.length ? '' : 'no-rule-layout'}">${rules.length ? `<div class="review-list-col">${list}</div>` : ''}<div class="review-detail-col">${rules.length ? evidence : `<div class="notice-warn">${d.revision ? '本版本没有材料检查规则。请直接核对独立资格与验收状态。' : '尚无正式提交，现在可以预核资格或处理免交；正式提交后才能验收。'}</div>`}${notesHtml}${decision}${eligibilityPanel}${acceptPanel}${covHtml}</div></div>`;
   document.querySelectorAll("[data-review-rule]").forEach(el => el.addEventListener("click", () =>
     selectReviewRule(el.dataset.reviewRule, taskId, sid)));
   const draft = state.reviewDrafts?.[state.reviewContext];
+  for (const id of ["dc-type", "dc-reason", "dc-exp", "eligibility-result", "eligibility-reason", "eligibility-exp"]) {
+    const el = document.getElementById(id); if (el) el.value = "";
+  }
   if (draft?.rules[state.reviewRule || ""]) Object.entries(draft.rules[state.reviewRule || ""]).forEach(([id, value]) => {
-    const el = document.getElementById(id); if (el) el.value = value;
+    const el = document.getElementById(id); if (el && id !== "dc-rule" && (id !== "dc-type" || ["confirm_pass", "confirm_issue", "correct_false_positive", "approve_exception", "exempt", ""].includes(value))) el.value = value;
   });
   if (document.getElementById("acceptance-reason")) document.getElementById("acceptance-reason").value = draft?.acceptanceReason || "";
-  if (draft?.eligibility && draft.eligibilityMembersHash === qualification?.members_hash) Object.entries(draft.eligibility).forEach(([id,value]) => {
-    const el = document.getElementById(id); if (el) el.value = value;
+  if (draft?.eligibility) Object.entries(draft.eligibility).forEach(([id,value]) => {
+    const el = document.getElementById(id); if (el && (id !== "eligibility-result" || ["eligible", "ineligible", "pending", ""].includes(value))) el.value = value;
   });
   if (!d.revision || !active) {
     document.querySelectorAll("#dc-type option").forEach(o => { o.disabled = o.value !== "exempt"; });
     document.getElementById("dc-type").value = "exempt";
   }
+  const context = state.reviewContext;
+  for (const id of ["dc-type", "dc-exp", "dc-reason", "acceptance-reason", "eligibility-result", "eligibility-reason", "eligibility-exp"]) {
+    const el = document.getElementById(id);
+    if (el) for (const event of ["input", "change"]) el.addEventListener(event, () => {
+      if (context === state.reviewContext) cacheReviewDraft();
+    });
+  }
+  const status = document.getElementById("review-draft-status");
+  if (status) {
+    if (state.reviewCacheFailed) reviewDraftStatus();
+    else status.textContent = draft ? "已恢复当前复核范围的理由草稿 · 尚未提交决定" : "尚无理由草稿 · 输入时自动暂存，刷新可恢复";
+  }
   if (state.reviewConflict) showReviewConflict(taskId, sid);
+}
+function needsReview(rule) {
+  return !rule.decision && ["issue", "unknown", "failed", "manual_pending"].includes(rule.result);
+}
+function jumpReviewSection(id) {
+  const section = document.getElementById(id);
+  if (!section) return;
+  section.scrollIntoView({block: "start"});
+  section.focus({preventScroll: true});
+}
+function nextPendingReview(taskId, sid) {
+  if (state.deciding) return;
+  const rules = state.reviewData?.rules || [];
+  const index = rules.findIndex(r => r.rule_id === state.reviewRule);
+  const ordered = [...rules.slice(index + 1), ...rules.slice(0, index + 1)];
+  const next = ordered.find(needsReview);
+  if (next) selectReviewRule(next.rule_id, taskId, sid);
 }
 function selectReviewRule(ruleId, taskId, sid) {
   if (state.deciding) return;
   cacheReviewDraft();
   state.reviewRule = ruleId;
   paintReview(taskId, sid);
-  const box = document.querySelector(".review-layout"); if (box) box.scrollIntoView({block: "nearest"});
+  jumpReviewSection("review-evidence");
 }
 function showReviewConflict(taskId, sid) {
   document.getElementById("decision-submit").disabled = true;
   if (document.getElementById("acceptance-submit")) document.getElementById("acceptance-submit").disabled = true;
   if (document.getElementById("eligibility-submit")) document.getElementById("eligibility-submit").disabled = true;
-  document.getElementById("review-conflict").innerHTML = `<div class="notice-warn">提交版本或登记成员已变化，决定未保存。下方理由与当前证据已保留；请先核对新版本。<button class="ghost sm" onclick="refreshReview(${taskId},${sid})">刷新并核对最新版本</button></div>`;
+  document.getElementById("review-conflict").innerHTML = `<div class="notice-warn">复核范围已变化，决定未保存。理由仍按旧范围保留；请先刷新核对主体、版本、成员与检查证据。<button class="ghost sm" onclick="refreshReview(${taskId},${sid})">刷新并核对最新版本</button></div>`;
 }
 async function refreshReview(taskId, sid) {
   cacheReviewDraft();
   const epoch = state.routeEpoch;
   if (await viewReview(taskId, sid) && epoch === state.routeEpoch)
-    setFlash("已核对最新版本。旧理由按原版本暂存在本标签页，不自动套用到新版本。", "ok");
+    setFlash("已读取最新复核范围。旧理由只在原主体、版本、成员与检查证据完全匹配时恢复，不自动套用。", "ok");
 }
 async function submitDecision(taskId, sid, action = null) {
   if (state.reviewConflict || state.deciding) return;
-  const epoch = state.routeEpoch, context = state.reviewContext, requestId = state.reviewRequestId;
+  const epoch = state.routeEpoch, context = state.reviewContext, requestId = state.reviewRequestId, submittedRule = state.reviewRule || "";
   const isCurrent = () => epoch === state.routeEpoch && context === state.reviewContext && requestId === state.reviewRequestId;
+  cacheReviewDraft();
   state.deciding = true;
   const controls = [...document.querySelectorAll("#rv button, #rv input, #rv textarea, #rv select")]
     .map(el => ({el, disabled: el.disabled}));
@@ -1333,11 +1437,13 @@ async function submitDecision(taskId, sid, action = null) {
   const reasonId = isEligibility ? "eligibility-reason" : action === "accept_current" ? "acceptance-reason" : "dc-reason";
   const btn = document.getElementById(isEligibility ? "eligibility-submit" : action === "accept_current" ? "acceptance-submit" : "decision-submit"); btn.disabled = true;
   try {
+    const submittedReason = document.getElementById(reasonId).value;
     const form = {
       decision: action || document.getElementById("dc-type").value,
-      reason: document.getElementById(reasonId).value.trim(),
+      reason: submittedReason.trim(),
       scope_rule_id: action === "accept_current" || isEligibility || document.getElementById("dc-type").value === "exempt" ? "" : document.getElementById("dc-rule").value.trim(),
       expected_current_revision: state.reviewData?.revision?.id || 0,
+      expected_review_context: state.reviewData?.review_context || "",
     };
     const exp = document.getElementById(isEligibility ? "eligibility-exp" : "dc-exp").value.trim();
     if (exp && (!action || isEligibility)) form.expires_at = exp;
@@ -1350,6 +1456,17 @@ async function submitDecision(taskId, sid, action = null) {
     if (!form.reason) throw new Error("请先填写决定理由或验收依据");
     if (form.decision === "exempt" && !confirm("免交作用于整个主体，会移出应交和催交名单，但不代表材料已验收。确认免交？")) return;
     await api(`/api/tasks/${taskId}/subjects/${sid}/decisions`, { method: "POST", form });
+    const saved = state.reviewDrafts?.[context];
+    if (saved) {
+      // A request may finish after leaving and reopening this exact scope.
+      // Only clear the input actually sent, never a newer local edit.
+      if (action === "accept_current") {
+        if (saved.acceptanceReason === submittedReason) saved.acceptanceReason = "";
+      } else if (isEligibility) {
+        if (saved.eligibility?.["eligibility-reason"] === submittedReason) saved.eligibility["eligibility-reason"] = "";
+      } else if (saved.rules[submittedRule]?.["dc-reason"] === submittedReason) saved.rules[submittedRule]["dc-reason"] = "";
+      persistReviewDrafts();
+    }
     if (!isCurrent()) return;
     document.getElementById(reasonId).value = "";
     if (await viewReview(taskId, sid) && epoch === state.routeEpoch)

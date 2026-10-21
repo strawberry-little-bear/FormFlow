@@ -19,19 +19,19 @@ function element(value = '') {
     insertAdjacentHTML(_, html) {this.innerHTML = html + this.innerHTML;},
     focus() {this.focused = true;}, setSelectionRange(start, end) {this.selectionStart = start; this.selectionEnd = end;}};
 }
-function setup() {
+function setup(sharedStorage = storage()) {
   const els = Object.fromEntries(['sub', 'draft-hint', 'flash', 'receipt-out', 'decision-submit',
     'review-conflict', 'dc-type', 'dc-rule', 'dc-reason', 'dc-exp', 'acceptance-reason', 'acceptance-submit',
-    'submission-errors', 'field-error-name', 'app', 'rv', 'rv-name', 'my-results', 'nav', 'role-label', 'btn-logout'].map(id => [id, element()]));
+    'review-draft-status', 'submission-errors', 'field-error-name', 'app', 'rv', 'rv-name', 'my-results', 'nav', 'role-label', 'btn-logout'].map(id => [id, element()]));
   const fields = [Object.assign(element('old'), {dataset: {field:'name'}})];
   els['field-name'] = fields[0];
   const document = {getElementById: id => els[id] || null,
     querySelectorAll: sel => sel === '[data-field]' ? fields : [], querySelector: () => null};
-  const context = vm.createContext({document, localStorage: storage(), sessionStorage: storage(),
+  const context = vm.createContext({document, localStorage: storage(), sessionStorage: sharedStorage,
     window: {addEventListener() {}}, location: {hash:'#/submit'}, Intl, URLSearchParams, FormData,
     setTimeout, clearTimeout, confirm: () => true, console,
     fetch: async () => {throw new Error('Unexpected request');}});
-  vm.runInContext(source + '\nthis.app = {state, useVersionAsBase, loadDesignVersion, cacheDesignInputs, restoreDesignInputs, recoverDesignInput, paintChat, runAgent, canPublishDesign, publishDiffHtml, publishBp, confirmPublish, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, draftFingerprint, collectDraftFields, cacheSubmissionDraft, setSubMode, refreshSlotConditions, wbMatches, api, submitDecision, saveDraft, doSubmit, uploadSlot, cacheReviewDraft, selectReviewRule, viewReview, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, submissionIssues, showSubmissionIssues, initSubChat};', context);
+  vm.runInContext(source + '\nthis.app = {state, useVersionAsBase, loadDesignVersion, cacheDesignInputs, restoreDesignInputs, recoverDesignInput, paintChat, runAgent, canPublishDesign, publishDiffHtml, publishBp, confirmPublish, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, draftFingerprint, collectDraftFields, cacheSubmissionDraft, setSubMode, refreshSlotConditions, wbMatches, api, submitDecision, saveDraft, doSubmit, uploadSlot, cacheReviewDraft, discardReviewDraft, logout, nextPendingReview, selectReviewRule, viewReview, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, submissionIssues, showSubmissionIssues, initSubChat};', context);
   Object.assign(context.app.state, {routeEpoch: 1, me:{task:{id:1, status:'collecting', timezone:'Asia/Shanghai'},subject:{id:2}},
     draftVersion:1, fileMeta:{}, sub:{mode:'chat',phase:'fields',fIdx:0, fields:[{id:'name'}],slots:[],answers:{}}});
   context.localStorage.setItem('ff_sub_token', 'test-only-credential');
@@ -138,17 +138,17 @@ test('review reasons are isolated by rule, subject and formal revision', () => {
   const {app,els} = setup();
   app.state.reviewData = {subject:{id:2,name:'A'},revision:{id:41,version:1},rules:[
     {rule_id:'A',result:'manual_pending'}, {rule_id:'B',result:'unknown'}],acceptance:{ready:false,blockers:[]}};
-  app.state.reviewContext='1:2:41';app.state.reviewRule='A';
+  app.state.reviewContext=reviewScope('a');app.state.reviewRule='A';
   els['dc-reason'].value='only A';els['acceptance-reason'].value='separate acceptance';
   app.selectReviewRule('B',1,2);els['dc-reason'].value='only B';
   app.selectReviewRule('A',1,2);
   assert.equal(els['dc-reason'].value,'only A');
   assert.equal(els['acceptance-reason'].value,'separate acceptance');
-  assert.equal(app.state.reviewDrafts['1:2:41'].rules.B['dc-reason'],'only B');
-  app.state.reviewContext='1:3:42';app.state.reviewRule='A';els['dc-reason'].value='other subject';
+  assert.equal(app.state.reviewDrafts[reviewScope('a')].rules.B['dc-reason'],'only B');
+  app.state.reviewContext=reviewScope('b');app.state.reviewRule='A';els['dc-reason'].value='other subject';
   app.cacheReviewDraft();
-  assert.equal(app.state.reviewDrafts['1:2:41'].rules.A['dc-reason'],'only A');
-  assert.equal(app.state.reviewDrafts['1:3:42'].rules.A['dc-reason'],'other subject');
+  assert.equal(app.state.reviewDrafts[reviewScope('a')].rules.A['dc-reason'],'only A');
+  assert.equal(app.state.reviewDrafts[reviewScope('b')].rules.A['dc-reason'],'other subject');
 });
 test('acceptance has its own reason, no rule scope or rule expiry, and locks on conflict', async () => {
   const {app,context,els} = setup();app.state.reviewData={revision:{id:41}};
@@ -165,12 +165,12 @@ test('acceptance has its own reason, no rule scope or rule expiry, and locks on 
 });
 test('a pending decision cannot switch rule or erase another review context', async () => {
   const {app,context,els} = setup();app.state.reviewData={revision:{id:41}};
-  app.state.reviewContext='1:2:41';app.state.reviewRule='A';
+  app.state.reviewContext=reviewScope('a');app.state.reviewRule='A';
   els['dc-type'].value='confirm_issue';els['dc-reason'].value='original';
   const pending=deferred();context.fetch=()=>pending.promise;
   const saving=app.submitDecision(1,2);app.selectReviewRule('B',1,2);
   assert.equal(app.state.reviewRule,'A');
-  app.state.reviewContext='1:3:45';els['dc-reason'].value='other context';
+  app.state.reviewContext=reviewScope('c');els['dc-reason'].value='other context';
   pending.resolve(response({}));await saving;
   assert.equal(els['dc-reason'].value,'other context');
 });
@@ -348,7 +348,7 @@ test('revoke dialog validates reason, locks retries and preserves reason on fail
   const {app,context,els} = setup();
   for (const id of ['revoke-dialog','revoke-impact','revoke-reason','revoke-error','revoke-confirm','revoke-cancel']) els[id]=element();
   els['revoke-dialog'].showModal=()=>{els['revoke-dialog'].open=true;};
-  app.state.reviewContext='1:2:0'; app.state.reviewData={decisions:[{id:7,decision:'exempt'}]};
+  app.state.reviewContext=reviewScope('d'); app.state.reviewData={decisions:[{id:7,decision:'exempt'}]};
   app.revokeDecision(1,2,7); assert.equal(els['revoke-dialog'].open,true);
   assert.match(els['revoke-impact'].textContent,/恢复应交/);
   await app.confirmRevokeDecision(); assert.match(els['revoke-error'].textContent,/理由/);
@@ -365,7 +365,7 @@ test('revoke dialog validates reason, locks retries and preserves reason on fail
 
 test('confirmed issues remain visible as problems in review and submitter details', async () => {
   const {app,els,context} = setup();
-  app.state.reviewContext='1:2:3'; app.state.reviewData={subject:{id:2,name:'用户'},revision:{id:3,version:1},
+  app.state.reviewContext=reviewScope('e'); app.state.reviewData={subject:{id:2,name:'用户'},revision:{id:3,version:1},
     rules:[{rule_id:'H',result:'satisfied',decision:{decision:'confirm_issue',reason:'内容仍有问题',resolves:false}}],
     acceptance:{ready:false,accepted:false,blockers:['H 需补正']}};
   app.paintReview(1,2);
@@ -394,7 +394,7 @@ test('human resolution moves raw unknown out of submitter todo without hiding ev
 test('eligibility submit uses its own conclusion, reason, expiry and reviewed member scope', async () => {
   const {app,context,els} = setup();
   for (const id of ['eligibility-result','eligibility-reason','eligibility-exp','eligibility-submit']) els[id]=element();
-  app.state.reviewContext='1:2:9'; app.state.reviewData={revision:{id:9},eligibility:{members_hash:'verified-members'}};
+  app.state.reviewContext=reviewScope('f'); app.state.reviewData={revision:{id:9},eligibility:{members_hash:'verified-members'}};
   els['eligibility-result'].value='eligible'; els['eligibility-reason'].value='独立资格依据';
   els['eligibility-exp'].value='2099-01-01T00:00:00Z';
   els['dc-rule'].value='rule-A'; els['dc-reason'].value='其他规则理由';
@@ -410,11 +410,11 @@ test('eligibility submit uses its own conclusion, reason, expiry and reviewed me
 test('qualification reasons are cached independently and a late save cannot erase another review', async () => {
   const {app,context,els} = setup();
   for (const id of ['eligibility-result','eligibility-reason','eligibility-exp','eligibility-submit']) els[id]=element();
-  app.state.reviewContext='1:2:9'; app.state.reviewData={revision:{id:9},eligibility:{members_hash:'members'}};
+  app.state.reviewContext=reviewScope('f'); app.state.reviewData={revision:{id:9},eligibility:{members_hash:'members'}};
   els['eligibility-result'].value='pending'; els['eligibility-reason'].value='还需核实';
-  app.cacheReviewDraft(); assert.equal(app.state.reviewDrafts['1:2:9'].eligibility['eligibility-reason'],'还需核实');
+  app.cacheReviewDraft(); assert.equal(app.state.reviewDrafts[reviewScope('f')].eligibility['eligibility-reason'],'还需核实');
   const pending=deferred(); context.fetch=async()=>pending.promise;
-  const save=app.submitDecision(1,2,'eligibility'); app.state.reviewContext='1:3:10';
+  const save=app.submitDecision(1,2,'eligibility'); app.state.reviewContext=reviewScope('0');
   els['eligibility-reason'].value='另一主体的理由'; pending.resolve(response({decision_id:1})); await save;
   assert.equal(els['eligibility-reason'].value,'另一主体的理由');
 });
@@ -448,6 +448,8 @@ test('a no-rule review shows qualification directly rather than an empty mobile 
   assert.doesNotMatch(els.rv.innerHTML,/review-list-col/);
   assert.match(els.rv.innerHTML,/独立核实资格/);
   assert.match(els.rv.innerHTML,/当前登记成员：甲、乙/);
+  assert.match(els.rv.innerHTML,/review-workflow/);
+  assert.match(els.rv.innerHTML,/本版本无规则/);
   assert.doesNotMatch(els.rv.innerHTML,/可能尚未检查/);
 });
 
@@ -542,4 +544,145 @@ test('loading historical preview locks agent edits until the version response se
   pending.resolve(response({...updatedDesign(),blueprint_version_id:1,version:1,status:'published',source_text:'历史原始要求'}));await loading;
   assert.equal(app.state.agentBusy,false);assert.equal(app.state.viewingVersion.id,1);assert.equal(app.canPublishDesign(),false);
   app.useVersionAsBase();assert.equal(app.state.requirement,'历史原始要求');assert.equal(app.canPublishDesign(),false);
+});
+
+const reviewScope = c => c.repeat(64);
+function reviewPage(scope, subject = 2, version = 1) {
+  return {review_context:scope, subject:{id:subject,name:'主体'},revision:{id:40+version,version,receipt:'R'},
+    members:[{id:1,name:'成员'}], rules:[{rule_id:'A',result:'manual_pending'}, {rule_id:'B',result:'unknown'}],
+    acceptance:{ready:true,accepted:false,blockers:[]}};
+}
+async function openReview(env, page) {
+  env.context.fetch=async()=>response(page);
+  await env.app.viewReview(1,page.subject.id);
+}
+test('input is persisted immediately; a new VM restores both reasons after refresh', async () => {
+  const shared=storage(), first=setup(shared), page=reviewPage(reviewScope('a'));
+  await openReview(first,page);
+  first.els['dc-type'].value='approve_exception';first.els['dc-reason'].value='规则依据';
+  first.els['dc-exp'].value='2026-12-31T00:00:00Z';first.els['acceptance-reason'].value='独立验收依据';
+  first.els['dc-reason'].listeners.input();
+  const next=setup(shared);await openReview(next,page);
+  assert.equal(next.els['dc-reason'].value,'规则依据');
+  assert.equal(next.els['dc-type'].value,'approve_exception');
+  assert.equal(next.els['acceptance-reason'].value,'独立验收依据');
+  assert.match(next.els['review-draft-status'].textContent,/已恢复/);
+  next.els['dc-reason'].value='';next.els['dc-reason'].listeners.input();
+  const cleared=setup(shared);await openReview(cleared,page);
+  assert.equal(cleared.els['dc-reason'].value,'');
+  assert.equal(cleared.els['acceptance-reason'].value,'独立验收依据');
+});
+test('different account, subject, revision, blueprint, member and run contexts never restore a reason', async () => {
+  const shared=storage(), first=setup(shared);
+  await openReview(first,reviewPage(reviewScope('a')));
+  first.els['dc-reason'].value='旧范围';first.els['acceptance-reason'].value='旧验收';
+  first.els['dc-reason'].listeners.input();
+  for (const scope of ['b','c','d','e','f','0']) {
+    const next=setup(shared);await openReview(next,reviewPage(reviewScope(scope),3,2));
+    assert.equal(next.els['dc-reason'].value,'');assert.equal(next.els['acceptance-reason'].value,'');
+  }
+});
+test('restoration never trusts a cached rule scope or decision type', async () => {
+  const shared=storage(), scope=reviewScope('a');
+  shared.setItem('ff_review_drafts:v1',JSON.stringify({[scope]:{updatedAt:Date.now(),activeRule:'A',
+    rules:{A:{'dc-rule':'B','dc-type':'accept_current','dc-reason':'保留文字'}},acceptanceReason:'验收'}}));
+  const env=setup(shared);await openReview(env,reviewPage(scope));
+  assert.notEqual(env.els['dc-rule'].value,'B');assert.notEqual(env.els['dc-type'].value,'accept_current');
+  assert.equal(env.els['dc-reason'].value,'保留文字');
+});
+test('expired or malformed drafts are ignored; unavailable storage warns and retains memory', async () => {
+  const scope=reviewScope('a');
+  for (const raw of ['{broken', 'null', '[]', JSON.stringify({[scope]:{updatedAt:1,rules:{A:{'dc-reason':'expired'}}}})]) {
+    const shared=storage();shared.setItem('ff_review_drafts:v1',raw);
+    const env=setup(shared);await openReview(env,reviewPage(scope));assert.equal(env.els['dc-reason'].value,'');
+  }
+  const env=setup();await openReview(env,reviewPage(scope));
+  env.context.sessionStorage.setItem=()=>{throw Error('unavailable');};
+  env.els['dc-reason'].value='仍在内存';env.els['dc-reason'].listeners.input();
+  assert.equal(env.app.state.reviewDrafts[scope].rules.A['dc-reason'],'仍在内存');
+  assert.match(env.els['review-draft-status'].textContent,/请勿刷新/);
+});
+test('explicit discard clears only current context and survives reload', async () => {
+  const shared=storage(), env=setup(shared), scope=reviewScope('a');
+  await openReview(env,reviewPage(scope));env.els['dc-reason'].value='清除我';env.app.cacheReviewDraft();
+  env.app.discardReviewDraft(1,2);
+  const next=setup(shared);await openReview(next,reviewPage(scope));assert.equal(next.els['dc-reason'].value,'');
+});
+test('success clears only submitted reason; acceptance and other rules remain after reload', async () => {
+  const shared=storage(), env=setup(shared), page=reviewPage(reviewScope('a'));
+  await openReview(env,page);env.els['dc-type'].value='approve_exception';env.els['dc-reason'].value='提交我';
+  env.els['acceptance-reason'].value='留给验收';env.app.cacheReviewDraft();
+  let sent;env.context.fetch=async(url,opts)=>{
+    if(opts?.method==='POST'){sent=new URLSearchParams(opts.body);return response({decision_id:1});}
+    return response(page);
+  };
+  await env.app.submitDecision(1,2);
+  assert.equal(sent.get('expected_review_context'),page.review_context);
+  const next=setup(shared);await openReview(next,page);
+  assert.equal(next.els['dc-reason'].value,'');assert.equal(next.els['acceptance-reason'].value,'留给验收');
+});
+test('logout removes persisted review notes', async () => {
+  const env=setup();await openReview(env,reviewPage(reviewScope('a')));
+  env.els['dc-reason'].value='私密理由';env.app.cacheReviewDraft();env.app.logout();
+  assert.equal(env.context.sessionStorage.getItem('ff_review_drafts:v1'),null);
+});
+
+test('qualification drafts survive refresh and success clears only the submitted qualification reason', async () => {
+  const shared=storage(), page=reviewPage(reviewScope('a'));
+  page.eligibility={status:'pending',members:['演示成员'],members_hash:'members',required:true};
+  const make=()=>{ const env=setup(shared); for(const id of ['eligibility-result','eligibility-reason','eligibility-exp','eligibility-submit'])env.els[id]=element(); return env; };
+  const first=make();await openReview(first,page);
+  first.els['eligibility-result'].value='eligible';first.els['eligibility-reason'].value='独立资格依据';
+  first.els['eligibility-exp'].value='2026-12-31';first.els['dc-reason'].value='保留材料理由';
+  first.els['acceptance-reason'].value='保留验收理由';first.els['eligibility-reason'].listeners.input();
+  const next=make();await openReview(next,page);
+  assert.equal(next.els['eligibility-reason'].value,'独立资格依据');assert.equal(next.els['eligibility-result'].value,'eligible');
+  assert.equal(next.els['eligibility-exp'].value,'2026-12-31');
+  next.context.fetch=async(_,opts)=>response(opts?.method==='POST'?{decision_id:1}:page);
+  await next.app.submitDecision(1,2,'eligibility');
+  const after=make();await openReview(after,page);
+  assert.equal(after.els['eligibility-reason'].value,'');
+  assert.equal(after.els['dc-reason'].value,'保留材料理由');assert.equal(after.els['acceptance-reason'].value,'保留验收理由');
+});
+test('late successful decision cannot clear newer edits even after reopening the same scope', async () => {
+  const shared=storage(),env=setup(shared),page=reviewPage(reviewScope('a'));await openReview(env,page);
+  env.els['dc-type'].value='confirm_pass';env.els['dc-reason'].value='旧请求理由';
+  const pending=deferred();env.context.fetch=()=>pending.promise;
+  const saving=env.app.submitDecision(1,2);
+  env.app.state.reviewRequestId++;
+  env.els['dc-reason'].value='重新打开后新写的理由';env.app.cacheReviewDraft();
+  pending.resolve(response({decision_id:1}));await saving;
+  const next=setup(shared);await openReview(next,page);
+  assert.equal(next.els['dc-reason'].value,'重新打开后新写的理由');
+});
+test('conflict retains stored reasons through refresh of the old scope but not the new one', async () => {
+  const shared=storage(),env=setup(shared),page=reviewPage(reviewScope('a'));await openReview(env,page);
+  env.els['dc-type'].value='confirm_pass';env.els['dc-reason'].value='冲突未提交理由';
+  env.context.fetch=async()=>response({detail:'scope changed'},409);await env.app.submitDecision(1,2);
+  assert.equal(env.app.state.reviewConflict,true);
+  const old=setup(shared);await openReview(old,page);assert.equal(old.els['dc-reason'].value,'冲突未提交理由');
+  const fresh=setup(shared);await openReview(fresh,reviewPage(reviewScope('b')));assert.equal(fresh.els['dc-reason'].value,'');
+});
+test('late input events while a different scope is loading do not cache under either scope', async () => {
+  const env=setup(),page=reviewPage(reviewScope('a'));await openReview(env,page);
+  const oldListener=env.els['dc-reason'].listeners.input;
+  env.els['dc-reason'].value='原主体理由';const pending=deferred();env.context.fetch=()=>pending.promise;
+  const loading=env.app.viewReview(1,3);env.els['dc-reason'].value='过时事件';oldListener();
+  pending.resolve(response(reviewPage(reviewScope('b'),3)));await loading;
+  assert.equal(env.els['dc-reason'].value,'');
+  assert.equal(env.app.state.reviewDrafts[page.review_context].rules.A['dc-reason'],'原主体理由');
+});
+test('next pending review skips completed and confirmed-issue rules; shortcuts explain the final gate', async () => {
+  const env=setup(),page=reviewPage(reviewScope('a'));
+  page.rules=[{rule_id:'A',result:'unknown'},{rule_id:'B',result:'issue',decision:{decision:'confirm_issue'}},
+    {rule_id:'C',result:'satisfied'},{rule_id:'D',result:'manual_pending'}];
+  await openReview(env,page);env.els['dc-reason'].value='A 尚未提交';
+  env.app.nextPendingReview(1,2);assert.equal(env.app.state.reviewRule,'D');
+  env.app.nextPendingReview(1,2);assert.equal(env.app.state.reviewRule,'A');assert.equal(env.els['dc-reason'].value,'A 尚未提交');
+  assert.match(env.els.rv.innerHTML,/2 项待决定/);assert.match(env.els.rv.innerHTML,/03<\/b> 验收版本/);
+  assert.ok(env.els.rv.innerHTML.indexOf('id="review-decision"')<env.els.rv.innerHTML.indexOf('id="review-acceptance"'));
+});
+test('a missing server review scope fails closed instead of reusing a revision-only draft', async () => {
+  const env=setup(),page=reviewPage(null);await openReview(env,page);
+  assert.equal(env.app.state.reviewContext,null);assert.match(env.els.flash.innerHTML,/复核范围缺失/);
 });

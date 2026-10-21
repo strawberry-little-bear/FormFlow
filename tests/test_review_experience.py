@@ -80,14 +80,15 @@ def test_decision_then_separate_acceptance_and_revoke(review):
     db, client, h, task, subject, path = review
     rev, _ = submit(db, task, subject)
     form = dict(decision='approve_exception', scope_rule_id='H-01', reason='签字已人工核对',
-                expected_current_revision=rev.id)
+                expected_current_revision=rev.id, expected_review_context=findings(client, h, path)['review_context'])
     assert client.post(path + '/decisions', headers=h, data=form).status_code == 200
     page = findings(client, h, path)
     assert page['rules'][0]['decision']['reason'] == form['reason']
     assert page['rules'][0]['result'] == 'manual_pending'
     assert page['acceptance'] == dict(ready=True, accepted=False, blockers=[])
     accept = client.post(path + '/decisions', headers=h, data=dict(
-        decision='accept_current', reason='本版本全部核对完成', expected_current_revision=rev.id))
+        decision='accept_current', reason='本版本全部核对完成', expected_current_revision=rev.id,
+        expected_review_context=page['review_context']))
     assert accept.status_code == 200, accept.text
     assert findings(client, h, path)['acceptance']['accepted']
     db.expire_all()
@@ -118,5 +119,76 @@ def test_inactive_decisions_do_not_label_current_rule_as_handled(review, invalid
     assert not page['acceptance']['ready']
     if invalid == 'old_revision':
         stale = client.post(path + '/decisions', headers=h, data=dict(
-            decision='accept_current', reason='旧版验收', expected_current_revision=d.revision_id))
+            decision='accept_current', reason='旧版验收', expected_current_revision=d.revision_id,
+            expected_review_context=page['review_context']))
         assert stale.status_code == 409
+
+
+@pytest.mark.parametrize('change', ['member_add', 'member_name', 'member_extra', 'member_remove',
+                                    'subject', 'blueprint', 'revision', 'run'])
+def test_changed_review_scope_rejects_old_reason_without_creating_decision(review, change):
+    from app.models import Member, ManualDecision
+    db, client, h, task, subject, path = review
+    rev, _ = submit(db, task, subject)
+    member = Member(subject_id=subject.id, name='原成员', extra_json='{"role":"leader"}')
+    db.add(member)
+    db.commit()
+    before = findings(client, h, path)
+    if change == 'member_add':
+        db.add(Member(subject_id=subject.id, name='新成员'))
+    elif change == 'member_name':
+        member.name = '替换成员'
+    elif change == 'member_extra':
+        member.extra_json = '{"role":"other"}'
+    elif change == 'member_remove':
+        db.delete(member)
+    elif change == 'subject':
+        subject.display_name = '新主体名称'
+    elif change == 'blueprint':
+        newer = BlueprintVersion(task_id=task.id, version=2, status='published',
+                                  blueprint_json=Blueprint().model_dump_json())
+        db.add(newer)
+        db.flush()
+        task.current_blueprint_id = newer.id
+    elif change == 'revision':
+        submit(db, task, subject, 'v2')
+    elif change == 'run':
+        create_run(db, task, rev)
+    db.commit()
+    after = findings(client, h, path)
+    assert before['review_context'] != after['review_context']
+    result = client.post(path + '/decisions', headers=h, data=dict(
+        decision='approve_exception', scope_rule_id='H-01', reason='旧范围理由',
+        expected_current_revision=rev.id, expected_review_context=before['review_context']))
+    assert result.status_code == 409, result.text
+    assert not db.scalars(select(ManualDecision)).all()
+
+
+def test_review_scope_is_stable_and_can_submit_when_unchanged(review):
+    db, client, h, task, subject, path = review
+    rev, _ = submit(db, task, subject)
+    page = findings(client, h, path)
+    assert page['review_context'] == findings(client, h, path)['review_context']
+    assert len(page['review_context']) == 64
+    result = client.post(path + '/decisions', headers=h, data=dict(
+        decision='approve_exception', scope_rule_id='H-01', reason='本范围已核对',
+        expected_current_revision=rev.id, expected_review_context=page['review_context']))
+    assert result.status_code == 200, result.text
+    # A decision does not change evidence scope or invalidate another rule's note.
+    assert findings(client, h, path)['review_context'] == page['review_context']
+
+
+def test_public_decision_requires_review_context(review):
+    db, client, h, task, subject, path = review
+    rev, _ = submit(db, task, subject)
+    response = client.post(path + '/decisions', headers=h, data=dict(
+        decision='confirm_pass', scope_rule_id='H-01', reason='缺范围不能保存',
+        expected_current_revision=rev.id))
+    assert response.status_code == 422
+    assert '复核范围' in response.json()['detail']
+
+
+def test_review_context_is_account_scoped(review):
+    from app.services.review_context import review_context
+    db, _, _, task, subject, _ = review
+    assert review_context(db, task, subject, 1) != review_context(db, task, subject, 2)

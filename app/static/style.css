@@ -3536,3 +3536,22 @@ button.validation-link { border: 0; background: none; color: var(--bad); box-sha
 #design-recovery { margin-bottom:16px; }
 #design-recovery pre, .publish-diff li { white-space:pre-wrap; overflow-wrap:anywhere; }
 .publish-diff { border-left:3px solid var(--accent, #7160b5); padding-left:16px; }
+
+/* Local review notes remain distinct from submitted decisions. */
+.review-scope { border-top: 1px solid var(--line, #e5e7eb); margin-top: 16px; padding-top: 16px; overflow-wrap: anywhere; }
+.review-scope > span { margin-right: 8px; }
+.review-scope p, .review-draft-note p { margin: 8px 0; font-size: 12px; line-height: 1.7; }
+.review-draft-note { padding: 12px 14px; margin: 12px 0; background: var(--bg, #f6f8fa); border-radius: 10px; }
+#review-draft-status { font-weight: 600; }
+
+/* One review flow: evidence → decision → independent qualification → acceptance. */
+.review-workflow { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin:0 0 20px; }
+.review-workflow button { display:flex; flex-wrap:wrap; justify-content:flex-start; gap:8px; padding:14px; text-align:left; }
+.review-workflow button span { width:100%; font-size:12px; font-weight:400; color:var(--muted); }
+.review-workflow b { color:var(--accent); }
+.review-list-actions { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px; padding:0 0 12px; font-size:12px; color:var(--muted); }
+#review-evidence, #review-decision, #review-eligibility, #review-acceptance { scroll-margin-top:24px; }
+@media (max-width:600px) {
+  .review-workflow { gap:6px; }
+  .review-workflow button { padding:10px 8px; font-size:12px; }
+}

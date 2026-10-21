@@ -42,6 +42,7 @@ from ..schemas import Blueprint
 from ..security import utcnow
 from ..timeutils import as_utc
 from . import tasks as task_service
+from .review_context import review_context
 from .decision_state import RULE_DECISIONS, effective_rules
 from .eligibility import eligibility_view, members_hash
 
@@ -63,6 +64,7 @@ def record_decision(db: Session, task: Task, subject: Subject, *, decision: str,
                     reason: str, operator_id: Optional[int] = None,
                     scope_rule_id: str = "", revision_id: Optional[int] = None,
                     expected_current_revision: Optional[int] = None,
+                    expected_review_context: Optional[str] = None,
                     expires_at: Optional[datetime] = None,
                     eligibility: Optional[str] = None,
                     expected_members_hash: Optional[str] = None) -> ManualDecision:
@@ -87,7 +89,7 @@ def record_decision(db: Session, task: Task, subject: Subject, *, decision: str,
 
     # Acquire the SQLite writer lock before reading the pointer. A competing
     # formal submission cannot change it between this check and our commit.
-    if expected_current_revision is not None:
+    if expected_current_revision is not None or expected_review_context is not None:
         db.execute(update(Subject).where(Subject.id == subject.id).values(
             eligibility=Subject.eligibility))
     submission = db.scalar(select(Submission).where(
@@ -96,6 +98,8 @@ def record_decision(db: Session, task: Task, subject: Subject, *, decision: str,
     current_rev = submission.current_revision_id if submission else None
     if expected_current_revision is not None and expected_current_revision != (current_rev or 0):
         raise DecisionConflict(f"当前版本已变化（预期 {expected_current_revision}，实际 {current_rev or 0}），决定未保存，请刷新后重新核对")
+    if expected_review_context is not None and expected_review_context != review_context(db, task, subject, operator_id):
+        raise DecisionConflict("主体、登记成员或检查证据已变化，决定未保存，请刷新后重新核对")
     if revision_id is not None and revision_id != current_rev:
         raise DecisionConflict("决定只能作用于已核对的当前版本，请刷新后重新核对")
 

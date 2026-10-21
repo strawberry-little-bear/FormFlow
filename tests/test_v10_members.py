@@ -196,8 +196,9 @@ def test_decision_returns_same_name(client, db_session):
     h = _register(client, "org-m5")
     tid = _mk_task(client, h, "决定任务")
     a_id, b_id, _c_id = _add_two_same_name(tid)
+    scope = client.get(f"/api/tasks/{tid}/subjects/{a_id}/findings", headers=h).json()["review_context"]
     r = client.post("/api/tasks/" + str(tid) + "/subjects/" + str(a_id) + "/decisions",
-                    data={"decision": "exempt", "reason": "同名待核", "expected_current_revision": 0}, headers=h)
+                    data={"decision": "exempt", "reason": "同名待核", "expected_current_revision": 0, "expected_review_context": scope}, headers=h)
     assert r.status_code == 200, r.text
     body = r.json()
     assert [x["id"] for x in body["same_name_subjects"]] == [b_id]

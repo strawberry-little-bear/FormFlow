@@ -120,10 +120,11 @@ def test_stale_review_returns_conflict_without_recording_decision(db_session, sc
         create_run(db_session, task, v2)
         db_session.commit()
         form = {"decision": "confirm_issue", "scope_rule_id": "R", "reason": "我看到的 v1 有问题",
-                "expected_current_revision": page["revision"]["id"]}
+                "expected_current_revision": page["revision"]["id"], "expected_review_context": page["review_context"]}
         response = client.post(path, headers=owner, data=form)
         assert response.status_code == 409, response.text
         assert not db_session.scalars(select(ManualDecision)).all()
+        form["expected_review_context"] = client.get(f"/api/tasks/{task_id}/subjects/{sid}/findings", headers=owner).json()["review_context"]
         form["expected_current_revision"] = v2.id
         assert client.post(path, headers=owner, data=form).status_code == 200
         decisions = db_session.scalars(select(ManualDecision)).all()

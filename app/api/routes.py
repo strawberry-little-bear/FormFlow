@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..timeutils import iso_utc
+from ..services.review_context import review_context
 from ..services.progress import workbench_data, exempt_subject_ids
 from ..models import (
     EXEMPTION_ACTIVE,
@@ -667,6 +668,7 @@ def retry_check(task_id: int, subject_id: int, db: Session = Depends(get_db),
 def make_decision(task_id: int, subject_id: int, decision: str = Form(...),
                   reason: str = Form(...), scope_rule_id: str = Form(""),
                   expected_current_revision: Optional[int] = Form(None),
+                  expected_review_context: Optional[str] = Form(None),
                   expires_at: Optional[str] = Form(None), eligibility: Optional[str] = Form(None),
                   expected_members_hash: Optional[str] = Form(None), db: Session = Depends(get_db), acct: Account = Depends(current_account)):
     task = _owned_task(db, acct, task_id)
@@ -675,6 +677,8 @@ def make_decision(task_id: int, subject_id: int, decision: str = Form(...),
         raise HTTPException(404, "主体不存在或不属于该任务")
     if expected_current_revision is None:
         raise HTTPException(422, "缺少复核版本，请刷新复核页后重试")
+    if not expected_review_context:
+        raise HTTPException(422, "缺少复核范围，请刷新复核页后重试")
     if expected_current_revision < 0:
         raise HTTPException(422, "复核版本不合法")
     if expected_current_revision == 0 and decision not in {"exempt", "eligibility"}:
@@ -692,7 +696,8 @@ def make_decision(task_id: int, subject_id: int, decision: str = Form(...),
                                              operator_id=acct.id, scope_rule_id=scope_rule_id,
                                              expires_at=exp_dt, eligibility=eligibility,
                                              expected_members_hash=expected_members_hash,
-                                             expected_current_revision=expected_current_revision)
+                                             expected_current_revision=expected_current_revision,
+                                             expected_review_context=expected_review_context)
     except decision_service.DecisionConflict as e:
         raise HTTPException(409, str(e))
     except decision_service.DecisionError as e:
@@ -777,6 +782,7 @@ def findings(task_id: int, subject_id: int, db: Session = Depends(get_db),
     subject = db.get(Subject, subject_id)
     if subject is None or subject.task_id != task.id:
         raise HTTPException(404, "主体不存在或不属于该任务")
+    context = review_context(db, task, subject, acct.id)
     same_name = task_service.same_name_subjects(db, task, subject)
     same_name_hint = ("存在同名主体：只提示待核、不自动合并，请以主体 ID 为准人工核对"
                       if same_name else "")
@@ -793,7 +799,7 @@ def findings(task_id: int, subject_id: int, db: Session = Depends(get_db),
     from ..services.eligibility import eligibility_view
     qualification = eligibility_view(db, task, subject, submission.current_revision_id if submission else None)
     if submission is None or submission.current_revision_id is None:
-        return {"eligibility": qualification, "subject": {"id": subject.id, "name": subject.display_name},
+        return {"review_context": context, "eligibility": qualification, "subject": {"id": subject.id, "name": subject.display_name},
                 "revision": None, "run": None, "rules": [], "decisions": decisions,
                 "acceptance": {"ready": False, "accepted": False,
                                "blockers": ["没有正式提交版本"]},
@@ -805,7 +811,7 @@ def findings(task_id: int, subject_id: int, db: Session = Depends(get_db),
     rules = review_rule_details(db, run, task, subject.id, rev.id)
     blockers = decision_service._acceptance_blockers(db, task, subject)
     accepted = current_summary(db, task, subject.id)["acceptance"] == "accepted"
-    return {"eligibility": eligibility_view(db, task, subject, rev.id, run.blueprint_version_id if run else None),
+    return {"review_context": context, "eligibility": eligibility_view(db, task, subject, rev.id, run.blueprint_version_id if run else None),
             "subject": {"id": subject.id, "name": subject.display_name},
             "revision": {"id": rev.id, "version": rev.version, "receipt": rev.receipt},
             "run": ({"id": run.id, "status": run.status,

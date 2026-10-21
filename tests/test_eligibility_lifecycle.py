@@ -186,6 +186,7 @@ def test_qualification_api_validates_outcome_scope_and_shares_current_status(rev
         db.commit()
         path = f"/api/tasks/{task.id}/subjects/{subject.id}"
         base = dict(decision="eligibility", reason="人工核实", expected_current_revision=rev.id,
+                    expected_review_context=client.get(path + "/findings", headers=owner).json()["review_context"],
                     expected_members_hash=eligibility_view(db, task, subject, rev.id)["members_hash"])
         for payload in [base, dict(base, eligibility="maybe"), dict(base, eligibility="eligible", scope_rule_id="R")]:
             assert client.post(path + "/decisions", headers=owner, data=payload).status_code == 422
@@ -195,6 +196,7 @@ def test_qualification_api_validates_outcome_scope_and_shares_current_status(rev
         tasks.add_members(db, subject, ["新登记成员"])
         db.commit()
         assert client.post(path + "/decisions", headers=owner, data=dict(base, eligibility="eligible")).status_code == 409
+        base["expected_review_context"] = client.get(path + "/findings", headers=owner).json()["review_context"]
         base["expected_members_hash"] = eligibility_view(db, task, subject, rev.id)["members_hash"]
         created = client.post(path + "/decisions", headers=owner, data=dict(base, eligibility="eligible"))
         assert created.status_code == 200, created.text
