@@ -22,7 +22,7 @@ function element(value = '') {
 function setup(sharedStorage = storage()) {
   const els = Object.fromEntries(['sub', 'draft-hint', 'flash', 'receipt-out', 'decision-submit',
     'review-conflict', 'dc-type', 'dc-rule', 'dc-reason', 'dc-exp', 'acceptance-reason', 'acceptance-submit',
-    'review-draft-status', 'submission-errors', 'field-error-name', 'app', 'rv', 'rv-name', 'my-results', 'nav', 'role-label', 'btn-logout'].map(id => [id, element()]));
+    'review-draft-status', 'submission-errors', 'field-error-name', 'app', 'rv', 'rv-name', 'my-results', 'nav', 'role-label', 'wb-next-step', 'btn-logout'].map(id => [id, element()]));
   const fields = [Object.assign(element('old'), {dataset: {field:'name'}})];
   els['field-name'] = fields[0];
   const document = {getElementById: id => els[id] || null,
@@ -31,7 +31,7 @@ function setup(sharedStorage = storage()) {
     window: {addEventListener() {}}, location: {hash:'#/submit'}, Intl, URLSearchParams, FormData,
     setTimeout, clearTimeout, confirm: () => true, console,
     fetch: async () => {throw new Error('Unexpected request');}});
-  vm.runInContext(source + '\nthis.app = {state, useVersionAsBase, loadDesignVersion, cacheDesignInputs, restoreDesignInputs, recoverDesignInput, paintChat, runAgent, canPublishDesign, publishDiffHtml, publishBp, confirmPublish, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, draftFingerprint, collectDraftFields, cacheSubmissionDraft, setSubMode, refreshSlotConditions, wbMatches, api, submitDecision, saveDraft, doSubmit, uploadSlot, cacheReviewDraft, discardReviewDraft, logout, nextPendingReview, setReviewFilter, selectReviewRule, viewReview, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, submissionIssues, showSubmissionIssues, initSubChat};', context);
+  vm.runInContext(source + '\nthis.app = {state, useVersionAsBase, loadDesignVersion, cacheDesignInputs, restoreDesignInputs, recoverDesignInput, paintChat, runAgent, canPublishDesign, publishDiffHtml, publishBp, confirmPublish, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, draftFingerprint, collectDraftFields, cacheSubmissionDraft, setSubMode, refreshSlotConditions, wbMatches, api, submitDecision, saveDraft, doSubmit, uploadSlot, cacheReviewDraft, discardReviewDraft, logout, nextPendingReview, setReviewFilter, selectReviewRule, viewReview, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, chooseWorkbenchNextStep, workbenchNextStepHtml, agentRunCard, submissionIssues, showSubmissionIssues, initSubChat};', context);
   Object.assign(context.app.state, {routeEpoch: 1, me:{task:{id:1, status:'collecting', timezone:'Asia/Shanghai'},subject:{id:2}},
     draftVersion:1, fileMeta:{}, sub:{mode:'chat',phase:'fields',fIdx:0, fields:[{id:'name'}],slots:[],answers:{}}});
   context.localStorage.setItem('ff_sub_token', 'test-only-credential');
@@ -426,6 +426,52 @@ test('qualification filters separate pending verification from a completed negat
 });
 
 
+test('workbench next step prioritizes confirmed issues and links directly to scoped review', () => {
+  const {app} = setup();
+  const rows = [
+    {name:'名单外同学', subject_id:1, in_roster:false, formal:true, summary:'待补正', buckets:{blocking:['R0']}},
+    {name:'陈同学', subject_id:3, in_roster:true, formal:true, summary:'待人工', buckets:{unknown:['R2']}},
+    {name:'林同学', subject_id:8, in_roster:true, formal:true, summary:'待补正', buckets:{blocking:['R1']}},
+    {name:'免交者', subject_id:9, in_roster:true, formal:true, exempt:true, summary:'待补正', buckets:{blocking:['R0']}},
+  ];
+  const task = {id:7, mode:'roster', subject_kind:'individual'};
+  const next = app.chooseWorkbenchNextStep(rows, task);
+  assert.equal(next.name, '林同学');
+  assert.equal(next.action, '打开复核');
+  assert.equal(next.href, '#/review/7/8');
+  assert.match(app.workbenchNextStepHtml(next, 7), /先看看林同学的材料/);
+});
+test('workbench next step does not present incomplete work as failure or completion', () => {
+  const {app} = setup();
+  const next = app.chooseWorkbenchNextStep([{name:'赵同学', subject_id:4, formal:true,
+    summary:'检查未完成', buckets:{incomplete:['R-OCR']}}], {id:7, subject_kind:'individual'});
+  assert.equal(next.tone, 'warn');
+  assert.match(next.detail, /未完成不等于不通过/);
+  assert.match(next.href, /#\/review\/7\/4/);
+});
+test('workbench next step falls back to missing, delivery, then neutral states', () => {
+  const {app} = setup();
+  const missing = app.chooseWorkbenchNextStep([{name:'孙同学', in_roster:true, formal:false}], {id:7, mode:'roster'});
+  assert.equal(missing.kind, 'filter-missing');
+  const delivery = app.chooseWorkbenchNextStep([{name:'张同学', in_roster:true, formal:true, acceptance:'accepted'}], {id:7, mode:'roster'});
+  assert.equal(delivery.kind, 'delivery');
+  const neutral = app.chooseWorkbenchNextStep([], {id:7, mode:'roster'});
+  assert.equal(neutral.kind, 'roster');
+  const outOfRoster = app.chooseWorkbenchNextStep([{name:'外部报名', in_roster:false, formal:false}], {id:7, mode:'roster'});
+  assert.equal(outOfRoster.kind, 'roster');
+});
+test('review makes deterministic, semantic, and human handoffs visible without implying every rule used a model call', () => {
+  const {app} = setup();
+  const html = app.agentRunCard({status:'success', pages_read:2, llm_calls_used:1,
+    coverage:{files:[{name:'report.pdf',method:'text'}]}}, [
+    {requirement:{executor:'deterministic'}}, {requirement:{executor:'semantic'}}, {requirement:{executor:'human_only'}},
+  ]);
+  assert.match(html, /程序核验/);
+  assert.match(html, /语义审核/);
+  assert.match(html, /人工接手/);
+  assert.match(html, /1 项规则 · 预算占用 1/);
+  assert.match(html, /不会自行发布/);
+});
 test('team qualification metrics use team units and never call pending qualification no todos', () => {
   const {app,els}=setup(); els['wb-stats']=element();els['wb-list']=element();
   Object.assign(app.state,{wbTask:{mode:'open',subject_kind:'team',status:'collecting'},wbTaskId:1,

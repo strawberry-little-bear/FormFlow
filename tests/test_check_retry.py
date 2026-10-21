@@ -253,7 +253,7 @@ def test_api_retry_after_failure(client, db_session, monkeypatch):
     run_obj2 = db_session.get(CheckRun, body["run_id"])
     execute_run(db_session, run_obj2)
     db_session.commit()
-    assert run_obj2.status == RUN_SUCCESS
+    assert run_obj2.status == RUN_SUCCESS, run_obj2.error
 
     # 新运行已成功且无失败项：无需重试
     r = client.post(f"/api/tasks/{task_id}/subjects/1/checks/retry", headers=headers)

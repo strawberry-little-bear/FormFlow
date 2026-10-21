@@ -1,6 +1,6 @@
 # 复核页范围隔离与交互验收记录
 
-更新：2026-10-21。代码基线为 `main` 的 `e158340`；本轮只在 `main` 开发。本文记录本轮复核页实现的自动化验证和隔离浏览器试走，不代表真实业务库、真实材料或公网部署已经验收。
+更新：2026-10-21。本文记录复核范围与复核页实现的自动化验证和隔离浏览器试走，不代表真实业务库、真实材料或公网部署已经验收。后续已补充工作台下一步建议及 Agent 分工卡的真实浏览器走查截图；Agent harness 自动化测试在下方新进展小节追加。
 
 ## 验收目标
 
@@ -25,7 +25,7 @@
 git diff --check
 ```
 
-本轮结果为 311 项 Python 测试和 64 项 Node 前端契约测试通过。前端契约测试使用 Node VM、Mock DOM 和 Mock fetch，验证状态隔离、刷新恢复、冲突和晚响应语义；它不是浏览器端到端测试。`smoke_review.py --stub` 也完成了脚本化审核场景，未调用真实模型网关。
+本轮复核基线结果为 311 项 Python 测试和 64 项 Node 前端契约测试通过。此后补入 4 项工作台/Agent UI 契约，之后又新增 9 项受限 Agent tool/skill/harness 运行时及接线测试；最新完整 `pytest` 结果为 320 项 Python 通过，Node 前端契约 69 项通过。前端契约测试使用 Node VM、Mock DOM 和 Mock fetch；浏览器视口试走见本页补充记录。离线 `smoke_review.py --stub` 未调用真实模型网关。
 
 覆盖的关键情形包括：
 
@@ -62,6 +62,30 @@ git diff --check
 - [理由刷新恢复](reasons-restored.png)：规则、资格和验收三类依据均恢复。
 - [390px 复核页](review-mobile.png)：窄屏布局。
 - [成员变化冲突](member-conflict-mobile.png)：旧范围提交被阻止并提示重新核对。
+
+## 2026-10-21 追加：下一步建议、Agent 分工卡与工具运行时
+
+### 桌面 / 手机浏览器走查
+
+使用独立数据库 `/tmp/formflow-work-20261021/formflow.db`、私有附件目录 `/tmp/formflow-work-20261021/storage` 和本机 `127.0.0.1:8162`。虚构演示账号 `demo`，没有接入原有 8010 服务、真实业务库或真实模型。
+
+- 工作台下一步卡展示“先看看李四的材料”，说明有 1 项问题尚未处理，入口直达对应复核范围。
+- 复核分工卡展示 1 份材料/1 页、程序核验 3 项、语义规则 2 项/预算使用 2、人工规则 1 项，且明确不自动发布/验收。该数据是演示种子的预生成 stub 结果，不代表模型现场调用。
+- 桌面 1440px、手机 390×844 实际检查；手机 documentElement.clientWidth 与 scrollWidth 均为 **390px**。卡片在手机端按单列纵向展开，不发生整页横向溢出。
+- 浏览器 errors 与 console 输出均为空。
+
+截图：
+
+- [工作台下一步建议 · 1440px](workbench-next-step-desktop.png)
+- [工作台下一步建议 · 390px](workbench-next-step-mobile.png)
+- [Agent 分工说明 · 1440px](agent-run-desktop.png)
+- [Agent 分工说明 · 390px](agent-run-mobile.png)
+
+### Agent 工具运行时的本轮增量
+
+`app/agent_tools.py` 建立显式工具 registry、Pydantic 输入/输出、scope 授权、调用/成本预算、单次执行幂等回放、幂等键 payload 冲突保护、参数/结果大小限制、协作 deadline、fail-closed 错误码，以及不记录原始数据的 `AuditEvent`。`app/agents/tooling.py` 定义 `review_one_submission` skill；`app/services/checks.py` 已将当前逐规则审核接入该 harness。模型不能选择任意路径、SQL、网络动作或蓝图外规则。
+
+本次测试覆盖 scope/schema、预算、错误隔离、最大输出、idempotency 防重复副作用、replay 时重新校验授权、审计脱敏、skill 工具和步数上限及真实 review Agent 接线。幂等缓存当前仅为单次运行内存态；deadline 是协作式而非 Python 强制取消。MCP 暂未接入：项目仍是单体内本地规则与审核能力，尚无跨应用互操作需求。
 
 ## 未覆盖范围
 

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Callable, Optional
 
 from ..llm import LLMBudgetExceeded, LLMClient, LLMError, LLMUnavailable, Budget, get_client
 from ..models import (
@@ -403,8 +403,9 @@ def run_semantic_rule(
 
 
 # ---------------------------------------------------------------- 主编排
-def run_checks(ctx: CheckContext, client: Optional[LLMClient] = None) -> CheckOutcome:
-    """先程序校验，再按需 Agent 调查；记录预算与覆盖。"""
+def run_checks(ctx: CheckContext, client: Optional[LLMClient] = None,
+               tool_executor: Optional[Callable[[RuleDef], RuleResultOut]] = None) -> CheckOutcome:
+    """先程序校验，再按需 Agent 调查；可选的受控工具执行器包住单条规则。"""
     client = client or get_client()
     budget = Budget()
     outcome = CheckOutcome()
@@ -414,13 +415,13 @@ def run_checks(ctx: CheckContext, client: Optional[LLMClient] = None) -> CheckOu
             outcome.human_only_rules.append(rule.id)
             continue
         if rule.executor.value == "deterministic":
-            outcome.results.append(run_deterministic(rule, ctx))
+            outcome.results.append(tool_executor(rule) if tool_executor else run_deterministic(rule, ctx))
             continue
         # semantic / cross_material
         try:
             budget.spend()
             outcome.llm_calls_used = budget.used
-            outcome.results.append(run_semantic_rule(rule, ctx, client))
+            outcome.results.append(tool_executor(rule) if tool_executor else run_semantic_rule(rule, ctx, client))
         except LLMBudgetExceeded as e:
             outcome.budget_exhausted = True
             outcome.results.append(RuleResultOut(

@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+import inspect
 import json
 from typing import Optional
 
@@ -15,6 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..agents.review_agent import CheckContext, FileInfo, run_checks
+from ..llm import get_client
 from . import appeals
 from ..models import (
     ACCEPTANCE_ACCEPTED,
@@ -143,7 +145,20 @@ def _execute_check_pipeline(db: Session, run: CheckRun, client=None) -> CheckRun
                        history_issues=_history_issues(db, run),
                        submitter_explanation=appeals.latest_explanation(
                            db, task, subject.id) if subject else "")
-    outcome = run_checks(ctx, client)
+    from ..agents.tooling import build_review_skill, invoke_review_rule
+
+    skill, tool_context = build_review_skill(
+        ctx, client=client or get_client(), db=db, task_id=run.task_id,
+        subject_id=subject.id, run_id=run.id)
+    tool_executor = lambda rule: invoke_review_rule(
+        skill, tool_context, db, executor=rule.executor.value, rule_id=rule.id,
+        idempotency_key=f"review:{run.id}:{rule.id}")
+    # Keep the injectable run_checks seam compatible with test/diagnostic wrappers
+    # that deliberately expose only the historical (ctx, client) signature.
+    if "tool_executor" in inspect.signature(run_checks).parameters:
+        outcome = run_checks(ctx, client, tool_executor=tool_executor)
+    else:
+        outcome = run_checks(ctx, client)
 
     run.llm_calls_used = outcome.llm_calls_used
     run.pages_read = outcome.pages_read

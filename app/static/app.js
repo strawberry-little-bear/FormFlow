@@ -72,16 +72,41 @@ const coverageCard = (run) => {
   if (!run || !run.coverage) return "";
   const cov = run.coverage;
   const gap = (cov.unread_pages || 0) + (cov.failed_pages || 0);
-  return `<div class="card"><h3>材料覆盖情况（提取方法与覆盖缺口）</h3>
-    <p class="kv">已读页 ${run.pages_read ?? 0} ｜ 语义模型调用 ${run.llm_calls_used ?? 0}${run.budget_exhausted ? " ｜ 预算已耗尽" : ""}
+  return `<div class="card"><h3>材料读取明细</h3>
+    <p class="kv">已读 ${run.pages_read ?? 0} 页${gap ? ` · ${gap} 页未能读取` : " · 页面覆盖完整"}
       ｜ <span class="badge${gap ? " warn" : " ok"}">${cov.complete === false ? "覆盖不完整" : "覆盖完整"}</span></p>
-    <table><tr><th>文件</th><th>提取方式</th><th>总页</th><th>已读</th><th>未读</th><th>失败</th></tr>
+    <table><tr><th>文件</th><th>读取方式</th><th>总页</th><th>已读</th><th>未读</th><th>失败</th></tr>
     ${(cov.files || []).map(f => `<tr><td>${esc(f.name || f.file_id)}</td>
       <td>${esc(METHOD_LABEL[f.method] || f.method || "-")}</td>
       <td>${f.total ?? 0}</td><td>${f.text ?? 0}</td><td>${f.unread ?? 0}</td><td>${f.failed ?? 0}</td></tr>`).join("")}
     </table>
-    ${gap ? `<p class="kv" style="margin-top:8px">共 ${gap} 页未能读取：这些页不构成「确认缺失」，相关要素按 unknown 处理，需补充清晰可读的材料或转人工复核。</p>` : ""}
+    ${gap ? `<p class="kv" style="margin-top:8px">未读页不等于材料缺失；相关结论会停在待确认，补充清晰材料或转人工核对即可。</p>` : ""}
   </div>`;
+};
+const agentRunCard = (run, rules) => {
+  if (!run) return "";
+  const counts = {deterministic: 0, semantic: 0, cross_material: 0, human_only: 0};
+  (rules || []).forEach(r => {
+    const executor = r.requirement?.executor;
+    if (Object.hasOwn(counts, executor)) counts[executor]++;
+  });
+  const files = run.coverage?.files || [];
+  const methods = [...new Set(files.map(f => METHOD_LABEL[f.method] || f.method).filter(Boolean))];
+  const status = ({queued: "排队中", running: "检查中", retry_wait: "等待重试", success: "检查完成", failed: "运行失败", superseded: "已被新运行取代"})[run.status] || run.status;
+  const runState = run.status === "success" ? "ok" : ["failed", "retry_wait"].includes(run.status) ? "warn" : "info";
+  const stages = [
+    {label: "读取材料", detail: files.length ? `${files.length} 份材料${methods.length ? ` · ${methods.join(" / ")}` : ""}` : "尚无可读取材料", count: files.length ? `${run.pages_read ?? 0} 页` : "—", tone: files.length ? "ok" : "neutral"},
+    {label: "程序核验", detail: counts.deterministic ? "格式、必填项等确定性检查" : "本版本没有程序规则", count: `${counts.deterministic} 项`, tone: "tool"},
+    {label: "语义审核", detail: "只按已确认规则找原文依据", count: `${counts.semantic + counts.cross_material} 项规则 · 预算占用 ${run.llm_calls_used ?? 0}`, tone: "agent"},
+    {label: "人工接手", detail: counts.human_only ? "不确定或需判断的事项留给组织者" : "资格与最终验收仍由组织者决定", count: `${counts.human_only} 项规则`, tone: "human"},
+  ];
+  return `<details class="card agent-run-card">
+    <summary><span><span class="eyebrow">检查是怎么完成的</span><b>按规则分工，不让模型包办</b><small class="agent-run-hint">展开查看程序、Agent 与人工的分工</small></span><span class="badge ${runState}">${esc(status)}</span></summary>
+    <p class="agent-run-intro">程序先处理能明确计算的规则；需要理解材料时才调用语义审核。每个判断仍回到原文证据，资格和最终验收由人负责。</p>
+    <ol class="agent-run-steps">${stages.map((s, i) => `<li class="${esc(s.tone)}"><span class="agent-step-index">0${i + 1}</span><div><b>${esc(s.label)}</b><span>${esc(s.detail)}</span></div><em>${esc(s.count)}</em></li>`).join("")}</ol>
+    <p class="agent-run-foot">${run.budget_exhausted ? "本次模型检查预算已用尽；未完成项会保留为待处理，不会当作通过。" : "模型不可用或证据不足时会停下并转人工；检查结果不会自行发布、认定资格或完成验收。"}</p>
+    ${run.coverage ? `<div class="agent-run-more">${esc(methods.length ? `材料处理：${methods.join("、")}` : "材料读取记录见下方")}${run.llm_calls_used ? ` · 语义检查预算使用 ${run.llm_calls_used} 次` : " · 本次未使用语义检查预算"}</div>` : ""}
+  </details>`;
 };
 const ruleCard = (r) => `
   <div class="card">
@@ -140,7 +165,8 @@ const ICONS = {
   delivery: '<path d="M3 8h18v13H3zM2 3h20v5H2zM9 12h6"/>',
   arrow: '<path d="M5 12h14m-5-5 5 5-5 5"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
-  search: '<circle cx="10" cy="10" r="6"/><path d="m15 15 6 6"/>'
+  search: '<circle cx="10" cy="10" r="6"/><path d="m15 15 6 6"/>',
+  check: '<path d="m5 12 4 4L19 6"/>'
 };
 function icon(name) { return `<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] || ICONS.tasks}</svg>`; }
 function renderNav() {
@@ -863,6 +889,7 @@ function viewWorkbench(taskId) {
       <div id="wb-lifecycle" class="row-actions"></div></div>
     <div id="flash" role="status" aria-live="polite"></div>
     <div id="wb-readonly"></div>
+    <div id="wb-next-step"></div>
     <div class="overview-stats wb-summary" id="wb-stats"></div>
     <div class="wb-layout">
       <section class="card wb-panel" aria-label="提交者列表">
@@ -914,6 +941,73 @@ async function refreshWorkbench() {
   } catch (e) { if (epoch === state.routeEpoch) setFlash(e.message); }
 }
 
+function chooseWorkbenchNextStep(rows, task) {
+  const isTeam = task?.subject_kind === "team";
+  const unit = isTeam ? "队" : "人";
+  const formal = r => r.formal ?? (r.revision != null && r.summary !== "未正式提交");
+  const priority = r => {
+    const b = r.buckets || {};
+    if ((b.blocking || []).length || r.summary === "待补正") return 0;
+    if (r.eligibility?.required && ["not_assessed", "pending"].includes(r.eligibility.status)) return 1;
+    if ((b.unknown || []).length || (b.human || []).length || r.summary === "待人工") return 2;
+    if ((b.incomplete || []).length || r.summary === "检查未完成") return 3;
+    if ((b.pending_jobs || []).length || ["排队中", "检查中"].includes(r.summary)) return 4;
+    if (r.summary === "规则通过（待人工验收）") return 5;
+    return 99;
+  };
+  const inScope = row => task?.mode !== "roster" || row.in_roster !== false;
+  const actionable = rows.map((row, index) => ({row, index, priority: priority(row)}))
+    .filter(x => x.priority < 99 && inScope(x.row) && formal(x.row) && !x.row.exempt)
+    .sort((a, b) => a.priority - b.priority || a.index - b.index)[0]?.row;
+  if (actionable) {
+    const b = actionable.buckets || {};
+    const blockingCount = (b.blocking || []).length;
+    const pendingCount = blockingCount + (b.unknown || []).length
+      + (b.human || []).length + (b.incomplete || []).length;
+    const base = {name: actionable.name || "这位提交者", href: `#/review/${task.id}/${actionable.subject_id}`,
+      action: "打开复核", kind: "review"};
+    if (blockingCount || actionable.summary === "待补正") return {
+      ...base, tone: "warn", kicker: "需要补正", title: `先看看${base.name}的材料`,
+      detail: `${blockingCount ? `有 ${blockingCount} 项问题` : "还有问题"}尚未处理。确认问题不会自动结束补正，核对后再决定下一步。`};
+    if (actionable.eligibility?.required && ["not_assessed", "pending"].includes(actionable.eligibility.status)) return {
+      ...base, tone: "warn", kicker: "资格待核", title: `帮${base.name}核实一下资格`,
+      detail: "资格需要单独核实；材料检查结果不会替你推断资格。"};
+    if ((b.unknown || []).length || (b.human || []).length || actionable.summary === "待人工") return {
+      ...base, tone: "info", kicker: "轮到人工核对", title: `和${base.name}一起看待确认项`,
+      detail: `${pendingCount ? `有 ${pendingCount} 项待你核对` : "还有几项待你核对"}。机器不确定时会停下来，不会把没读到当成材料缺失。`};
+    if ((b.incomplete || []).length || actionable.summary === "检查未完成") return {
+      ...base, tone: "warn", kicker: "检查未完成", title: `${base.name}的检查还没跑完`,
+      detail: "先看清技术原因，再决定重试或转人工；未完成不等于不通过。"};
+    if ((b.pending_jobs || []).length || ["排队中", "检查中"].includes(actionable.summary)) return {
+      ...base, tone: "info", kicker: "正在处理", title: `${base.name}的材料正在检查`,
+      detail: "检查完成后结果会自动更新；你可以先查看当前进度。"};
+    return {...base, tone: "ok", kicker: "还差最后一步", title: `${base.name}的规则检查已完成`,
+      detail: "核对剩余事项后，单独验收当前版本即可。"};
+  }
+  const missing = rows.find(r => inScope(r) && !formal(r) && !r.exempt);
+  if (missing) return {tone: "info", kicker: "等待正式提交", title: `${missing.name || "有提交者"}还没有正式提交`,
+    detail: `草稿不会进入检查。可以先查看未提交名单，再决定是否提醒${unit}。`,
+    action: "查看未提交名单", kind: "filter-missing"};
+  if (rows.length && rows.every(r => r.exempt || r.acceptance === "accepted" || r.summary === "已验收")) return {
+    tone: "ok", kicker: "暂时没有待处理事项", title: "这一轮的审核已经完成",
+    detail: "如果准备交付，可以去查看纳入清单；固定快照前仍会逐项说明排除原因。",
+    action: "查看交付清单", kind: "delivery"};
+  return {tone: "neutral", kicker: "当前进度", title: "收集进度都在这里",
+    detail: "有新的提交或检查结果时，这里会按实际状态整理下一步，不会替你做人工决定。",
+    action: "查看名单", kind: "roster"};
+}
+function workbenchNextStepHtml(next, taskId) {
+  if (!next) return "";
+  const action = next.action ? next.kind === "review"
+    ? `<a class="wb-next-action" href="${esc(next.href)}">${esc(next.action)} ${icon("arrow")}</a>`
+    : next.kind === "delivery" ? `<a class="wb-next-action" href="#/delivery/${taskId}">${esc(next.action)} ${icon("arrow")}</a>`
+    : next.kind === "roster" ? `<a class="wb-next-action" href="#/roster/${taskId}">${esc(next.action)} ${icon("arrow")}</a>`
+    : `<button class="wb-next-action" onclick="filterWorkbench('missing',true)">${esc(next.action)} ${icon("arrow")}</button>` : "";
+  return `<section class="wb-next-step ${esc(next.tone || "neutral")}" aria-label="下一步建议">
+    <div class="wb-next-mark" aria-hidden="true">${next.tone === "ok" ? icon("check") : icon("arrow")}</div>
+    <div class="wb-next-copy"><span class="wb-next-kicker">${esc(next.kicker)}</span><h2>${esc(next.title)}</h2><p>${esc(next.detail)}</p></div>
+    ${action}</section>`;
+}
 function wbMatches(r, filter) {
   const hasRevision = r.formal ?? (r.revision != null && r.summary !== "未正式提交");
   if (filter === "todo") return hasRevision && (["待补正", "待人工", "检查未完成"].includes(r.summary)
@@ -937,6 +1031,9 @@ function paintWorkbench() {
   if (lc) lc.innerHTML = `<span class="badge ${ro ? "warn" : "ok"}"><span class="badge-dot"></span>${esc(label)}</span>${lifecycleButtons(t.status, taskId)}`;
   const roBox = document.getElementById("wb-readonly");
   if (roBox) roBox.innerHTML = ro ? `<div class="notice-warn">任务已${esc(label)}，处于只读状态：提交、上传、检查与修订均已停止；历史数据仍可查看与导出。</div>` : "";
+  const nextStep = chooseWorkbenchNextStep(rows, {...t, id: taskId});
+  const nextBox = document.getElementById("wb-next-step");
+  if (nextBox) nextBox.innerHTML = workbenchNextStepHtml(nextStep, taskId);
 
   const count = (pred) => rows.filter(pred).length;
   const c = state.wbCounts || {};
@@ -1362,7 +1459,7 @@ function paintReview(taskId, sid) {
   const sameName = (d.same_name_subjects || []).length ? `<section class="card notice-warn"><b>同名主体待核</b><p>${esc(d.same_name_hint || "")}</p>${d.same_name_subjects.map(s => `<p>主体 #${s.id}（${esc(s.name)}）——以主体 ID 为准人工核对，系统不自动合并。</p>`).join("")}</section>` : "";
   const covHtml = coverageCard(run);
 
-  document.getElementById("rv").innerHTML = `${meta}${workflow}${sameName}
+  document.getElementById("rv").innerHTML = `${meta}${workflow}${sameName}${agentRunCard(run, rules)}
     <div class="review-layout ${rules.length ? '' : 'no-rule-layout'}">${rules.length ? `<div class="review-list-col">${list}</div>` : ''}<div class="review-detail-col">${rules.length ? evidence : `<div class="notice-warn">${d.revision ? '本版本没有材料检查规则。请直接核对独立资格与验收状态。' : '尚无正式提交，现在可以预核资格或处理免交；正式提交后才能验收。'}</div>`}${notesHtml}${decision}${eligibilityPanel}${acceptPanel}${covHtml}</div></div>`;
   document.querySelectorAll("[data-review-rule]").forEach(el => el.addEventListener("click", () =>
     selectReviewRule(el.dataset.reviewRule, taskId, sid)));
