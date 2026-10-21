@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.db import engine
 from app.main import app
-from app.models import (BlueprintVersion, Exemption, ManualDecision, RosterEntry,
+from app.models import (BlueprintVersion, Exemption, FileObject, ManualDecision, RosterEntry,
                         Subject, Submission, Task)
 from app.schemas import Blueprint, FieldDef, SlotDef, TimePolicy, RuleDef
 from app.services import submissions as sub
@@ -96,6 +96,37 @@ def test_draft_isolation_and_formal_receipt_unchanged(db_session, scenario):
         token = tasks.issue_grant(db_session, task, other)
         db_session.commit()
         assert client.get("/api/me/draft", headers={"Authorization": "Bearer " + token}).json()["fields"] == {}
+
+
+def test_formal_receipt_keeps_a_readable_file_manifest_after_editing_correction_draft(db_session, scenario):
+    task, subject, headers = scenario
+    version = db_session.get(BlueprintVersion, task.current_blueprint_id)
+    version.blueprint_json = Blueprint(slots=[SlotDef(
+        id="report", label="活动报名单", formats=["txt"])]).model_dump_json()
+    db_session.commit()
+    with TestClient(app) as client:
+        uploaded = client.post("/api/me/files", headers=headers, data={"slot": "report"},
+                               files={"file": ("虚构报名单.txt", b"fictional signup", "text/plain")})
+        assert uploaded.status_code == 200, uploaded.text
+        file_id = uploaded.json()["file_id"]
+        revision = sub.formal_submit(db_session, task,
+            sub.get_or_create_draft(db_session, task, subject.id), fields={},
+            slot_file_ids={"report": [file_id]}, idempotency_key="receipt-file-v1")
+        db_session.commit()
+        draft = client.get("/api/me/draft", headers=headers).json()
+        assert draft["slot_file_ids"]["report"][0]["file_id"] == file_id
+        # A later correction draft may intentionally remove its working attachment,
+        # but the already-issued immutable receipt must continue to identify v1 files.
+        saved = client.post("/api/me/draft", headers=headers, json={
+            "fields": {"correction_note": "准备补正"}, "slot_file_ids": {},
+            "expected_version": draft["draft_version"]})
+        assert saved.status_code == 200, saved.text
+        assert client.get("/api/me/draft", headers=headers).json()["slot_file_ids"] == {}
+        receipt = client.get("/api/me/receipt", headers=headers).json()
+        assert receipt["formal"] is True
+        assert receipt["receipt"] == revision.receipt
+        assert receipt["files"] == [{"name": "虚构报名单.txt", "size": len(b"fictional signup"),
+                                     "slot": "活动报名单"}]
 
 
 def test_stale_review_returns_conflict_without_recording_decision(db_session, scenario):

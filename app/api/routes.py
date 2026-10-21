@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, Header, HTTPException, Response, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -24,6 +24,7 @@ from ..models import (
     EXEMPTION_ACTIVE,
     AccessGrant,
     Account,
+    AgentDraftRequest,
     AuditEvent,
     AuthSession,
     BlueprintVersion,
@@ -31,6 +32,7 @@ from ..models import (
     DeliverySnapshot,
     Exemption,
     ExportJob,
+    FileObject,
     ManualDecision,
     NotificationIntent,
     RosterEntry,
@@ -249,6 +251,60 @@ def revise_draft_view(task_id: int, blueprint_version_id: int = Form(...),
     return {"blueprint_version_id": bp.id, "version": bp.version,
             "status": bp.status, "draft": result.model_dump(), "impact": impact,
             "blocking": blocking, "advisories": advisories}
+
+
+@router.post("/tasks/{task_id}/draft/agent-requests", status_code=202)
+def enqueue_agent_draft(task_id: int, background_tasks: BackgroundTasks,
+                        request_id: str = Form(...), kind: str = Form(...),
+                        requirement: str = Form(""), template: str = Form(""),
+                        blueprint_version_id: Optional[int] = Form(None),
+                        base_blueprint_id: int = Form(0),
+                        answered: str = Form(""), instruction: str = Form(""),
+                        db: Session = Depends(get_db), acct: Account = Depends(current_account)):
+    """Queue a long design-Agent request so the editor can recover after disconnects."""
+    task = _owned_task(db, acct, task_id)
+    try:
+        task_service.ensure_task_writable(task)
+    except task_service.TaskNotWritable as exc:
+        raise HTTPException(409, str(exc))
+    try:
+        answered_map = json.loads(answered) if answered.strip() else {}
+    except json.JSONDecodeError:
+        raise HTTPException(422, "澄清回答格式不正确，请刷新后重试")
+    if not isinstance(answered_map, dict):
+        raise HTTPException(422, "澄清回答格式不正确，请刷新后重试")
+    payload = {"kind": kind, "requirement": requirement, "template": template,
+               "blueprint_version_id": blueprint_version_id,
+               "base_blueprint_id": base_blueprint_id,
+               "answered": answered_map, "instruction": instruction}
+    from ..services import agent_requests
+    try:
+        job, should_schedule = agent_requests.enqueue(db, task, acct, request_id, payload)
+        db.commit()
+    except agent_requests.AgentRequestError as exc:
+        db.rollback()
+        raise HTTPException(422, str(exc))
+    if should_schedule:
+        background_tasks.add_task(agent_requests.drain_task_queue, task.id, 1)
+    return agent_requests.public_status(job)
+
+
+@router.get("/tasks/{task_id}/draft/agent-requests/{request_id}")
+def get_agent_draft_request(task_id: int, request_id: str, background_tasks: BackgroundTasks,
+                           response: Response, db: Session = Depends(get_db),
+                           acct: Account = Depends(current_account)):
+    task = _owned_task(db, acct, task_id)
+    job = db.scalar(select(AgentDraftRequest).where(
+        AgentDraftRequest.task_id == task.id,
+        AgentDraftRequest.account_id == acct.id,
+        AgentDraftRequest.request_id == request_id))
+    if job is None:
+        raise HTTPException(404, "还没有找到这次草案请求")
+    response.headers["Cache-Control"] = "no-store"
+    from ..services import agent_requests
+    if job.status == "queued":
+        background_tasks.add_task(agent_requests.drain_task_queue, task.id, 1)
+    return agent_requests.public_status(job)
 
 
 @router.post("/tasks/{task_id}/blueprints/{bp_id}/publish")
@@ -541,14 +597,45 @@ def formal_submit(body: SubmitIn,
 @router.get("/me/receipt")
 def my_receipt(grant_and_subject: tuple = Depends(current_subject), db: Session = Depends(get_db)):
     grant, subject = grant_and_subject
+    task = db.get(Task, grant.task_id)
 
     submission = db.scalar(select(Submission).where(Submission.task_id == grant.task_id,
                                              Submission.subject_id == subject.id))
     if submission is None or submission.current_revision_id is None:
         return {"formal": False}
     rev = db.get(Revision, submission.current_revision_id)
+    try:
+        manifest = json.loads(rev.slot_file_ids_json or "{}")
+    except (TypeError, ValueError):
+        manifest = {}
+    run = db.scalar(select(CheckRun).where(CheckRun.revision_id == rev.id)
+                    .order_by(CheckRun.id.desc()))
+    blueprint_version = db.get(BlueprintVersion, run.blueprint_version_id) if run else None
+    if blueprint_version is None and task.current_blueprint_id:
+        blueprint_version = db.get(BlueprintVersion, task.current_blueprint_id)
+    slot_labels = {}
+    if blueprint_version:
+        try:
+            blueprint = Blueprint.model_validate_json(blueprint_version.blueprint_json)
+            slot_labels = {slot.id: slot.label for slot in blueprint.slots}
+        except Exception:  # legacy/corrupt blueprint: retain safe slot IDs as fallback
+            slot_labels = {}
+    files = []
+    if isinstance(manifest, dict):
+        file_ids = {file_id for ids in manifest.values() if isinstance(ids, list)
+                    for file_id in ids if isinstance(file_id, str)}
+        file_rows = db.scalars(select(FileObject).where(
+            FileObject.submission_id == submission.id,
+            FileObject.file_id.in_(file_ids) if file_ids else FileObject.file_id == "")).all()
+        by_id = {fo.file_id: fo for fo in file_rows}
+        for slot, ids in manifest.items():
+            for file_id in ids if isinstance(ids, list) else []:
+                fo = by_id.get(file_id)
+                if fo:
+                    files.append({"name": fo.original_name, "size": fo.size,
+                                  "slot": slot_labels.get(slot, slot)})
     return {"formal": True, "receipt": rev.receipt, "revision": rev.version,
-            "formal_submitted_at": iso_utc(rev.formal_submitted_at)}
+            "formal_submitted_at": iso_utc(rev.formal_submitted_at), "files": files}
 
 @router.post("/me/appeals")
 def create_appeal(body: AppealIn,

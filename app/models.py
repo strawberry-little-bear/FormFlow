@@ -440,3 +440,24 @@ class AuditEvent(Base):
     entity: Mapped[str] = mapped_column(String(64), default="")
     payload_json: Mapped[str] = mapped_column(Text, default="{}")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class AgentDraftRequest(Base):
+    """Durable, idempotent lifecycle for one organizer-requested draft generation."""
+
+    __tablename__ = "agent_draft_requests"
+    __table_args__ = (UniqueConstraint("task_id", "account_id", "request_id",
+                                       name="uq_agent_draft_request_scope"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id"), index=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"), index=True)
+    request_id: Mapped[str] = mapped_column(String(80))
+    request_hash: Mapped[str] = mapped_column(String(64))
+    payload_json: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(16), default="queued", index=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    result_json: Mapped[str] = mapped_column(Text, default="")
+    error: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow,
+                                                  onupdate=datetime.utcnow)

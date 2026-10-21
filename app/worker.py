@@ -1,7 +1,6 @@
-"""后台 Worker：解析、审核、打包等异步任务。
+"""后台 Worker：材料检查与持久化需求 Agent 请求。
 
-方案第 15 节：正式版本与检查意图可靠记录，避免数据库成功但队列任务丢失；
-重试不重复建报名、验收或通知。当前阶段为进程内轮询，接口与队列实现解耦。
+正式检查与需求 Agent 请求都先持久化再执行；需求请求按任务串行，重复请求使用稳定 ID 恢复，迟到的旧尝试不能覆盖后续版本。当前为本地数据库 + 单 Worker，不宣称分布式队列或多 Worker 部署安全。
 
 V20（队列失败、服务重启）恢复语义：
 - 排队中的运行重启后由轮询自动接管，正式提交意图不丢失；
@@ -27,6 +26,7 @@ from .models import (
 )
 from .services import tasks as task_service
 from .services.checks import execute_run
+from .services.agent_requests import requeue_stale_requests, run_task_queues_once
 
 # 中断未完成态：重启后需要恢复接管的运行状态（成功/失败/被取代都是历史，绝不动）
 _INTERRUPTED_STATUSES = (RUN_RUNNING, RUN_RETRY_WAIT)
@@ -79,9 +79,12 @@ def main(poll_interval: float = 2.0) -> None:
     db = SessionLocal()
     try:
         recovered = recover_interrupted_runs(db)
+        recovered_design = requeue_stale_requests(db)
         db.commit()
         if recovered:
             print(f"[worker] 恢复 {recovered} 个被中断的检查运行（重新排队）")
+        if recovered_design:
+            print(f"[worker] 恢复 {recovered_design} 个卡住的需求 Agent 请求（重新排队）")
     finally:
         db.close()
     while True:
@@ -90,6 +93,13 @@ def main(poll_interval: float = 2.0) -> None:
             n = run_pending_once(db)
             if n:
                 print(f"[worker] 完成 {n} 个检查运行")
+            recovered_design = requeue_stale_requests(db)
+            if recovered_design:
+                db.commit()
+                print(f"[worker] 恢复 {recovered_design} 个卡住的需求 Agent 请求")
+            n_design = run_task_queues_once(db, limit_tasks=1)
+            if n_design:
+                print(f"[worker] 完成 {n_design} 个需求 Agent 请求")
         except Exception as e:  # 故障不致命：保留任务，下轮重试
             print(f"[worker] 运行出错（将重试）: {e}")
         finally:

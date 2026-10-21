@@ -31,7 +31,7 @@ function setup(sharedStorage = storage()) {
     window: {addEventListener() {}}, location: {hash:'#/submit'}, Intl, URLSearchParams, FormData,
     setTimeout, clearTimeout, confirm: () => true, console,
     fetch: async () => {throw new Error('Unexpected request');}});
-  vm.runInContext(source + '\nthis.app = {state, useVersionAsBase, loadDesignVersion, cacheDesignInputs, restoreDesignInputs, recoverDesignInput, paintChat, runAgent, canPublishDesign, publishDiffHtml, publishBp, confirmPublish, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, draftFingerprint, collectDraftFields, cacheSubmissionDraft, setSubMode, refreshSlotConditions, wbMatches, api, submitDecision, saveDraft, doSubmit, uploadSlot, cacheReviewDraft, discardReviewDraft, logout, nextPendingReview, setReviewFilter, selectReviewRule, viewReview, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, chooseWorkbenchNextStep, workbenchNextStepHtml, agentRunCard, submitterGuidance, ruleCard, submissionIssues, showSubmissionIssues, initSubChat};', context);
+  vm.runInContext(source + '\nthis.app = {state, useVersionAsBase, loadDesignVersion, cacheDesignInputs, restoreDesignInputs, recoverDesignInput, paintChat, runAgent, canPublishDesign, publishDiffHtml, publishBp, confirmPublish, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, draftFingerprint, collectDraftFields, cacheSubmissionDraft, setSubMode, refreshSlotConditions, wbMatches, api, submitDecision, saveDraft, doSubmit, uploadSlot, cacheReviewDraft, discardReviewDraft, logout, nextPendingReview, setReviewFilter, selectReviewRule, viewReview, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, chooseWorkbenchNextStep, workbenchNextStepHtml, agentRunCard, submitterGuidance, ruleCard, receiptFilesHtml, submissionIssues, checkAgentRequestNow, resumePendingAgentRequest, savePendingAgentRequest, agentRequestProgressHtml, retryAgent, pollAgentRequest, showSubmissionIssues, initSubChat};', context);
   Object.assign(context.app.state, {routeEpoch: 1, me:{task:{id:1, status:'collecting', timezone:'Asia/Shanghai'},subject:{id:2}},
     draftVersion:1, fileMeta:{}, sub:{mode:'chat',phase:'fields',fIdx:0, fields:[{id:'name'}],slots:[],answers:{}}});
   context.localStorage.setItem('ff_sub_token', 'test-only-credential');
@@ -495,6 +495,16 @@ test('workbench next step falls back to missing, delivery, then neutral states',
   const outOfRoster = app.chooseWorkbenchNextStep([{name:'外部报名', in_roster:false, formal:false}], {id:7, mode:'roster'});
   assert.equal(outOfRoster.kind, 'roster');
 });
+test('formal receipt retains its submitted file list separately from the correction draft', () => {
+  const {app} = setup();
+  const html=app.receiptFilesHtml({formal:true,revision:1,files:[
+    {name:'报名单 <final>.txt',slot:'活动报名单',size:17},
+  ]});
+  assert.match(html,/正式版本 v1 已提交材料/);
+  assert.match(html,/报名单 &lt;final&gt;\.txt/);
+  assert.match(html,/活动报名单 · 17 B/);
+  assert.equal(app.receiptFilesHtml({formal:false,files:[{name:'draft.txt'}]}),'');
+});
 test('submitter-facing result cards explain status in calm plain language without changing the result', () => {
   const {app} = setup();
   const issue = app.ruleCard({rule_id:'R-01', result:'issue', severity:'blocking',
@@ -580,9 +590,12 @@ test('a no-rule review shows qualification directly rather than an empty mobile 
 });
 
 
-function designSetup() {
-  const test=setup(), {app,els,context}=test;
-  for(const id of ['chat-in','clar-0','clar-extra','chat-scroll','design-input-hint','design-recovery','draft-state','publish-summary','publish-consent','publish-confirm','publish-error','publish-dialog'])els[id]=element();
+function designSetup(sharedStorage=storage()) {
+  const test=setup(sharedStorage), {app,els,context}=test;
+  for(const id of ['chat-in','clar-0','clar-extra','chat-scroll','design-input-hint','design-recovery','draft-state','agent-request-status','publish-summary','publish-consent','publish-confirm','publish-error','publish-dialog'])els[id]=element();
+  context.timers=[];context.timerId=0;
+  context.setTimeout=(fn,ms)=>{const id=++context.timerId;context.timers.push({id,fn,ms});return id;};
+  context.clearTimeout=id=>{context.timers=context.timers.filter(t=>t.id!==id);};
   els['publish-dialog'].showModal=()=>els['publish-dialog'].open=true;
   els['publish-dialog'].close=()=>els['publish-dialog'].open=false;
   context.localStorage.setItem('ff_org_token','test-org');
@@ -593,6 +606,16 @@ function designSetup() {
 }
 function savedDesign(context) { return JSON.parse(context.sessionStorage.getItem('ff_design:7:1')); }
 function updatedDesign() { return {blueprint_version_id:11,version:2,status:'draft',draft:{blueprint:{fields:[{id:'name',label:'姓名'}],slots:[],rules:[]},clarifications:[],warnings:[]}}; }
+function completedAgentRequest(id='req-test-00000000000000001') {
+  const result=updatedDesign();
+  return {request_id:id,status:'completed',result:{...result, draft:{...result.draft,blueprint:{...result.draft.blueprint}}}};
+}
+function latestDesign() {
+  const result=updatedDesign();
+  return {...result, task:{id:1,name:'任务',owner_id:7,status:'draft',mode:'roster',subject_kind:'individual'},
+    source_text:'原始要求', versions:[{id:11,version:2,status:'draft'}], history:[],
+    blocking:[], advisories:[], published:null};
+}
 
 test('unsent design inputs restore by owner, task and base version and block publication', () => {
   const {app,els,context}=designSetup(); els['chat-in'].value='未发送要求';els['clar-0'].value='11 月';
@@ -623,23 +646,120 @@ test('design storage failure retains memory input and tells the user refresh is 
 });
 test('successful composer request preserves clarification input it did not send', async () => {
   const {app,els,context}=designSetup();els['chat-in'].value='新增字段';els['clar-0'].value='还没发送的答案';
-  context.fetch=async()=>response(updatedDesign());await app.runAgent('新增字段',{},'新增字段');
+  context.fetch=async(url,opts)=>url.endsWith('/agent-requests') ? response({request_id:opts.body.get('request_id'),status:'completed',result:updatedDesign()})
+    : response(latestDesign());
+  await app.runAgent('新增字段',{},'新增字段');
   const old=savedDesign(context).versions['10'];assert.equal(old.composer,'');assert.equal(old.answers['截止？'],'还没发送的答案');
   assert.match(els['design-recovery'].innerHTML,/还没发送的答案/);
 });
 test('successful clarification request preserves an unrelated unsent composer', async () => {
   const {app,els,context}=designSetup();els['chat-in'].value='另外的修改';els['clar-0'].value='11 月';
-  context.fetch=async()=>response(updatedDesign());await app.runAgent('截止？：11 月',{'截止？':'11 月'},'','clarifications');
+  context.fetch=async(url,opts)=>url.endsWith('/agent-requests') ? response({request_id:opts.body.get('request_id'),status:'completed',result:updatedDesign()})
+    : response(latestDesign());
+  await app.runAgent('截止？：11 月',{'截止？':'11 月'},'','clarifications');
   const old=savedDesign(context).versions['10'];assert.equal(old.composer,'另外的修改');assert.deepEqual(old.answers,{});
   assert.match(els['design-recovery'].innerHTML,/另外的修改/);
 });
-test('failed and late design requests cannot lose edits or overwrite a new page', async () => {
+test('design Agent request is durably queued before polling and keeps the same idempotency key', async () => {
+  const {app,els,context}=designSetup();els['chat-in'].value='收集姓名和活动日期';
+  const calls=[];
+  context.fetch=async(url,opts)=>{
+    calls.push({url,opts});
+    if(url.endsWith('/agent-requests')) return response({request_id:opts.body.get('request_id'),status:'queued'});
+    if(url.endsWith('/agent-requests/'+app.state.agentRequest.requestId)) return response({request_id:app.state.agentRequest.requestId,status:'running'});
+    throw new Error(`unexpected ${url}`);
+  };
+  await app.runAgent('收集姓名和活动日期',{},'收集姓名和活动日期');
+  const requestId=app.state.agentRequest.requestId;
+  assert.match(els['agent-request-status'].innerHTML,/已收到，正在等候处理/);
+  assert.equal(savedDesign(context).pendingAgentRequest.requestId,requestId);
+  assert.equal(calls[0].opts.body.get('base_blueprint_id'),'10');
+  assert.ok(context.timers.length);
+  app.retryAgent();
+  assert.equal(app.state.agentRequest.requestId,requestId);
+  assert.equal(calls.at(-1).opts.body.get('request_id'),requestId);
+});
+test('design Agent resumes after a page reload by checking the saved request id, not resubmitting', async () => {
+  const shared=storage(), first=designSetup(shared), firstCalls=[];
+  first.els['chat-in'].value='名单内同学提交团课报告';
+  first.context.fetch=async(url,opts)=>{
+    firstCalls.push({url,opts});
+    if(url.endsWith('/agent-requests')) return response({request_id:opts.body.get('request_id'),status:'running'});
+    if(url.includes('/agent-requests/')) return response({request_id:first.app.state.agentRequest.requestId,status:'running'});
+    throw new Error(`unexpected ${url}`);
+  };
+  await first.app.runAgent('名单内同学提交团课报告',{},'名单内同学提交团课报告');
+  const id=first.app.state.agentRequest.requestId;
+
+  const reloaded=designSetup(shared), calls=[];
+  reloaded.context.fetch=async(url,opts)=>{
+    calls.push({url,opts});
+    if(url.includes('/agent-requests/')) return response(completedAgentRequest(id));
+    if(url==='/api/tasks/1/design') return response(latestDesign());
+    throw new Error(`unexpected ${url}`);
+  };
+  reloaded.app.state.agentResumeStarted=false;
+  await reloaded.app.resumePendingAgentRequest(reloaded.app.state.designEpoch,'test-org');
+  assert.equal(reloaded.app.state.agentRequest,null);
+  assert.equal(reloaded.app.state.bpId,11);
+  assert.match(reloaded.els['chat-scroll'].innerHTML,/名单内同学提交团课报告/);
+  assert.equal(calls.filter(x=>x.url.endsWith('/agent-requests')).length,0);
+  assert.equal(savedDesign(reloaded.context).pendingAgentRequest,undefined);
+});
+test('stale design request reports latest-version conflict and requires explicit refresh', async () => {
+  const {app,els,context}=designSetup();els['chat-in'].value='修改字段';
+  context.fetch=async()=>response({detail:'草案已在另一页面更新；请回到最新版本核对后，再提交保留的修改内容'},409);
+  await app.runAgent('修改字段',{},'修改字段');
+  assert.equal(app.state.agentRequest.permanentError,true);
+  assert.match(els['agent-request-status'].innerHTML,/草案已在别处更新/);
+  assert.match(els['agent-request-status'].innerHTML,/刷新草案/);
+  assert.doesNotMatch(els['agent-request-status'].innerHTML,/用原请求重试/);
+  assert.equal(savedDesign(context).pendingAgentRequest.requestId,app.state.agentRequest.requestId);
+});
+test('design Agent resumes an ambiguous connection by looking up before re-enqueueing', async () => {
+  const {app,els,context}=designSetup();els['chat-in'].value='恢复这条要求';app.cacheDesignInputs();
+  let posts=0,gets=0;
+  context.fetch=async(url,opts)=>{
+    if(url.endsWith('/agent-requests')) {posts++;return response({request_id:opts.body.get('request_id'),status:'running'});}
+    if(url.includes('/agent-requests/')) {gets++;return response({request_id:app.state.agentRequest.requestId,status:'running'});}
+    throw new Error(`unexpected ${url}`);
+  };
+  await app.runAgent('恢复这条要求',{},'恢复这条要求');
+  const requestId=app.state.agentRequest.requestId;
+  app.state.agentRequest=null;app.state.agentBusy=false;app.state.agentResumeStarted=false;
+  await app.resumePendingAgentRequest(app.state.designEpoch,'test-org');
+  assert.equal(app.state.agentRequest.requestId,requestId);
+  assert.equal(posts,1);assert.equal(gets,1);
+});
+test('design Agent reconnects with the same request id after an enqueue response is lost', async () => {
+  const {app,els,context}=designSetup();els['chat-in'].value='断线后确认';
+  let posts=0,gets=0;
+  context.fetch=async(url,opts)=>{
+    if(url.endsWith('/agent-requests')) {posts++; if(posts===1) throw new Error('network reset');
+      return response({request_id:opts.body.get('request_id'),status:'queued'});}
+    if(url.includes('/agent-requests/')) {gets++;return gets===1 ? response({detail:'还没有找到这次草案请求'},404) : response({request_id:app.state.agentRequest.requestId,status:'queued'});}
+    throw new Error(`unexpected ${url}`);
+  };
+  await app.runAgent('断线后确认',{},'断线后确认');
+  const id=app.state.agentRequest.requestId;
+  assert.match(els['agent-request-status'].innerHTML,/即使网络中断/);
+  assert.equal(savedDesign(context).pendingAgentRequest.requestId,id);
+  await app.checkAgentRequestNow();
+  assert.equal(posts,2);assert.equal(gets,1);
+  assert.equal(context.timers.length,1);
+});
+test('failed and late design requests preserve input and cannot overwrite a new page', async () => {
   const {app,els,context}=designSetup();els['chat-in'].value='重试要求';els['clar-0'].value='未完答案';
-  context.fetch=async()=>response({detail:'模型不可用'},503);await app.runAgent('重试要求',{},'重试要求');
+  let calls=0;
+  context.fetch=async(url,opts)=>{calls++; if(url.endsWith('/agent-requests')) return response({request_id:opts.body.get('request_id'),status:'failed',error:'网关断开；原草案没有更改。'}); throw new Error('Unexpected');};
+  await app.runAgent('重试要求',{},'重试要求');
   assert.equal(els['chat-in'].value,'重试要求');assert.equal(els['clar-0'].value,'未完答案');
+  const oldId=app.state.agentRequest.requestId;app.retryAgent();
+  assert.equal(app.state.agentRequest.requestId,oldId);assert.equal(calls,2);
   const pending=deferred();context.fetch=async()=>pending.promise;
-  const save=app.runAgent('重试要求',{},'重试要求');app.state.designEpoch++;app.state.bpId=77;els['chat-in'].value='另一页面';
-  pending.resolve(response(updatedDesign()));await save;
+  const save=app.pollAgentRequest(app.state.agentRequest,app.state.designEpoch,'test-org','lookup');
+  app.state.designEpoch++;app.state.bpId=77;els['chat-in'].value='另一页面';
+  pending.resolve(response({request_id:oldId,status:'completed',result:updatedDesign()}));await save;
   assert.equal(app.state.bpId,77);assert.equal(els['chat-in'].value,'另一页面');
 });
 test('publication diff shows removed requirements and safely escapes descriptions', () => {

@@ -1,7 +1,7 @@
 "use strict";
 /* 收齐啦 FormFlow 前端（P01–P05）。纯静态 SPA，直接调用 /api。 */
 const ORG_KEY = "ff_org_token", SUB_KEY = "ff_sub_token";
-const state = { taskId: null, chat: [], bpId: null, draft: null, requirement: "", answeredDone: false, files: {}, filesMeta: {}, draftVersion: null, me: null, lastJob: null, roster: {}, designEpoch: 0, agentBusy: false, draftStatus: "draft", draftVersionId: null, designTab: "preview", tasks: [], designBlocking: [], designAdvisories: [], designVersions: [], designHistory: [], viewingVersion: null, wbRows: [], wbFilter: "all", reviewRule: null, reviewFilter: "all" };
+const state = { taskId: null, chat: [], bpId: null, draft: null, requirement: "", answeredDone: false, files: {}, filesMeta: {}, draftVersion: null, me: null, lastJob: null, roster: {}, designEpoch: 0, agentBusy: false, agentRequest: null, agentRequestPollTimer: 0, agentResumeStarted: false, agentRequestDisplayedId: null, draftStatus: "draft", draftVersionId: null, designTab: "preview", tasks: [], designBlocking: [], designAdvisories: [], designVersions: [], designHistory: [], viewingVersion: null, wbRows: [], wbFilter: "all", reviewRule: null, reviewFilter: "all" };
 
 const orgToken = () => localStorage.getItem(ORG_KEY) || "";
 const subToken = () => localStorage.getItem(SUB_KEY) || "";
@@ -31,7 +31,9 @@ async function api(path, opts = {}) {
   }
   const tok = opts.token !== undefined ? opts.token : (opts.sub ? subToken() : orgToken());
   if (tok) headers["Authorization"] = "Bearer " + tok;
-  const r = await fetch(path, { method: opts.method || "GET", headers, body });
+  const fetchOptions = { method: opts.method || "GET", headers, body };
+  if (opts.cache) fetchOptions.cache = opts.cache;
+  const r = await fetch(path, fetchOptions);
   const text = await r.text();
   let data = {};
   try { data = text ? JSON.parse(text) : {}; } catch (e) { data = { detail: text }; }
@@ -209,6 +211,10 @@ function route() {
   cacheReviewDraft();
   cacheDesignInputs();
   state.routeEpoch = (state.routeEpoch || 0) + 1;
+  clearTimeout(state.agentRequestPollTimer);
+  state.agentRequestPollTimer = 0;
+  state.agentResumeStarted = false;
+  state.agentRequest = null;
   state.reviewConflict = false;
   state.reviewDraft = null;
   state.designEpoch++;
@@ -506,10 +512,11 @@ async function viewDesign(taskId) {
   cacheDesignInputs();
   const epoch = ++state.designEpoch, token = orgToken();
   Object.assign(state,{designTaskId:taskId,designOwnerId:null,designToken:token,designBaseId:0,designQuestions:[],designRenderedBase:null,designDirty:false,designCacheFailed:false,designNeedsRevision:false});
-  Object.assign(state, {taskId, chat: [], bpId: null, draft: null, requirement: "", answeredDone: false, draftStatus: "draft", draftVersionId: null, designLoadFailed: false, retryRequest: null, designTab: "preview", agentBusy: false, designBlocking: [], designAdvisories: [], designVersions: [], designHistory: [], viewingVersion: null});
+  Object.assign(state, {taskId, chat: [], bpId: null, draft: null, requirement: "", answeredDone: false, draftStatus: "draft", draftVersionId: null, designLoadFailed: false, retryRequest: null, agentRequest: null, agentRequestPollTimer: 0, agentResumeStarted: false, agentRequestDisplayedId: null, designTab: "preview", agentBusy: false, designBlocking: [], designAdvisories: [], designVersions: [], designHistory: [], viewingVersion: null});
   document.getElementById("app").innerHTML = `<div class="breadcrumb"><a href="#/tasks">我的任务</a><span>/</span><span id="design-name">收集任务 #${taskId}</span></div>
     <div class="page-heading design-heading"><div><div class="eyebrow">COLLECTION DESIGN</div><h1>把要求，变成好用的收集表</h1><p>左边一起梳理需求，右边实时核对。确认无误后再发布。</p></div><span class="badge brand" id="draft-state">正在恢复草案</span></div>
     <div id="flash" role="status" aria-live="polite"></div>
+    <div id="agent-request-status" aria-live="polite"></div>
     <div class="step-flow"><span class="st on"><span class="dot">1</span>描述需求</span><span class="arw"></span><span class="st" id="st-2"><span class="dot">2</span>核对与澄清</span><span class="arw"></span><span class="st" id="st-3"><span class="dot">3</span>确认发布</span><span class="step-hint">生成的草案存服务器；未发送输入仅本标签页暂存</span></div>
     <div id="design-recovery"></div><div class="grid-chat"><section class="card agent-panel"><div class="agent-heading"><span class="agent-mark">✧</span><div><h2>小齐 <span>需求设计助手</span></h2><p id="agent-status">正在恢复上下文…</p></div><span class="agent-live"></span></div>
       <div class="chat"><div class="chat-scroll" id="chat-scroll" role="log" aria-label="需求对话" aria-live="polite"></div><div class="composer"><div class="chips" id="chat-chips"></div>
@@ -524,6 +531,8 @@ async function viewDesign(taskId) {
     state.task = r.task; state.designOwnerId=r.task.owner_id;
     state.designPublished=r.published;state.designPublishImpact=r.publish_impact;
     document.getElementById("design-name").textContent = r.task.name;
+    const pendingAgentRequest = readDesignInputs().pendingAgentRequest;
+    if (pendingAgentRequest?.requestId && !state.agentRequest) state.agentRequest = pendingAgentRequest;
     if (r.blueprint_version_id) {
       applyDraft(r); state.requirement = r.source_text || "";
       const when = r.versions && r.versions[0] ? fmtTime(r.versions[0].created_at) : "";
@@ -547,7 +556,12 @@ async function viewDesign(taskId) {
       agentSay('我会先整理草案，只追问影响收集的关键信息。', '不确定的地方会标出来；未经你确认，不会发布，也不会暗加材料门槛。');
     }
   } catch(e) { if (epoch === state.designEpoch) { state.designLoadFailed = true; setFlash('未能恢复草案：' + e.message + '。请重新打开此页面，以免覆盖已有设计。'); } }
-  finally { if (epoch === state.designEpoch && token === orgToken()) { setAgentBusy(false); renderChips(); renderDraftPanel();restoreDesignInputs(); } }
+  finally {
+    if (epoch === state.designEpoch && token === orgToken()) {
+      setAgentBusy(false); renderChips(); renderDraftPanel(); restoreDesignInputs();
+      resumePendingAgentRequest(epoch, token);
+    }
+  }
 }
 function applyDraft(r) {
   if(state.bpId !== r.blueprint_version_id) state.designNeedsRevision=false;
@@ -562,6 +576,14 @@ function applyDraft(r) {
   if (r.history) state.designHistory = r.history;
   if ('published' in r) state.designPublished=r.published;
 }
+function agentWaitCopy() {
+  const elapsed = state.agentRequest?.createdAt ? Math.max(0, Date.now() - state.agentRequest.createdAt) : 0;
+  if (elapsed > 120000) return '这次内容比较长，我还在等模型回应。原草案和你的输入都保留着；你也可以先离开，回来继续查看。';
+  if (elapsed > 45000) return '还在整理这次内容，我正在确认服务器有没有收到完整结果；不会用半份结果覆盖草案。';
+  if (state.agentRequest?.status === 'queued') return '你的内容已安全收到，正在等小齐开始整理。';
+  if (state.agentRequest?.status === 'running') return '小齐正在整理字段和规则，完成后会在这里更新。';
+  return '正在连接服务器确认进度；如果刚才断线了，我会按同一个请求继续查，不会重复生成。';
+}
 function setAgentBusy(on, label = "正在整理需求") {
   state.agentBusy = on;
   const locked=on || !!state.viewingVersion || state.designLoadFailed;
@@ -570,7 +592,7 @@ function setAgentBusy(on, label = "正在整理需求") {
   document.querySelectorAll('#chat-chips button, #clar-card input, #clar-card button, [data-publish]').forEach(x => x.disabled = locked);
   document.querySelectorAll('.version-picker select').forEach(x=>x.disabled=on);
   const status = document.getElementById('agent-status');
-  if (status) status.textContent = on ? label + '，可能需要一点时间…' : '与你一起确认，不代替你做决定';
+  if (status) status.textContent = on ? `${label} · ${agentWaitCopy()}` : '与你一起确认，不代替你做决定';
   const box = document.getElementById('chat-scroll'); if (box) box.setAttribute('aria-busy', String(on));
   chatTyping(on);paintDesignInputState();
 }
@@ -586,7 +608,7 @@ function agentSay(html, mini) { state.chat.push({role: 'agent', html, mini: mini
 function chatTyping(on) {
   document.getElementById('typing-row')?.remove(); if (!on) return;
   const box = document.getElementById('chat-scroll'); if (!box) return;
-  box.insertAdjacentHTML('beforeend', '<div class="msg agent" id="typing-row"><div class="avatar">✧</div><div class="body"><span class="typing"><i></i><i></i><i></i></span><span class="mini">正在处理，草案不会被提前发布</span></div></div>'); chatScrollBottom();
+  box.insertAdjacentHTML('beforeend', `<div class="msg agent" id="typing-row"><div class="avatar">✧</div><div class="body"><span class="typing"><i></i><i></i><i></i></span><span class="mini">${esc(agentWaitCopy())}</span></div></div>`); chatScrollBottom();
 }
 function paintChat() {
   if(state.designRenderedBase === state.designBaseId) cacheDesignInputs();
@@ -628,40 +650,273 @@ function impactText(im = {}) {
   if(im.eligibility_required_changed) bits.push('资格要求已调整');
   return bits.length ? esc(bits.join('；')) : '没有实质变更，沿用原草案。';
 }
-async function runAgent(text, answered = {}, instruction = '', source = 'composer') {
+function newAgentRequestId() {
+  const random = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+  return `req-${Date.now()}-${random}`.slice(0, 80);
+}
+function savePendingAgentRequest(request) {
+  const saved = readDesignInputs();
+  if (request) saved.pendingAgentRequest = request;
+  else delete saved.pendingAgentRequest;
+  writeDesignInputs(saved);
+}
+function clearPendingAgentRequest(requestId) {
+  const saved = readDesignInputs();
+  if (!requestId || saved.pendingAgentRequest?.requestId === requestId) {
+    delete saved.pendingAgentRequest;
+    writeDesignInputs(saved);
+  }
+  if (!requestId || state.agentRequest?.requestId === requestId) {
+    state.agentRequest = null;
+    clearTimeout(state.agentRequestPollTimer);
+    state.agentRequestPollTimer = 0;
+  }
+  if (!requestId || state.retryRequest?.requestId === requestId) state.retryRequest = null;
+}
+function agentRequestPath(request) {
+  return `/api/tasks/${state.taskId}/draft/agent-requests/${encodeURIComponent(request.requestId)}`;
+}
+function agentRequestForm(request) {
+  const p = request.payload;
+  return {request_id: request.requestId, kind: p.kind,
+    requirement: p.requirement || "", template: p.template || "",
+    blueprint_version_id: p.blueprint_version_id || "",
+    base_blueprint_id: String(p.base_blueprint_id ?? 0),
+    answered: JSON.stringify(p.answered || {}), instruction: p.instruction || ""};
+}
+function agentRequestProgressHtml(request) {
+  const status = request.status || "queued";
+  const elapsed = Math.max(0, Date.now() - (request.createdAt || Date.now()));
+  const minutes = Math.floor(elapsed / 60000);
+  const title = status === "queued" ? "已收到，正在等候处理"
+    : status === "running" ? "小齐正在整理这次要求"
+    : status === "checking" ? "正在确认服务器处理到哪一步"
+    : "正在确认请求状态";
+  const detail = state.designCacheFailed
+    ? "请求已交给服务器；不过本标签页暂存不可用，离开前请先复制你的原文。"
+    : minutes >= 2
+      ? `已经等了 ${minutes} 分钟。服务端仍保留这次请求；你可以先离开，回来后会继续核对状态。`
+      : "原文和当前草案都已保留；即使网络中断，回来后也会接着查这次请求。";
+  return `<section class="agent-request-card" role="status" aria-live="polite">
+    <span class="agent-request-mark" aria-hidden="true">${status === "running" ? "…" : "↗"}</span>
+    <div class="agent-request-copy"><b>${title}</b><p>${detail}</p></div>
+    <button class="ghost sm" type="button" onclick="checkAgentRequestNow()">查看进度</button>
+  </section>`;
+}
+function paintAgentRequestStatus(request, error = "") {
+  const box = document.getElementById("agent-request-status");
+  if (!box) return;
+  if (!request) { box.innerHTML = ""; return; }
+  if (request.status === "queued" || request.status === "running" || request.status === "checking") {
+    box.innerHTML = agentRequestProgressHtml(request);
+    return;
+  }
+  if (request.status === "failed") {
+    const message = error || request.error || "小齐这次没有收到完整回复，原草案仍保留。";
+    const stale = /草案已在另一页面更新|回到最新版本核对/.test(message);
+    box.innerHTML = `<section class="agent-request-card failed" role="alert"><span class="agent-request-mark" aria-hidden="true">!</span><div class="agent-request-copy"><b>${stale ? "草案已在别处更新" : "这次整理没有完成"}</b><p>${esc(message)}</p><p class="agent-request-hint">你的原文仍保留，旧结果没有覆盖当前草案。</p></div>${stale ? '<button class="ghost sm" type="button" onclick="refreshAfterAgentConflict()">刷新草案</button>' : request.permanentError ? '' : '<button class="ghost sm" type="button" onclick="retryAgent()">用原请求重试</button>'}</section>`;
+    return;
+  }
+  box.innerHTML = "";
+}
+function currentDesignRequest(request, epoch, token) {
+  return epoch === state.designEpoch && token === orgToken()
+    && state.agentRequest?.requestId === request.requestId;
+}
+function scheduleAgentRequestPoll(request, epoch, token, mode = "lookup") {
+  if (!currentDesignRequest(request, epoch, token)) return;
+  clearTimeout(state.agentRequestPollTimer);
+  const delays = [1200, 2200, 4000, 7000, 11000, 15000];
+  const delay = delays[Math.min(request.pollCount || 0, delays.length - 1)];
+  request.pollCount = (request.pollCount || 0) + 1;
+  state.agentRequestPollTimer = setTimeout(() => pollAgentRequest(request, epoch, token, mode), delay);
+}
+function finishAgentRequestFailure(request, message, epoch, token, permanent = false) {
+  if (!currentDesignRequest(request, epoch, token)) return;
+  request.status = "failed"; request.error = message || request.error || "这次请求没有完成，原草案仍然保留。";
+  request.permanentError = !!permanent; state.retryRequest = request;
+  savePendingAgentRequest(request); setAgentBusy(false); paintAgentRequestStatus(request);
+  agentSay(request.permanentError && /草案已在另一页面更新/.test(request.error)
+    ? "草案有了新版本，我先不把旧修改覆盖上去。"
+    : "这次整理没有完成，原草案还在。", "你刚才写的内容已保留；可以用同一请求重试，不会重复生成版本。");
+  if (state.retryRequest && request.permanentError && !/草案已在另一页面更新/.test(request.error))
+    agentSay("你也可以编辑原文再重新发送；这次没有改动草案。");
+  renderChips(); renderDraftPanel();
+}
+async function completeAgentRequest(request, response, epoch, token) {
+  if (!currentDesignRequest(request, epoch, token)) return;
+  const result = response?.result;
+  if (!result?.draft?.blueprint || !result.blueprint_version_id) {
+    finishAgentRequestFailure(request, "服务器没有返回完整草案；原草案仍保留。可以用原请求重试。", epoch, token);
+    return;
+  }
+  let latest;
+  try { latest = await api(`/api/tasks/${state.taskId}/design`); }
+  catch (e) {
+    request.status = "checking"; request.error = "草案已经生成，正在确认它是否仍是最新版本。";
+    savePendingAgentRequest(request); paintAgentRequestStatus(request);
+    scheduleAgentRequestPoll(request, epoch, token, "lookup");
+    return;
+  }
+  if (!currentDesignRequest(request, epoch, token)) return;
+  const isLatestResult = latest.blueprint_version_id === result.blueprint_version_id;
+  if (isLatestResult) {
+    const bpNew = result.draft.blueprint || {};
+    const usable = bpNew.fields?.length || bpNew.slots?.length || bpNew.rules?.length;
+    const warnings = result.draft.warnings || [];
+    const consumed = usable && !(request.previousBlueprintId === result.blueprint_version_id && warnings.length);
+    if (consumed) consumeDesignInput(request.sentBase, request.sent, request.source);
+    applyDraft(latest);
+    state.requirement = latest.source_text || (request.previousBlueprintId ? state.requirement : request.text);
+    clearPendingAgentRequest(request.requestId);
+    const remaining = readDesignInputs().versions[String(state.designBaseId || 0)] || {};
+    state.designDirty = hasDesignInput(remaining);
+    restoreDesignInputs();
+    const bp = latest.draft?.blueprint || {};
+    const empty = !bp.fields?.length && !bp.slots?.length && !bp.rules?.length;
+    const unchanged = request.previousBlueprintId === result.blueprint_version_id;
+    agentSay(empty ? "这次没有整理出可用的收集表，原要求仍保留。"
+      : unchanged ? "这次没有形成新版本，原草案仍然保留。"
+      : request.previousBlueprintId ? "草案已更新；我们一起看看改动有没有按你的意思。"
+      : "第一份草案已经整理好，先核对一下有没有漏掉或多加的要求。",
+      request.previousBlueprintId ? impactText(result.impact) : empty
+        ? "可以用同一请求重试，或从模板开始。"
+        : `整理出 ${bp.fields?.length || 0} 项登记信息、${bp.slots?.length || 0} 类材料和 ${bp.rules?.length || 0} 条核对规则。`);
+    if (warnings.length) agentSay("有几处还需要你看一眼。", warnings.map(esc).join("<br>"));
+    if (empty || (unchanged && warnings.length)) {
+      request.status = "failed"; request.error = "这次没有生成新的可用草案；原要求和旧版本仍保留。";
+      request.permanentError = false; state.agentRequest = request; state.retryRequest = request;
+      savePendingAgentRequest(request); paintAgentRequestStatus(request);
+    } else { state.retryRequest = null; paintAgentRequestStatus(null); }
+  } else {
+    applyDraft(latest);
+    state.requirement = latest.source_text || state.requirement;
+    request.status = "failed"; request.error = "这次处理完成时，另一个页面已经更新草案。我显示的是最新版本，没有用旧结果覆盖它；你的修改还留在恢复提示里。";
+    request.permanentError = true;
+    savePendingAgentRequest(request); paintAgentRequestStatus(request);
+    agentSay("草案在另一个页面已经有更新。", "我先显示最新版本，没有把这次旧结果盖上去；你的修改留在“旧草案的未发送内容”里，可检查后再带过来。");
+  }
+  setAgentBusy(false); renderChips(); renderDraftPanel();
+}
+async function submitAgentRequest(request, epoch, token) {
+  const p = request.payload;
+  return api(`/api/tasks/${state.taskId}/draft/agent-requests`, {method: "POST", form: {
+    request_id: request.requestId, kind: p.kind, requirement: p.requirement || "",
+    template: p.template || "", blueprint_version_id: p.blueprint_version_id || "",
+    base_blueprint_id: String(p.base_blueprint_id ?? 0),
+    answered: JSON.stringify(p.answered || {}), instruction: p.instruction || "",
+  }});
+}
+async function pollAgentRequest(request, epoch = state.designEpoch, token = orgToken(), mode = "lookup") {
+  if (!currentDesignRequest(request, epoch, token)) return;
+  let response;
+  try {
+    if (mode === "enqueue") response = await submitAgentRequest(request, epoch, token);
+    else {
+      try { response = await api(agentRequestPath(request), {cache: "no-store"}); }
+      catch (error) {
+        if (error.status === 404) response = await submitAgentRequest(request, epoch, token);
+        else throw error;
+      }
+    }
+  } catch (error) {
+    if (!currentDesignRequest(request, epoch, token)) return;
+    if (error.status === 409 || error.status === 422) {
+      const stale = /草案|版本/.test(error.message);
+      finishAgentRequestFailure(request, error.message, epoch, token, true);
+      if (stale) request.permanentError = true;
+      return;
+    }
+    request.status = "checking";
+    request.error = error.status ? "服务器暂时没有回应，我会继续确认这次请求的状态。" : "网络刚才断开了，我会按同一个请求编号继续确认，不会重复生成草案。";
+    savePendingAgentRequest(request); paintAgentRequestStatus(request);
+    setAgentBusy(true, "正在接回这次请求");
+    scheduleAgentRequestPoll(request, epoch, token, "lookup");
+    return;
+  }
+  if (!currentDesignRequest(request, epoch, token)) return;
+  request.status = response.status || "queued";
+  request.pollCount = request.pollCount || 0;
+  request.error = response.error || "";
+  savePendingAgentRequest(request);
+  if (request.status === "completed") {
+    await completeAgentRequest(request, response, epoch, token);
+    return;
+  }
+  if (request.status === "failed") {
+    const permanent = /草案已在另一页面更新|回到最新版本核对/.test(request.error);
+    finishAgentRequestFailure(request, request.error, epoch, token, permanent);
+    return;
+  }
+  request.status = request.status === "running" ? "running" : "queued";
+  setAgentBusy(true, request.status === "queued" ? "正在排队整理" : "正在整理需求");
+  paintAgentRequestStatus(request);
+  scheduleAgentRequestPoll(request, epoch, token, "lookup");
+}
+function resumePendingAgentRequest(epoch, token) {
+  if (state.agentResumeStarted || epoch !== state.designEpoch || token !== orgToken()) return;
+  const pending = readDesignInputs().pendingAgentRequest;
+  if (!pending?.requestId || !pending.payload) return;
+  state.agentResumeStarted = true;
+  state.agentRequest = pending; state.retryRequest = pending;
+  if (pending.status === "failed" && pending.permanentError) {
+    paintAgentRequestStatus(pending);
+    return;
+  }
+  if (pending.text && state.agentRequestDisplayedId !== pending.requestId) {
+    userSay(pending.text); state.agentRequestDisplayedId = pending.requestId;
+  }
+  agentSay("接上你刚才的整理请求", "请求和原文都还在服务器/本标签页保存中，我先核对进度；不会重复生成草案。");
+  setAgentBusy(true, "正在接回上次的整理请求");
+  return pollAgentRequest(pending, epoch, token, "lookup");
+}
+function refreshAfterAgentConflict() {
+  const taskId = state.taskId;
+  cacheDesignInputs();
+  clearTimeout(state.agentRequestPollTimer);
+  state.agentRequestPollTimer = 0;
+  clearPendingAgentRequest(state.agentRequest?.requestId);
+  state.agentRequest = null; state.retryRequest = null;
+  viewDesign(taskId);
+}
+function checkAgentRequestNow() {
+  const request = state.agentRequest;
+  if (!request) return;
+  clearTimeout(state.agentRequestPollTimer);
+  state.agentRequestPollTimer = 0;
+  return pollAgentRequest(request, state.designEpoch, orgToken(), "lookup");
+}
+async function runAgent(text, answered = {}, instruction = '', source = 'composer', resumeRequest = null) {
   if (state.agentBusy || state.designLoadFailed || state.viewingVersion) return;
   cacheDesignInputs();
-  const sent=collectDesignInputs(), sentBase=state.designBaseId;
-  const epoch = state.designEpoch, previous = state.bpId, token=orgToken();
-  const el = document.getElementById('chat-in');
-  userSay(text); setAgentBusy(true, previous ? '正在核对修改影响' : '正在整理字段、材料与规则'); setFlash('');
-  try {
-    const r = await api(`/api/tasks/${state.taskId}/draft/${previous ? 'revise' : 'agent'}`, {method:'POST', form: previous ? {blueprint_version_id:String(previous), requirement:state.requirement || '', answered:JSON.stringify(answered), instruction} : {requirement:text}});
-    if(epoch !== state.designEpoch || token !== orgToken()) return;
-    const bpNew=r.draft.blueprint || {};
-    const usable=bpNew.fields?.length || bpNew.slots?.length || bpNew.rules?.length;
-    const consumed=usable && !(previous === r.blueprint_version_id && r.draft.warnings?.length);
-    if(consumed) consumeDesignInput(sentBase,sent,source);
-    applyDraft(r); if(consumed) { if(el)el.value='';state.designRenderedBase=null;state.designDirty=false; }
-    if (!previous) state.requirement = text;
-    const warnings = r.draft.warnings || [], unchanged = previous === r.blueprint_version_id;
-    const bp = r.draft.blueprint || {};
-    const empty = !bp.fields?.length && !bp.slots?.length && !bp.rules?.length;
-    agentSay(empty ? '这次没有生成可用的收集表。你的要求仍保留在对话中。' : unchanged ? '本次未形成新版本，原草案仍然保留。' : previous ? '草案已更新，请核对右侧的变化。' : '第一份草案已整理好，先一起核对。', previous ? impactText(r.impact) : empty ? '可以重试，或使用模板开始。' : `登记字段 ${bp.fields?.length || 0} 项 · 材料 ${bp.slots?.length || 0} 项 · 检查规则 ${bp.rules?.length || 0} 条`);
-    if (warnings.length) agentSay('有些内容还不能直接发布。', warnings.map(esc).join('<br>'));
-    if (empty || (unchanged && warnings.length)) {
-      state.retryRequest = {text, answered, instruction,source};
-      agentSay('<button class="ghost sm" onclick="retryAgent()">重试这次请求</button>');
-    } else state.retryRequest = null;
-    renderChips(); renderDraftPanel();
-  } catch(e) {
-    if(epoch !== state.designEpoch || token !== orgToken()) return;
-    state.retryRequest = {text, answered, instruction,source};
-    agentSay('这次请求没有完成，原草案未被替换。', `${esc(e.message)}<br><button class="ghost sm" onclick="retryAgent()">重试这次请求</button>`);
-    restoreDesignInputs();
-  } finally { if(epoch === state.designEpoch) { setAgentBusy(false); renderChips(); renderDraftPanel(); } }
+  const previous = resumeRequest ? resumeRequest.previousBlueprintId : state.bpId;
+  const sent = resumeRequest ? resumeRequest.sent : collectDesignInputs();
+  const sentBase = resumeRequest ? resumeRequest.sentBase : state.designBaseId;
+  const token = orgToken(), epoch = state.designEpoch;
+  const payload = resumeRequest ? resumeRequest.payload : previous
+    ? {kind: "revise", blueprint_version_id: previous, base_blueprint_id: previous,
+       requirement: state.requirement || "", answered: {...answered}, instruction}
+    : {kind: "agent", base_blueprint_id: state.bpId || 0, requirement: text};
+  const request = resumeRequest || {requestId: newAgentRequestId(), payload,
+    text, answered: {...answered}, instruction, source, previousBlueprintId: previous,
+    sentBase, sent, createdAt: Date.now(), pollCount: 0, status: "queued"};
+  state.agentRequest = request; state.retryRequest = request;
+  savePendingAgentRequest(request);
+  if (!resumeRequest) {
+    userSay(text); state.agentRequestDisplayedId = request.requestId;
+  }
+  setAgentBusy(true, previous ? "正在核对修改影响" : "正在整理字段、材料与规则");
+  paintAgentRequestStatus(request); setFlash("");
+  await pollAgentRequest(request, epoch, token, resumeRequest ? "lookup" : "enqueue");
 }
-function retryAgent() { if(state.retryRequest) { const {text,answered,instruction,source} = state.retryRequest; return runAgent(text, answered, instruction,source); } }
+function retryAgent() {
+  const request = state.retryRequest || state.agentRequest;
+  if (!request || request.permanentError) return;
+  request.createdAt = Date.now(); request.pollCount = 0; request.status = "queued"; request.error = "";
+  state.agentRequest = request; state.retryRequest = request; savePendingAgentRequest(request);
+  setAgentBusy(true, "正在用同一请求重试");
+  return pollAgentRequest(request, state.designEpoch, orgToken(), "enqueue");
+}
 function chatSend() { const text = (document.getElementById('chat-in')?.value || '').trim(); if (text) return runAgent(text, {}, state.bpId ? text : ''); }
 function submitClarAnswers() {
   const answered = {}; (state.draft?.clarifications || []).forEach((c,i) => { const v = document.getElementById(`clar-${i}`)?.value.trim(); if(v) answered[c.question] = v; });
@@ -1809,6 +2064,12 @@ function apiError(data, status) {
   return new Error(Array.isArray(detail) ? detail.map(x => x.msg || JSON.stringify(x)).join("；")
     : (typeof detail === "string" ? detail : "请求失败，请稍后重试（" + status + "）"));
 }
+function receiptFilesHtml(receipt) {
+  const files = Array.isArray(receipt?.files) ? receipt.files : [];
+  if (!receipt?.formal || !files.length) return "";
+  return `<div class="receipt-files"><span>正式版本 v${esc(receipt.revision)} 已提交材料</span><ul>${files.map(file =>
+    `<li><b>${esc(file.name || "材料")}</b><span>${esc(file.slot || "材料槽位")} · ${esc(fmtBytes(file.size))}</span></li>`).join("")}</ul></div>`;
+}
 function fileChips(slot, ro) {
   const ids = state.files[slot] || [];
   if (!ids.length) return "";
@@ -1970,8 +2231,9 @@ async function viewSubmit() {
     const ro = READONLY_STATUSES.includes(me.task.status);
     const done = fields.filter(f => String((draft.fields || {})[f.id] ?? "").trim()).length;
     const uploaded = Object.values(state.files).reduce((n, ids) => n + ids.length, 0);
+    const fileMetricLabel = receipt.formal ? "本次编辑附件" : "已上传材料";
     const receiptHtml = receipt.formal
-      ? `<div class="receipt"><div><span class="eyebrow">RECEIPT</span><b>已正式提交 · v${receipt.revision}</b><span class="receipt-no">${esc(receipt.receipt)}</span></div><div class="receipt-meta"><span>服务端时间</span><b>${esc(fmtTime(receipt.formal_submitted_at))}</b></div></div>`
+      ? `<div class="receipt"><div><span class="eyebrow">RECEIPT</span><b>已正式提交 · v${receipt.revision}</b><span class="receipt-no">${esc(receipt.receipt)}</span></div><div class="receipt-meta"><span>服务端时间</span><b>${esc(fmtTime(receipt.formal_submitted_at))}</b></div></div>${receiptFilesHtml(receipt)}`
       : `<div class="receipt pending"><div><span class="eyebrow">RECEIPT</span><b>尚未正式提交</b><span>保存草稿不会形成报名；正式提交后会得到固定回执。</span></div></div>`;
 
     document.getElementById("sub").innerHTML = `
@@ -1981,7 +2243,7 @@ async function viewSubmit() {
           <span class="badge ${ro ? "warn" : "ok"}"><span class="badge-dot"></span>${esc(TASK_STATUS_LABEL[me.task.status] || me.task.status)}</span></div>
         ${ro ? `<div class="notice-warn">任务已${esc(TASK_STATUS_LABEL[me.task.status] || me.task.status)}，处于只读状态：不能保存草稿、上传或正式提交；已提交内容与回执仍可查看。</div>` : ""}
         <section class="submit-overview">
-          <div class="overview-stats">${[["登记字段", `${done}/${fields.length}`, "design"], ["已上传材料", uploaded, "delivery"], ["首次截止", fmtTime(me.task.first_deadline, me.task.timezone).slice(5), "workbench"], ["补正截止", fmtTime(me.task.correction_deadline, me.task.timezone).slice(5), "workbench"]].map(([l, v, ic]) => `<div class="overview-stat"><span>${esc(l)}</span><strong class="stat-text" ${l === "登记字段" ? 'id="submission-field-count"' : l === "已上传材料" ? 'id="submission-file-count"' : ""}>${esc(v)}</strong><i>${icon(ic)}</i></div>`).join("")}</div>
+          <div class="overview-stats">${[["登记字段", `${done}/${fields.length}`, "design"], [fileMetricLabel, uploaded, "delivery"], ["首次截止", fmtTime(me.task.first_deadline, me.task.timezone).slice(5), "workbench"], ["补正截止", fmtTime(me.task.correction_deadline, me.task.timezone).slice(5), "workbench"]].map(([l, v, ic]) => `<div class="overview-stat"><span>${esc(l)}</span><strong class="stat-text" ${l === "登记字段" ? 'id="submission-field-count"' : l === fileMetricLabel ? 'id="submission-file-count"' : ""}>${esc(v)}</strong><i>${icon(ic)}</i></div>`).join("")}</div>
           ${receiptHtml}
         </section>
         <div class="submit-layout">
