@@ -6,6 +6,7 @@ rule ID. There is no model-controlled filesystem, SQL, network or send tool.
 """
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -48,7 +49,7 @@ def _tool_result(result: RuleResultOut) -> ToolResult:
 
 def build_review_skill(ctx: CheckContext, *, client: LLMClient,
                        db: Session, task_id: int, subject_id: int,
-                       run_id: int) -> tuple[SkillRunner, ToolContext]:
+                       run_id: int, actor: str = "review_agent") -> tuple[SkillRunner, ToolContext]:
     """Build an ephemeral, per-run skill scope from the immutable review context."""
     deterministic = {r.id: r for r in ctx.blueprint.rules
                      if r.executor.value == "deterministic"}
@@ -99,10 +100,11 @@ def build_review_skill(ctx: CheckContext, *, client: LLMClient,
     )
     runner = SkillRunner(RULE_REVIEW_SKILL, harness)
     context = ToolContext(
-        actor="review_agent",
+        actor=actor,
         task_id=task_id,
         subject_id=subject_id,
         run_id=run_id,
+        simulation=bool(getattr(client, "is_simulation", False)),
         allowed_scopes=frozenset({"review:deterministic", "review:semantic"}),
     )
     return runner, context
@@ -112,7 +114,8 @@ def invoke_review_rule(runner: SkillRunner, context: ToolContext, db: Session,
                        *, executor: str, rule_id: str, idempotency_key: str) -> RuleResultOut:
     tool_name = ("review.deterministic_rule" if executor == "deterministic"
                  else "review.semantic_rule")
-    invocation = runner.invoke(tool_name, {"rule_id": rule_id}, context=context,
+    invocation = runner.invoke(tool_name, {"rule_id": rule_id},
+                               context=replace(context, rule_id=rule_id),
                                db=db, idempotency_key=idempotency_key)
     if invocation.status == "failed":
         detail = invocation.summary or "工具未完成"

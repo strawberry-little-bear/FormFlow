@@ -24,6 +24,7 @@ from ..models import (
     EXEMPTION_ACTIVE,
     AccessGrant,
     Account,
+    AuditEvent,
     AuthSession,
     BlueprintVersion,
     CheckRun,
@@ -800,7 +801,7 @@ def findings(task_id: int, subject_id: int, db: Session = Depends(get_db),
     qualification = eligibility_view(db, task, subject, submission.current_revision_id if submission else None)
     if submission is None or submission.current_revision_id is None:
         return {"review_context": context, "eligibility": qualification, "subject": {"id": subject.id, "name": subject.display_name},
-                "revision": None, "run": None, "rules": [], "decisions": decisions,
+                "revision": None, "run": None, "rules": [], "tool_trace": [], "decisions": decisions,
                 "acceptance": {"ready": False, "accepted": False,
                                "blockers": ["没有正式提交版本"]},
                 "same_name_subjects": same_name, "same_name_hint": same_name_hint}
@@ -809,6 +810,31 @@ def findings(task_id: int, subject_id: int, db: Session = Depends(get_db),
         CheckRun.revision_id == rev.id,
         CheckRun.status.not_in([RUN_SUPERSEDED])).order_by(CheckRun.id.desc()))
     rules = review_rule_details(db, run, task, subject.id, rev.id)
+    tool_trace = []
+    if run is not None:
+        recent_tool_events = db.scalars(select(AuditEvent).where(
+                AuditEvent.task_id == task.id,
+                AuditEvent.action == "agent.tool.invoked").order_by(AuditEvent.id.desc()).limit(512)).all()
+        for event in reversed(recent_tool_events):
+            try:
+                entry = json.loads(event.payload_json or "{}")
+            except (TypeError, ValueError):
+                continue
+            if entry.get("run_id") != run.id or entry.get("subject_id") != subject.id:
+                continue
+            try:
+                duration_ms = max(0, min(600_000, int(entry.get("duration_ms") or 0)))
+            except (TypeError, ValueError):
+                duration_ms = 0
+            tool_trace.append({
+                "tool": str(entry.get("tool") or "")[:64],
+                "rule_id": str(entry.get("rule_id") or "")[:64],
+                "status": str(entry.get("status") or "")[:32],
+                "simulation": (entry.get("simulation") if isinstance(entry.get("simulation"), bool) else None),
+                "error_code": str(entry.get("error_code") or "")[:64],
+                "duration_ms": duration_ms,
+            })
+        tool_trace = tool_trace[-128:]
     blockers = decision_service._acceptance_blockers(db, task, subject)
     accepted = current_summary(db, task, subject.id)["acceptance"] == "accepted"
     return {"review_context": context, "eligibility": eligibility_view(db, task, subject, rev.id, run.blueprint_version_id if run else None),
@@ -819,7 +845,7 @@ def findings(task_id: int, subject_id: int, db: Session = Depends(get_db),
                      "llm_calls_used": run.llm_calls_used,
                      "budget_exhausted": run.budget_exhausted,
                      "coverage": run_coverage(run)} if run else None),
-            "rules": rules, "decisions": decisions,
+            "rules": rules, "tool_trace": tool_trace, "decisions": decisions,
             "acceptance": {"ready": not blockers and not accepted,
                            "accepted": accepted, "blockers": blockers},
             "notes": [appeal_service.to_dict(db, n)

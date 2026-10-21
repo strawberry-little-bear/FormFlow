@@ -1,4 +1,5 @@
 """Organizer review: manual tasks, decision overlays and explicit acceptance state."""
+import json
 from datetime import timedelta
 
 import pytest
@@ -6,8 +7,8 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app.main import app
-from app.models import Account, BlueprintVersion, RuleResult, Subject
-from app.schemas import Blueprint, RuleDef
+from app.models import Account, AuditEvent, BlueprintVersion, RuleResult, Subject
+from app.schemas import Blueprint, FieldDef, RuleDef
 from app.security import utcnow
 from app.services.checks import create_run, execute_run, rule_details
 from app.services.decisions import record_decision, revoke_decision
@@ -33,11 +34,11 @@ def review(db_session):
         yield db, client, headers, task, subject, path
 
 
-def submit(db, task, subject, key='v1'):
+def submit(db, task, subject, key='v1', fields=None, client=None):
     revision = formal_submit(db, task, get_or_create_draft(db, task, subject.id),
-                             fields={}, slot_file_ids={}, idempotency_key=key)
+                             fields=fields or {}, slot_file_ids={}, idempotency_key=key)
     run = create_run(db, task, revision)
-    execute_run(db, run)
+    execute_run(db, run, client)
     db.commit()
     return revision, run
 
@@ -52,6 +53,7 @@ def test_no_formal_revision_is_not_ready(review):
     _, client, h, _, _, path = review
     page = findings(client, h, path)
     assert page['rules'] == []
+    assert page['tool_trace'] == []
     assert page['acceptance'] == dict(ready=False, accepted=False, blockers=['没有正式提交版本'])
 
 
@@ -74,6 +76,45 @@ def test_manual_review_uses_run_blueprint_without_fabricating_machine_results(re
     assert not page['acceptance']['ready']
     assert not db.scalars(select(RuleResult)).all()
     assert rule_details(db, run) == []  # submitters still see machine facts only
+
+
+def test_findings_exposes_only_the_active_runs_audited_tool_trace(review, stub_llm):
+    db, client, headers, task, subject, path = review
+    blueprint = Blueprint(
+        fields=[FieldDef(id='name', label='姓名')],
+        rules=[RuleDef(id='D-01', statement='姓名必填', requirement_source='报名表需登记姓名',
+                       executor='deterministic', check={'kind': 'field_required', 'field': 'name'})],
+    )
+    version = BlueprintVersion(task_id=task.id, version=2, status='published',
+                               blueprint_json=blueprint.model_dump_json())
+    db.add(version)
+    db.flush()
+    task.current_blueprint_id = version.id
+    db.commit()
+
+    stub_llm.is_simulation = True
+    revision, first_run = submit(db, task, subject, fields={'name': '测试主体'}, client=stub_llm)
+    page = findings(client, headers, path)
+    assert page['run']['id'] == first_run.id
+    assert len(page['tool_trace']) == 1
+    trace = page['tool_trace'][0]
+    assert trace['tool'] == 'review.deterministic_rule'
+    assert trace['rule_id'] == 'D-01'
+    assert trace['status'] == 'satisfied'
+    assert trace['simulation'] is True
+    assert 'arguments' not in trace and 'result' not in trace
+    event = db.scalar(select(AuditEvent).where(
+        AuditEvent.task_id == task.id, AuditEvent.action == 'agent.tool.invoked'))
+    owner_id = db.scalar(select(Account.id).where(Account.username == 'review-ux'))
+    assert event.actor == f'review_agent:account:{owner_id}'
+    assert json.loads(event.payload_json)['rule_id'] == 'D-01'
+
+    # Starting a new run must not present the earlier run's tool trace as current.
+    next_run = create_run(db, task, revision)
+    db.commit()
+    current = findings(client, headers, path)
+    assert current['run']['id'] == next_run.id
+    assert current['tool_trace'] == []
 
 
 def test_decision_then_separate_acceptance_and_revoke(review):

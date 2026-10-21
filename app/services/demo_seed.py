@@ -59,7 +59,9 @@ _SCRIPTS = {
 
 
 class ScriptedLLM(LLMClient):
-    """按【规则】语句与材料内容匹配预定响应的假客户端。"""
+    """按【规则】语句与材料内容匹配预定响应的离线演示桩。"""
+
+    is_simulation = True
 
     def __init__(self) -> None:
         super().__init__(api_key="seed-stub")

@@ -59,6 +59,8 @@ class ToolContext:
     task_id: int | None = None
     subject_id: int | None = None
     run_id: int | None = None
+    rule_id: str | None = None
+    simulation: bool = False
     allowed_scopes: frozenset[str] = frozenset()
     deadline_monotonic: float | None = None
 
@@ -313,6 +315,8 @@ def _audit(db: Session, context: ToolContext, invocation: ToolInvocation,
         "tool": spec_name,
         "run_id": context.run_id,
         "subject_id": context.subject_id,
+        "rule_id": context.rule_id,
+        "simulation": context.simulation,
         "status": invocation.status,
         "error_code": invocation.error_code.value if invocation.error_code else None,
         "duration_ms": invocation.duration_ms,

@@ -149,7 +149,8 @@ def _execute_check_pipeline(db: Session, run: CheckRun, client=None) -> CheckRun
 
     skill, tool_context = build_review_skill(
         ctx, client=client or get_client(), db=db, task_id=run.task_id,
-        subject_id=subject.id, run_id=run.id)
+        subject_id=subject.id, run_id=run.id,
+        actor=f"review_agent:account:{task.created_by or 'unknown'}")
     tool_executor = lambda rule: invoke_review_rule(
         skill, tool_context, db, executor=rule.executor.value, rule_id=rule.id,
         idempotency_key=f"review:{run.id}:{rule.id}")
@@ -355,14 +356,14 @@ def current_summary(db: Session, task: Task, subject_id: int) -> dict:
                                      submission.current_revision_id if submission else None)
     if submission is None or submission.current_revision_id is None:
         return {"eligibility": qualification, "summary": "未正式提交", "acceptance": ACCEPTANCE_PENDING,
-                "coverage": run_coverage(None),
+                "coverage": run_coverage(None), "rule_labels": {},
                 "buckets": {"blocking": [], "unknown": [],
                             "human": [], "incomplete": [], "pending_jobs": []}}
     revision = db.get(Revision, submission.current_revision_id)
     run = _latest_run(db, submission)
     if run is None:
         return {"eligibility": qualification, "summary": "排队中", "acceptance": ACCEPTANCE_PENDING,
-                "coverage": run_coverage(None),
+                "coverage": run_coverage(None), "rule_labels": {},
                 "buckets": {"pending_jobs": ["排队中"]}}
     decisions = _active_decisions(db, task.id, subject_id, revision.id)
     effects = effective_rules(decisions)
@@ -415,6 +416,7 @@ def current_summary(db: Session, task: Task, subject_id: int) -> dict:
         "revision": revision.version,
         "run_status": run.status,
         "coverage": run_coverage(run),
+        "rule_labels": {r.id: r.statement for r in blueprint.rules},
         "buckets": {"blocking": blocking, "unknown": unknown, "human": human,
                     "incomplete": incomplete, "pending_jobs": jobs},
     }

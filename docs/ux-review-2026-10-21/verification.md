@@ -25,7 +25,7 @@
 git diff --check
 ```
 
-本轮复核基线结果为 311 项 Python 测试和 64 项 Node 前端契约测试通过。此后补入 4 项工作台/Agent UI 契约，之后又新增 10 项受限 Agent tool/skill/harness 运行时及接线测试和 2 项提交者友好文案契约；最新完整 `pytest` 结果为 321 项 Python 通过，Node 前端契约 71 项通过。前端契约测试使用 Node VM、Mock DOM 和 Mock fetch；浏览器视口试走见本页补充记录。离线 `smoke_review.py --stub` 未调用真实模型网关。
+本轮复核基线结果为 311 项 Python 测试和 64 项 Node 前端契约测试通过。此后补入 4 项工作台/Agent UI 契约，之后又新增 10 项受限 Agent tool/skill/harness 运行时及接线测试和 2 项提交者友好文案契约；最新完整 `pytest` 结果为 322 项 Python 通过，Node 前端契约 72 项通过。前端契约测试使用 Node VM、Mock DOM 和 Mock fetch；浏览器视口试走见本页补充记录。离线 `smoke_review.py --stub` 未调用真实模型网关。
 
 覆盖的关键情形包括：
 
@@ -100,7 +100,16 @@ git diff --check
 
 `app/agent_tools.py` 建立显式工具 registry、Pydantic 输入/输出、scope 授权、调用/成本预算、单次执行幂等回放、幂等键 payload 冲突保护、参数/结果大小限制、协作 deadline、fail-closed 错误码，以及不记录原始数据的 `AuditEvent`。`app/agents/tooling.py` 定义 `review_one_submission` skill；`app/services/checks.py` 已将当前逐规则审核接入该 harness。模型不能选择任意路径、SQL、网络动作或蓝图外规则。
 
-本次测试覆盖 scope/schema、预算、错误隔离、最大输出、idempotency 防重复副作用、replay 时重新校验授权、审计脱敏、skill 工具和步数上限及真实 review Agent 接线。幂等缓存当前仅为单次运行内存态；deadline 是协作式而非 Python 强制取消。MCP 暂未接入：项目仍是单体内本地规则与审核能力，尚无跨应用互操作需求。
+本次测试覆盖 scope/schema、预算、错误隔离、最大输出、idempotency 防重复副作用、replay 时重新校验授权、审计脱敏、skill 工具和步数上限及真实 review Agent 接线。审计轨迹通过组织者授权的 Findings API 附带当前运行的规则 ID/类型/状态/耗时及是否离线模拟；页面映射为规则标题和自然语言结果，不暴露原始 prompt 或提交材料。新增回归确认新运行不会看到前一运行轨迹。
+
+隔离演示库由当前 `demo_seed.py` 重新生成后，在真实浏览器检查李四的运行记录：程序规则 3 项、离线语义结果 2 项，并明确提示离线脚本桩没有调用实时模型。1440px 桌面和 390×844 手机轨迹视图检查，390px 无横向溢出，浏览器错误/控制台为空。
+
+- [Agent 工具轨迹 · 1440px](agent-tool-trace-desktop.png)
+- [Agent 工具轨迹 · 390px](agent-tool-trace-mobile.png)
+
+幂等缓存当前仅为单次运行内存态；deadline 是协作式而非 Python 强制取消。MCP 暂未接入：项目仍是单体内本地规则与审核能力，尚无跨应用互操作需求。
+
+升级前没有逐工具审计事件的历史检查运行会明确说明“没有可用的工具轨迹”，现有证据与检查结论仍照常展示，不伪造工具调用。
 
 ## 未覆盖范围
 

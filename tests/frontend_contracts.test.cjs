@@ -349,6 +349,20 @@ test('roster metric filters match denominators and exclude out-of-roster or exem
     assert.equal(rows.filter(r=>app.wbMatches(r,filter)).length,count,filter);
   }
 });
+test('workbench expands pending rule ids into the published rule titles', () => {
+  const {app,els} = setup();
+  els['wb-stats'] = element(); els['wb-list'] = element(); els['wb-next-step'] = element();
+  Object.assign(app.state, {wbTask:{id:1,mode:'roster',status:'collecting'},wbTaskId:1,wbCounts:{},wbRows:[{
+    subject_id:3,name:'李同学',in_roster:true,formal:true,revision:1,summary:'待补正',
+    buckets:{blocking:['r_term_match'],unknown:['r_name_clear'],human:['r_final_review']},
+    rule_labels:{r_term_match:'报告期次须与活动一致',r_name_clear:'姓名需清晰可读',r_final_review:'组织者人工核对'},
+  }]});
+  app.paintWorkbench();
+  assert.match(els['wb-list'].innerHTML,/需要更正：报告期次须与活动一致/);
+  assert.match(els['wb-list'].innerHTML,/待确认：姓名需清晰可读/);
+  assert.match(els['wb-list'].innerHTML,/组织者核对：组织者人工核对/);
+  assert.doesNotMatch(els['wb-list'].innerHTML,/r_term_match|r_name_clear|r_final_review/);
+});
 test('metric navigation clears search and unsubmitted exempt subjects can reach history', () => {
   const {app,els} = setup();
   els['wb-stats']=element(); els['wb-list']=element(); els['wb-search']=element('hidden');
@@ -387,6 +401,8 @@ test('confirmed issues remain visible as problems in review and submitter detail
     rules:[{rule_id:'H',result:'satisfied',decision:{decision:'confirm_issue',reason:'内容仍有问题',resolves:false}}],
     acceptance:{ready:false,accepted:false,blockers:['H 需补正']}};
   app.paintReview(1,2);
+  assert.doesNotMatch(els.rv.innerHTML,/RULE H/);
+  assert.match(els.rv.innerHTML,/决定只针对：当前这项要求/);
   assert.match(els.rv.innerHTML,/确认问题（需补正）/);
   assert.match(els.rv.innerHTML,/请选择核对结论/);
   assert.match(els.rv.innerHTML,/人工核对通过/);
@@ -517,13 +533,24 @@ test('review makes deterministic, semantic, and human handoffs visible without i
   const {app} = setup();
   const html = app.agentRunCard({status:'success', pages_read:2, llm_calls_used:1,
     coverage:{files:[{name:'report.pdf',method:'text'}]}}, [
-    {requirement:{executor:'deterministic'}}, {requirement:{executor:'semantic'}}, {requirement:{executor:'human_only'}},
+    {rule_id:'D-01',requirement:{executor:'deterministic',statement:'姓名已经填写'}},
+    {rule_id:'S-01',requirement:{executor:'semantic',statement:'活动日期需一致'}},
+    {rule_id:'H-01',requirement:{executor:'human_only',statement:'组织者人工核对'}},
+  ], [
+    {tool:'review.deterministic_rule',rule_id:'D-01',status:'satisfied',duration_ms:12},
+    {tool:'review.semantic_rule',rule_id:'S-01',status:'unknown',duration_ms:800,simulation:true},
   ]);
   assert.match(html, /程序核验/);
   assert.match(html, /语义审核/);
   assert.match(html, /人工接手/);
   assert.match(html, /1 项规则 · 预算占用 1/);
   assert.match(html, /不会自行发布/);
+  assert.match(html, /本次运行记录（2 项）/);
+  assert.match(html, /姓名已经填写/);
+  assert.match(html, /待人工确认/);
+  assert.doesNotMatch(html, /D-01|S-01/);
+  assert.match(html, /演示模式：语义结果由离线脚本按样例生成，没有调用实时模型/);
+  assert.match(app.agentRunCard({status:'success'}, []).toString(), /历史运行/);
 });
 test('team qualification metrics use team units and never call pending qualification no todos', () => {
   const {app,els}=setup(); els['wb-stats']=element();els['wb-list']=element();

@@ -3189,6 +3189,23 @@ a.wb-next-action:hover, button.wb-next-action:hover { background:var(--brand-dee
 .agent-run-steps li em { grid-column:2; color:#535867; font-size:10px; font-style:normal; font-weight:600; }
 .agent-run-foot { margin:12px 0 0; padding:10px 12px; border-radius:8px; background:#f7f8fa; color:#535867; font-size:11px; line-height:1.7; }
 .agent-run-more { margin-top:9px; color:var(--muted); font-size:10px; }
+.agent-trace { margin-top:12px; border-top:1px solid var(--line-soft); padding-top:10px; }
+.agent-trace > summary { color:var(--brand-deep); font-size:11px; font-weight:600; cursor:pointer; }
+.agent-trace ol { list-style:none; margin:8px 0 0; padding:0; }
+.agent-trace-row { display:grid; grid-template-columns:92px minmax(0,1fr); align-items:start; gap:10px; padding:8px 0; border-top:1px solid var(--line-soft); }
+.agent-trace-kind { display:inline-flex; align-items:center; justify-content:center; border-radius:999px; padding:3px 7px; background:#edf4f3; color:#3c7167; font-size:10px; }
+.agent-trace-kind.info { background:var(--info-bg); color:var(--info); }
+.agent-trace-kind.warn { background:var(--warn-bg); color:#89641f; }
+.agent-trace-kind.ok { background:var(--ok-bg); color:#287454; }
+.agent-trace-row > div { min-width:0; }
+.agent-trace-row b, .agent-trace-row span { display:block; }
+.agent-trace-row b { color:var(--ink); font-size:11px; line-height:1.5; }
+.agent-trace-row span { margin-top:2px; color:var(--muted); font-size:10px; }
+.agent-trace > p, .agent-trace-empty { margin:8px 0 0; color:var(--muted); font-size:10px; line-height:1.6; }
+.agent-simulation-note { margin-top:8px; padding:9px 11px; border:1px dashed #d6d0ea; border-radius:8px; background:#faf9fe; color:#625b7a; font-size:10px; line-height:1.6; }
+@media(max-width:700px) {
+  .agent-trace-row { grid-template-columns:82px minmax(0,1fr); gap:7px; }
+}
 .wb-panel { padding:0; overflow:hidden; }
 .wb-panel .section-toolbar { padding:14px 18px; margin:0; border-bottom:1px solid var(--line-soft); }
 .wb-list-head, .wb-row {

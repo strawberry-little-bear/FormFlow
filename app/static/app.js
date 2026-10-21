@@ -83,7 +83,7 @@ const coverageCard = (run) => {
     ${gap ? `<p class="kv" style="margin-top:8px">未读页不等于材料缺失；相关结论会停在待确认，补充清晰材料或转人工核对即可。</p>` : ""}
   </div>`;
 };
-const agentRunCard = (run, rules) => {
+const agentRunCard = (run, rules, toolTrace = []) => {
   if (!run) return "";
   const counts = {deterministic: 0, semantic: 0, cross_material: 0, human_only: 0};
   (rules || []).forEach(r => {
@@ -100,11 +100,33 @@ const agentRunCard = (run, rules) => {
     {label: "语义审核", detail: "只按已确认规则找原文依据", count: `${counts.semantic + counts.cross_material} 项规则 · 预算占用 ${run.llm_calls_used ?? 0}`, tone: "agent"},
     {label: "人工接手", detail: counts.human_only ? "不确定或需判断的事项留给组织者" : "资格与最终验收仍由组织者决定", count: `${counts.human_only} 项规则`, tone: "human"},
   ];
+  const ruleById = new Map((rules || []).map(r => [r.rule_id, r]));
+  const traceStatus = {satisfied: "找到符合依据", issue: "发现需处理", unknown: "待人工确认", failed: "本次检查未完成", not_applicable: "当前不适用"};
+  const traceRows = (toolTrace || []).slice(-64).map(item => {
+    const rule = ruleById.get(item.rule_id);
+    const title = rule?.requirement?.statement || item.rule_id || "核对步骤";
+    const toolLabel = item.tool === "review.deterministic_rule" ? "程序规则"
+      : item.tool === "review.semantic_rule" && item.simulation === true ? "离线演示结果"
+      : item.tool === "review.semantic_rule" && item.simulation === false ? "材料理解"
+      : item.tool === "review.semantic_rule" ? "模式未记录" : "核对工具";
+    const elapsed = item.duration_ms < 10 ? "即时返回"
+      : item.duration_ms < 1000 ? `${item.duration_ms} 毫秒` : `${(item.duration_ms / 1000).toFixed(1)} 秒`;
+    const label = traceStatus[item.status] || "已记录";
+    const tone = ["issue", "failed"].includes(item.status) ? "warn" : item.status === "unknown" ? "info" : "ok";
+    return `<li class="agent-trace-row"><span class="agent-trace-kind ${tone}">${esc(toolLabel)}</span><div><b>${esc(title)}</b><span>${esc(label)} · 用时 ${esc(elapsed)}</span></div></li>`;
+  }).join("");
+  const traceSimulation = (toolTrace || []).some(item => item.simulation === true);
+  const traceModeUnknown = (toolTrace || []).some(item =>
+    item.tool === "review.semantic_rule" && item.simulation !== true && item.simulation !== false);
+  const traceHtml = traceRows
+    ? `<details class="agent-trace"><summary>本次运行记录（${Math.min((toolTrace || []).length, 64)} 项）</summary><ol>${traceRows}</ol><p>记录绑定当前检查运行和版本；这里只展示工具类别与结果摘要，不包含隐藏推理内容。</p>${traceSimulation ? '<div class="agent-simulation-note">演示模式：语义结果由离线脚本按样例生成，没有调用实时模型；真实任务会按当前配置调用模型。</div>' : ''}${traceModeUnknown ? '<div class="agent-simulation-note">这次历史记录没有保存语义检查模式，无法判断是否使用实时模型。</div>' : ''}</details>`
+    : `<p class="agent-trace-empty">这次检查没有逐项工具记录（例如升级前的历史运行）；现有检查结论和证据仍可照常查看。</p>`;
   return `<details class="card agent-run-card">
     <summary><span><span class="eyebrow">检查是怎么完成的</span><b>按规则分工，不让模型包办</b><small class="agent-run-hint">展开查看程序、Agent 与人工的分工</small></span><span class="badge ${runState}">${esc(status)}</span></summary>
     <p class="agent-run-intro">程序先处理能明确计算的规则；需要理解材料时才调用语义审核。每个判断仍回到原文证据，资格和最终验收由人负责。</p>
     <ol class="agent-run-steps">${stages.map((s, i) => `<li class="${esc(s.tone)}"><span class="agent-step-index">0${i + 1}</span><div><b>${esc(s.label)}</b><span>${esc(s.detail)}</span></div><em>${esc(s.count)}</em></li>`).join("")}</ol>
     <p class="agent-run-foot">${run.budget_exhausted ? "本次模型检查预算已用尽；未完成项会保留为待处理，不会当作通过。" : "模型不可用或证据不足时会停下并转人工；检查结果不会自行发布、认定资格或完成验收。"}</p>
+    ${traceHtml}
     ${run.coverage ? `<div class="agent-run-more">${esc(methods.length ? `材料处理：${methods.join("、")}` : "材料读取记录见下方")}${run.llm_calls_used ? ` · 语义检查预算使用 ${run.llm_calls_used} 次` : " · 本次未使用语义检查预算"}</div>` : ""}
   </details>`;
 };
@@ -1127,12 +1149,13 @@ function paintWorkbench() {
     visible.map(r => {
       const b = r.buckets || {};
       const hasRevision = r.formal ?? (r.revision != null && r.summary !== "未正式提交");
+      const ruleTitle = id => r.rule_labels?.[id] || id;
       const tags = [
         ...(r.eligibility?.required && ["not_assessed", "pending"].includes(r.eligibility.status) ? ['<span class="badge warn">核实资格后再验收</span>'] : []),
-        ...(b.blocking || []).map(x => `<span class="badge bad">阻塞 ${esc(x)}</span>`),
-        ...(b.unknown || []).map(x => `<span class="badge warn">待确认 ${esc(x)}</span>`),
-        ...(b.human || []).map(x => `<span class="badge info">人工 ${esc(x)}</span>`),
-        ...(b.incomplete || []).map(x => `<span class="badge bad">失败 ${esc(x)}</span>`),
+        ...(b.blocking || []).map(x => `<span class="badge bad">需要更正：${esc(ruleTitle(x))}</span>`),
+        ...(b.unknown || []).map(x => `<span class="badge warn">待确认：${esc(ruleTitle(x))}</span>`),
+        ...(b.human || []).map(x => `<span class="badge info">组织者核对：${esc(ruleTitle(x))}</span>`),
+        ...(b.incomplete || []).map(x => `<span class="badge warn">检查未完成：${esc(ruleTitle(x))}</span>`),
         ...(b.pending_jobs || []).map(x => `<span class="badge info">${esc(RUN_LABEL[x] || x)}</span>`),
       ].join("");
       const canRetry = !ro && r.run_status === "failed";
@@ -1454,15 +1477,14 @@ function paintReview(taskId, sid) {
   </div>${visibleRules.length ? `<div class="review-rules" role="group" aria-label="检查规则">${visibleRules.map(r => {
     const on = r.rule_id === state.reviewRule;
     return `<button class="review-rule-item ${on ? "on" : ""}" aria-current="${on}" data-review-rule="${esc(r.rule_id)}">
-      <span class="review-rule-id">${esc(r.rule_id)}</span>
-      <span class="review-rule-text">${esc((r.requirement && r.requirement.statement) || r.explanation || r.rule_id)}</span>
+      <span class="review-rule-text">${esc((r.requirement && r.requirement.statement) || r.explanation || "待核对的一项要求")}</span>
       <span class="review-rule-side">${r.decision ? `<span class="badge ${r.decision.decision === "confirm_issue" ? "bad" : "info"}">${esc(DECISION_LABEL[r.decision.decision] || "已有人工决定")}</span>` : resultBadge(r.result)}<span class="badge">${esc(severityLabel(r.severity))}</span></span>
     </button>`;
   }).join("")}</div>` : `<div class="review-filter-empty"><b>当前没有待处理规则</b><span>已处理的规则仍保留在“全部”中。</span><button class="link" onclick="setReviewFilter('all',${taskId},${sid})">查看全部规则</button></div>`}` : `<div class="empty-state"><div class="empty-icon">${icon("workbench")}</div><h3>${d.revision ? run?.status === 'success' ? "本版本没有材料检查规则" : "暂无规则结果" : "尚无正式提交"}</h3><p>${d.revision ? run?.status === 'success' ? "材料检查已完成，请核对独立资格与验收状态。" : "可能尚未检查。回到工作台发起检查，或稍后刷新。" : "现在可以处理主体免交或预核资格；正式提交后才能检查和验收材料。"}</p><p><a class="ghost sm" href="#/workbench/${taskId}">返回工作台</a></p></div>`;
 
   const evidence = active ? `
     <article class="evidence-detail" id="review-evidence" tabindex="-1">
-      <header><div><span class="eyebrow">RULE ${esc(active.rule_id)}</span><h2>${esc((active.requirement && active.requirement.statement) || active.rule_id)}</h2></div>${resultBadge(active.result)}</header>
+      <header><div><span class="eyebrow">这一项的证据</span><h2>${esc((active.requirement && active.requirement.statement) || "待核对的一项要求")}</h2></div>${resultBadge(active.result)}</header>
       <div class="evidence-meta">${(active.requirement && active.requirement.executor) ? `<span class="badge">${esc(EXECUTOR_LABEL[active.requirement.executor] || active.requirement.executor)}</span>` : ""}${(active.requirement && active.requirement.capability) ? (CAP_BADGE[active.requirement.capability] || "") : ""}<span class="badge">${esc(severityLabel(active.severity))}</span>${(active.requirement && active.requirement.requirement_source) ? `<span class="source-quote">来源：${esc(active.requirement.requirement_source)}</span>` : ""}</div>
       ${active.decision ? `<div class="notice-warn"><b>${esc(DECISION_LABEL[active.decision.decision] || active.decision.decision)}</b><p>${esc(active.decision.reason)}</p><span class="muted">人工决定不改写原始检查结果；撤销后可重新核对。</span></div>` : ""}
       ${active.explanation ? `<p class="evidence-explanation">${esc(active.explanation)}</p>` : ""}
@@ -1480,7 +1502,7 @@ function paintReview(taskId, sid) {
         <option value="correct_false_positive">纠正误报</option>
         <option value="approve_exception">批准例外</option>
         <option value="exempt">主体免交（不等于验收）</option></select></div>
-        <div>${active ? '<label for="dc-rule">当前规则 · 决定不扩大到其他项</label>' : ''}<input type="${active ? 'text' : 'hidden'}" id="dc-rule" value="${esc(active ? active.rule_id : "")}" readonly></div></div>
+        <div>${active ? `<p class="field-help">本次决定只针对：${esc(active.requirement?.statement || "当前这项要求")}</p>` : ''}<input type="hidden" id="dc-rule" value="${esc(active ? active.rule_id : "")}" readonly></div></div>
       ${active ? '<p class="field-help">确认问题会保留补正待办；核对通过、纠正误报或批准例外只解除当前规则，之后仍需单独验收。</p>' : ''}
       <p class="field-help">免交对整个任务生效；到期或撤销后重新计入应交，已有正式提交和历史回执保留。</p><label for="dc-exp">过期时间（可空，ISO；无偏移时按任务时区）</label><input id="dc-exp" placeholder="2026-12-31T23:59:59+08:00">
       <label for="dc-reason">理由（必填）</label><textarea id="dc-reason" placeholder="为什么这样做决定；提交者解释会显示在上方"></textarea>
@@ -1518,7 +1540,7 @@ function paintReview(taskId, sid) {
   const sameName = (d.same_name_subjects || []).length ? `<section class="card notice-warn"><b>同名主体待核</b><p>${esc(d.same_name_hint || "")}</p>${d.same_name_subjects.map(s => `<p>主体 #${s.id}（${esc(s.name)}）——以主体 ID 为准人工核对，系统不自动合并。</p>`).join("")}</section>` : "";
   const covHtml = coverageCard(run);
 
-  document.getElementById("rv").innerHTML = `${meta}${workflow}${sameName}${agentRunCard(run, rules)}
+  document.getElementById("rv").innerHTML = `${meta}${workflow}${sameName}${agentRunCard(run, rules, d.tool_trace)}
     <div class="review-layout ${rules.length ? '' : 'no-rule-layout'}">${rules.length ? `<div class="review-list-col">${list}</div>` : ''}<div class="review-detail-col">${rules.length ? evidence : `<div class="notice-warn">${d.revision ? '本版本没有材料检查规则。请直接核对独立资格与验收状态。' : '尚无正式提交，现在可以预核资格或处理免交；正式提交后才能验收。'}</div>`}${notesHtml}${decision}${eligibilityPanel}${acceptPanel}${covHtml}</div></div>`;
   document.querySelectorAll("[data-review-rule]").forEach(el => el.addEventListener("click", () =>
     selectReviewRule(el.dataset.reviewRule, taskId, sid)));
