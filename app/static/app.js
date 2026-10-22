@@ -16,6 +16,11 @@ function fmtTime(s, timeZone = "Asia/Shanghai") {
   return new Intl.DateTimeFormat("sv-SE", { timeZone, year: "numeric", month: "2-digit",
     day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(d) + " " + timeZone;
 }
+/* 时区已在页面上单独标注时，日期就不再重复带一遍时区后缀 */
+function fmtTimeShort(s, timeZone = "Asia/Shanghai") {
+  const full = fmtTime(s, timeZone);
+  return full.endsWith(" " + timeZone) ? full.slice(0, -(timeZone.length + 1)) : full;
+}
 function navigate(hash) {
   if (location.hash === hash) route(); else location.hash = hash;
 }
@@ -39,13 +44,32 @@ async function api(path, opts = {}) {
   try { data = text ? JSON.parse(text) : {}; } catch (e) { data = { detail: text }; }
   if (!r.ok) {
     const detail = data.detail;
-    const error = new Error(Array.isArray(detail) ? detail.map(x => x.msg || JSON.stringify(x)).join("；")
-      : (typeof detail === "string" ? detail : detail?.message || "出了点问题，请稍后再试（" + r.status + "）"));
+    const error = new Error(Array.isArray(detail) ? detail.map(x => humanizeValidation(x)).join("；")
+      : (typeof detail === "string" ? humanizeValidation({ msg: detail }) : detail?.message || "出了点问题，请稍后再试（" + r.status + "）"));
     error.status = r.status;
     error.issues = Array.isArray(detail?.issues) ? detail.issues : [];
     throw error;
   }
   return data;
+}
+
+/* 把框架层校验报错翻成人话，别让英文原文直接出现在界面上 */
+const VALIDATION_HINTS = [
+  [/valid integer|parse string as an integer|int_parsing/i, "链接里的编号不太对，请回到上一页重新进入"],
+  [/field required|missing/i, "还缺少必要的信息，请补全后再试"],
+  [/string_too_long|too long/i, "内容太长了，请精简一些"],
+  [/string_too_short|too short/i, "内容太短了，请补充一些"],
+  [/valid string|string_type/i, "这里应该填写文字"],
+  [/valid list|list_type/i, "这里应该是一组内容"],
+  [/valid dict|dict_type/i, "这里的数据格式不对"],
+  [/greater than|less than|valid number|float_parsing/i, "数值超出了允许范围"],
+];
+function humanizeValidation(item) {
+  const raw = typeof item === "string" ? item : (item?.msg || "");
+  if (!raw) return "这次操作没成功，请稍后再试";
+  // 只翻译框架层的参数校验话术；业务侧自己的报错原样保留
+  for (const [re, zh] of VALIDATION_HINTS) if (re.test(raw)) return zh;
+  return raw;
 }
 
 function setFlash(msg, kind = "err") {
@@ -272,7 +296,8 @@ const ICONS = {
   arrow: '<path d="M5 12h14m-5-5 5 5-5 5"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
   search: '<circle cx="10" cy="10" r="6"/><path d="m15 15 6 6"/>',
-  check: '<path d="m5 12 4 4L19 6"/>'
+  check: '<path d="m5 12 4 4L19 6"/>',
+  review: '<path d="M4 4h11l5 5v11H4z"/><path d="M15 4v5h5"/><path d="m8.5 14.5 2 2 4-4"/>'
 };
 function icon(name) { return `<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] || ICONS.tasks}</svg>`; }
 function renderNav() {
@@ -311,11 +336,11 @@ function viewLogin() {
       <div class="logo"><span class="mark">齐</span><span style="font-size:17px">收齐啦 FormFlow</span></div>
       <h1>材料收集，<br>终于有条不紊。</h1>
       <p class="tag">从一句收集要求，到最后一份材料。<br>把反复催交和核对，留给更清晰的工作流。</p>
-      <div class="feat"><div class="ic">✧</div><div><b>聊几句就能出表</b>
+      <div class="feat"><div class="ic">${icon("design")}</div><div><b>聊几句就能出表</b>
         <span>告诉助手你想收什么，字段、材料要求与检查规则自动生成</span></div></div>
-      <div class="feat"><div class="ic">⌕</div><div><b>交上来逐条核对</b>
+      <div class="feat"><div class="ic">${icon("search")}</div><div><b>交上来逐条核对</b>
         <span>每处问题都带原文位置和改法，不把「没读到」说成「确认缺失」</span></div></div>
-      <div class="feat"><div class="ic">▣</div><div><b>按正确版本交付</b>
+      <div class="feat"><div class="ic">${icon("delivery")}</div><div><b>按正确版本交付</b>
         <span>正式版本不可篡改，快照固定，历史验收不丢失</span></div></div>
     </div>
     <div class="login-panel">
@@ -760,6 +785,9 @@ function paintAgentRequestStatus(request, error = "") {
   if (request.status === "failed") {
     const message = error || request.error || "小齐这次没有收到完整回复，原草案仍保留。";
     const stale = /草案已在另一页面更新|回到最新版本核对/.test(message);
+    const modelOffline = /未配置|模型密钥|暂不可用/.test(message);
+    // 没有模型密钥时重试必然失败：不给按钮，也不再重复提示——顶部常驻提示条和对话已经说明
+    if (modelOffline) { box.innerHTML = ""; return; }
     box.innerHTML = `<section class="agent-request-card failed" role="alert"><span class="agent-request-mark" aria-hidden="true">!</span><div class="agent-request-copy"><b>${stale ? "草案已在别处更新" : "这次整理没有完成"}</b><p>${esc(message)}</p><p class="agent-request-hint">你的原文仍保留，旧结果没有覆盖当前草案。</p></div>${stale ? '<button class="ghost sm" type="button" onclick="refreshAfterAgentConflict()">刷新草案</button>' : request.permanentError ? '' : '<button class="ghost sm" type="button" onclick="retryAgent()">用原请求重试</button>'}</section>`;
     return;
   }
@@ -782,10 +810,17 @@ function finishAgentRequestFailure(request, message, epoch, token, permanent = f
   request.status = "failed"; request.error = message || request.error || "这次请求没能完成，原草案还在。";
   request.permanentError = !!permanent; state.retryRequest = request;
   savePendingAgentRequest(request); setAgentBusy(false); paintAgentRequestStatus(request);
-  agentSay(request.permanentError && /草案已在另一页面更新/.test(request.error)
-    ? "草案有了新版本，我先不把旧修改覆盖上去。"
-    : "这次整理没完成，原草案还在。", "你刚才写的内容保留了，可以用同一个请求重试，不会重复生成版本。");
-  if (state.retryRequest && request.permanentError && !/草案已在另一页面更新/.test(request.error))
+  const text = String(request.error || "");
+  const modelOffline = /暂不可用|未配置|模型密钥|LLM/i.test(text);
+  if (request.permanentError && /草案已在另一页面更新/.test(text)) {
+    agentSay("草案有了新版本，我先不把旧修改覆盖上去。", "你刚才写的内容保留了，可以检查后再带过来。");
+  } else if (modelOffline) {
+    // 没有配置模型密钥时，重试不会成功，别让人白试
+    agentSay("现在还没有接入 AI 模型，所以没法自动帮你起草。", "你写的内容都保留着。可以先用下面的模板开始，或者直接改右侧草案；配置好模型密钥后，同一段话再发一次就能生成。");
+  } else {
+    agentSay("这次整理没完成，原草案还在。", "你刚才写的内容保留了，可以用同一个请求重试，不会重复生成版本。");
+  }
+  if (state.retryRequest && request.permanentError && !/草案已在另一页面更新/.test(text) && !modelOffline)
     agentSay("你也可以编辑原文再重新发送，这次没有改动草案。");
   renderChips(); renderDraftPanel();
 }
@@ -821,11 +856,14 @@ async function completeAgentRequest(request, response, epoch, token) {
     const bp = latest.draft?.blueprint || {};
     const empty = !bp.fields?.length && !bp.slots?.length && !bp.rules?.length;
     const unchanged = request.previousBlueprintId === result.blueprint_version_id;
-    agentSay(empty ? "这次没能整理出可用的收集表，原要求还在。"
+    const modelOffline = warnings.some(w => /暂不可用|未配置|模型密钥/.test(String(w)));
+    agentSay(modelOffline ? "现在还没有接入 AI 模型，所以这次没能自动整理。"
+      : empty ? "这次没能整理出可用的收集表，原要求还在。"
       : unchanged ? "这次没有形成新版本，原草案还在。"
       : request.previousBlueprintId ? "草案更新了，我们一起看看改动有没有按你的意思来。"
       : "第一份草案整理好了，先核对一下有没有漏掉或多加的要求。",
-      request.previousBlueprintId ? impactText(result.impact) : empty
+      modelOffline ? "你写的要求都保留着。可以先用模板开始，或直接改右侧草案；配好模型密钥后同一段话再发一次就能生成。"
+      : request.previousBlueprintId ? impactText(result.impact) : empty
         ? "可以用同一个请求重试，或者从模板开始。"
         : `整理出 ${bp.fields?.length || 0} 项登记信息、${bp.slots?.length || 0} 类材料和 ${bp.rules?.length || 0} 条核对规则。`);
     if (warnings.length) agentSay("有几处还需要你看一眼。", warnings.map(esc).join("<br>"));
@@ -996,7 +1034,7 @@ function renderDraftPanel() {
     <div class="draft-content" role="tabpanel">${state.designTab === 'preview' ? `<div class="form-preview"><div class="preview-banner"><span>${scope.mode === 'open' ? '开放报名' : '名册收集'}</span><span>填写预览 · 不会提交</span></div><h2>${esc(scope.name || state.task?.name || '收集任务')}</h2><p class="muted">${esc(scope.description || '请按以下要求登记信息并提交材料。')}</p>
       <div class="preview-section-title"><b>01</b> 登记信息</div>${(bp.fields || []).map(f => `<div class="preview-field"><label>${esc(f.label)}${f.required ? '<em> *</em>' : ' <small>选填</small>'}</label>${f.type === 'enum' ? `<select disabled aria-label="${esc(f.label)}"><option>请选择${esc(f.label)}</option>${(f.options || []).map(o => `<option>${esc(o)}</option>`).join('')}</select>` : `<input disabled aria-label="${esc(f.label)}" placeholder="请填写${esc(f.label)}">`}${f.required_condition ? `<p class="field-help">条件：${esc(f.required_condition)}</p>` : ''}${f.purpose ? `<p class="field-help">用途：${esc(f.purpose)}</p>` : ''}</div>`).join('') || '<p class="muted">尚未设置登记字段</p>'}
       <div class="preview-section-title"><b>02</b> 提交材料</div>${(bp.slots || []).map(sl => `<div class="upload-preview">${icon('delivery')}<div><strong>${esc(sl.label)}</strong><p>${(sl.formats || []).map(x=>esc(x.toUpperCase())).join(' / ') || '未限定格式'} · 最多 ${sl.max_count} 份${sl.max_size_mib ? ` · 每份 ≤ ${sl.max_size_mib} MiB` : ''}${sl.max_pages ? ` · ≤ ${sl.max_pages} 页` : ''}</p>${sl.required_condition ? `<p>条件：${esc(sl.required_condition)}</p>` : ''}</div><span>上传区域</span></div>`).join('') || '<p class="muted">尚未设置材料</p>'}
-      <div class="preview-section-title"><b>03</b> 时间与验收</div><dl class="kv-list"><dt>时区</dt><dd>${esc(tp.timezone || 'Asia/Shanghai')}</dd><dt>开始收集</dt><dd>${esc(fmtTime(tp.open_at, tp.timezone))}</dd><dt>首次截止</dt><dd>${esc(fmtTime(tp.first_deadline, tp.timezone))}</dd><dt>补正截止</dt><dd>${esc(fmtTime(tp.correction_deadline, tp.timezone))}</dd><dt>最终验收</dt><dd>${bp.manual_acceptance ? '组织者人工确认' : '按规则处理'}</dd></dl></div>` : `<div class="rules-preview"><h2>每条要求，都有依据</h2><p class="muted">程序校验、语义审核与人工判断分别标注，不把不确定的结论当成通过。</p>${rules.map((r,i) => `<article class="rule-preview"><div><span class="rule-number">${String(i+1).padStart(2,'0')}</span>${CAP_BADGE[r.capability] || ''}<span class="badge">${esc(EXECUTOR_LABEL[r.executor] || r.executor)}</span></div><h3>${esc(r.statement)}</h3><blockquote>${esc(r.requirement_source || '模板预置要求，请组织者核对')}</blockquote><p class="field-help">${r.severity === 'blocking' ? '阻塞项 · 未处理时不能验收' : '提醒项'}${r.clarification_question ? ' · ' + esc(r.clarification_question) : ''}</p></article>`).join('') || '<div class="empty">尚未设置检查规则</div>'}<details><summary>原始要求与修订依据</summary><p class="source-text">${esc((viewing ? viewing.source_text : state.requirement) || '当前使用模板预置要求，尚无自然语言输入。')}</p></details><details><summary>交付与数据治理</summary><pre>${esc(JSON.stringify({delivery:bp.delivery, governance:bp.governance},null,2))}</pre></details></div>`}</div>
+      <div class="preview-section-title"><b>03</b> 时间与验收</div><dl class="kv-list"><dt>时区</dt><dd>${esc(tp.timezone || 'Asia/Shanghai')}</dd><dt>开始收集</dt><dd>${esc(fmtTimeShort(tp.open_at, tp.timezone))}</dd><dt>首次截止</dt><dd>${esc(fmtTimeShort(tp.first_deadline, tp.timezone))}</dd><dt>补正截止</dt><dd>${esc(fmtTimeShort(tp.correction_deadline, tp.timezone))}</dd><dt>最终验收</dt><dd>${bp.manual_acceptance ? '组织者人工确认' : '按规则处理'}</dd></dl></div>` : `<div class="rules-preview"><h2>每条要求，都有依据</h2><p class="muted">程序校验、语义审核与人工判断分别标注，不把不确定的结论当成通过。</p>${rules.map((r,i) => `<article class="rule-preview"><div><span class="rule-number">${String(i+1).padStart(2,'0')}</span>${CAP_BADGE[r.capability] || ''}<span class="badge">${esc(EXECUTOR_LABEL[r.executor] || r.executor)}</span></div><h3>${esc(r.statement)}</h3><blockquote>${esc(r.requirement_source || '模板预置要求，请组织者核对')}</blockquote><p class="field-help">${r.severity === 'blocking' ? '阻塞项 · 未处理时不能验收' : '提醒项'}${r.clarification_question ? ' · ' + esc(r.clarification_question) : ''}</p></article>`).join('') || '<div class="empty">尚未设置检查规则</div>'}<details><summary>原始要求与修订依据</summary><p class="source-text">${esc((viewing ? viewing.source_text : state.requirement) || '当前使用模板预置要求，尚无自然语言输入。')}</p></details><details><summary>交付与数据治理</summary><pre>${esc(JSON.stringify({delivery:bp.delivery, governance:bp.governance},null,2))}</pre></details></div>`}</div>
     <div class="publish-bar"><div><strong>${viewing ? `历史版本 v${viewing.version}（只读）` : state.draftStatus === 'published' ? '当前版本已发布' : blocking.length ? '发布前还有内容必须处理' : '准备好后，由你确认发布'}</strong><span>${clar.length ? `${clar.length} 项待澄清 · ` : ''}${blocking.length ? `${blocking.length} 项阻塞 · ` : ''}${advisories.length ? `${advisories.length} 项提醒 · ` : ''}${rules.length} 条规则 · 修改将保留版本记录</span></div><button data-publish onclick="publishBp(${state.taskId})" ${!canPublishDesign() ? 'disabled' : ''}>${state.draftStatus === 'published' ? '已发布' : '核对并发布'} ${icon('arrow')}</button></div>`;
 }
 
@@ -1080,7 +1118,7 @@ async function publishBp(taskId) {
     <div class="publish-group"><div class="eyebrow">登记字段（${fields.length}）</div><p>${fields.map(f => `${esc(f.label)}${f.required ? '*' : ''}${f.required_condition ? `（${esc(f.required_condition)}）` : ''}`).join('、') || '无'}</p></div>
     <div class="publish-group"><div class="eyebrow">材料（${slots.length}）</div><p>${slots.map(s => `${esc(s.label)}：${(s.formats || []).map(x => esc(x.toUpperCase())).join('/') || '不限格式'}，最多 ${s.max_count} 份${s.max_size_mib ? `，≤${s.max_size_mib}MiB` : ''}${s.required_condition ? `，条件 ${esc(s.required_condition)}` : ''}`).join('<br>') || '无'}</p></div>
     <div class="publish-group"><div class="eyebrow">检查规则（${rules.length}）</div><ul class="publish-rules">${rules.map(r => `<li><span class="badge ${r.capability === 'supported' ? 'ok' : 'warn'}">${esc((CAP_BADGE[r.capability] || '').replace(/<[^>]+>/g, ''))}</span>${esc(r.statement)}</li>`).join('') || '<li>无</li>'}</ul></div>
-    <div class="publish-group"><div class="eyebrow">时间</div><p>时区 ${esc(tp.timezone || 'Asia/Shanghai')} · 开始 ${esc(fmtTime(tp.open_at, tp.timezone))} · 首次截止 ${esc(fmtTime(tp.first_deadline, tp.timezone))} · 补正截止 ${esc(fmtTime(tp.correction_deadline, tp.timezone))}</p></div>
+    <div class="publish-group"><div class="eyebrow">时间</div><p>时区 ${esc(tp.timezone || 'Asia/Shanghai')} · 开始 ${esc(fmtTimeShort(tp.open_at, tp.timezone))} · 首次截止 ${esc(fmtTimeShort(tp.first_deadline, tp.timezone))} · 补正截止 ${esc(fmtTimeShort(tp.correction_deadline, tp.timezone))}</p></div>
     ${advisories.length ? `<div class="draft-warning"><b>${advisories.length} 项提醒（不阻止发布）</b><ul>${advisories.map(w => `<li>${esc(w)}</li>`).join('')}</ul></div>` : ''}
   </div>`;
   document.getElementById('publish-error').textContent = ''; document.getElementById('publish-consent').checked = false;
@@ -1698,6 +1736,18 @@ window.addEventListener("pagehide", cacheReviewDraft);
 async function viewReview(taskId, sid) {
   cacheReviewDraft();
   state.reviewContext = null;
+  // 缺少或非法的提交主体时，不要拿 NaN 去打接口，直接给一句人话
+  if (!Number.isFinite(taskId) || taskId <= 0) { location.hash = "#/tasks"; return false; }
+  if (!Number.isFinite(sid) || sid <= 0) {
+    document.getElementById("app").innerHTML = `
+      <div class="breadcrumb"><a href="#/tasks">我的任务</a><span>/</span><a href="#/workbench/${taskId}">收集工作台</a><span>/</span><span>证据复核</span></div>
+      <div class="page-heading"><div><div class="eyebrow">EVIDENCE REVIEW</div><h1>逐条核对证据<span class="heading-dot">.</span></h1><p>每处判断都附原文位置。解释不改变机器结论，最终由你决定。</p></div></div>
+      <div class="card"><div class="empty-state"><div class="empty-icon">${icon("review")}</div>
+        <h3>先选一位提交者</h3>
+        <p>复核是针对某个人这一版材料的。回工作台点某一行右侧的「复核」，就能进到对应证据。</p>
+        <a class="ghost sm" href="#/workbench/${taskId}">回到收集工作台 ${icon("arrow")}</a></div></div>`;
+    return false;
+  }
   const epoch = state.routeEpoch, requestId = (state.reviewRequestId || 0) + 1;
   state.reviewRequestId = requestId;
   state.reviewConflict = false;
@@ -2107,8 +2157,8 @@ function fmtBytes(n) {
 }
 function apiError(data, status) {
   const detail = data && data.detail;
-  return new Error(Array.isArray(detail) ? detail.map(x => x.msg || JSON.stringify(x)).join("；")
-    : (typeof detail === "string" ? detail : "出了点问题，请稍后再试（" + status + "）"));
+  return new Error(Array.isArray(detail) ? detail.map(x => humanizeValidation(x)).join("；")
+    : (typeof detail === "string" ? humanizeValidation({ msg: detail }) : "出了点问题，请稍后再试（" + status + "）"));
 }
 function receiptFilesHtml(receipt) {
   const files = Array.isArray(receipt?.files) ? receipt.files : [];
@@ -2280,7 +2330,7 @@ async function viewSubmit() {
     const uploaded = Object.values(state.files).reduce((n, ids) => n + ids.length, 0);
     const fileMetricLabel = receipt.formal ? "本次编辑附件" : "已上传材料";
     const receiptHtml = receipt.formal
-      ? `<div class="receipt"><div><span class="eyebrow">RECEIPT</span><b>已正式提交 · v${receipt.revision}</b><span class="receipt-no">${esc(receipt.receipt)}</span></div><div class="receipt-meta"><span>服务端时间</span><b>${esc(fmtTime(receipt.formal_submitted_at))}</b></div></div>${receiptFilesHtml(receipt)}`
+      ? `<div class="receipt"><div><span class="eyebrow">RECEIPT</span><b>已正式提交 · v${receipt.revision}</b><span class="receipt-no">${esc(receipt.receipt)}</span></div><div class="receipt-meta"><span>提交时间</span><b>${esc(fmtTime(receipt.formal_submitted_at))}</b></div></div>${receiptFilesHtml(receipt)}`
       : `<div class="receipt pending"><div><span class="eyebrow">RECEIPT</span><b>尚未正式提交</b><span>保存草稿不会形成报名；正式提交后会得到固定回执。</span></div></div>`;
 
     document.getElementById("sub").innerHTML = `
@@ -2290,7 +2340,7 @@ async function viewSubmit() {
           <span class="badge ${ro ? "warn" : "ok"}"><span class="badge-dot"></span>${esc(TASK_STATUS_LABEL[me.task.status] || me.task.status)}</span></div>
         ${ro ? `<div class="notice-warn">任务已${esc(TASK_STATUS_LABEL[me.task.status] || me.task.status)}，处于只读状态：不能保存草稿、上传或正式提交；已提交内容与回执仍可查看。</div>` : ""}
         <section class="submit-overview">
-          <div class="overview-stats">${[["登记字段", `${done}/${fields.length}`, "design"], [fileMetricLabel, uploaded, "delivery"], ["首次截止", fmtTime(me.task.first_deadline, me.task.timezone).slice(5), "workbench"], ["补正截止", fmtTime(me.task.correction_deadline, me.task.timezone).slice(5), "workbench"]].map(([l, v, ic]) => `<div class="overview-stat"><span>${esc(l)}</span><strong class="stat-text" ${l === "登记字段" ? 'id="submission-field-count"' : l === fileMetricLabel ? 'id="submission-file-count"' : ""}>${esc(v)}</strong><i>${icon(ic)}</i></div>`).join("")}</div>
+          <div class="overview-stats">${[["登记字段", `${done}/${fields.length}`, "design"], [fileMetricLabel, uploaded, "delivery"], ["首次截止", fmtTimeShort(me.task.first_deadline, me.task.timezone).slice(5), "workbench"], ["补正截止", fmtTimeShort(me.task.correction_deadline, me.task.timezone).slice(5), "workbench"]].map(([l, v, ic]) => `<div class="overview-stat"><span>${esc(l)}</span><strong class="stat-text" ${l === "登记字段" ? 'id="submission-field-count"' : l === fileMetricLabel ? 'id="submission-file-count"' : ""}>${esc(v)}</strong><i>${icon(ic)}</i></div>`).join("")}</div>
           ${receiptHtml}
         </section>
         <div class="submit-layout">
@@ -2336,7 +2386,7 @@ async function viewSubmit() {
           </section>
           <aside class="submit-side">
             <section class="card side-note"><div class="eyebrow">BEFORE YOU SUBMIT</div><h2>提交前核对</h2>
-              <ul class="check-list"><li>首次截止：<b>${esc(fmtTime(me.task.first_deadline, me.task.timezone))}</b></li><li>补正截止：<b>${esc(fmtTime(me.task.correction_deadline, me.task.timezone))}</b></li><li>正式提交会形成不可篡改的版本；再次提交将形成补正版本。</li><li>上传成功 ≠ 正式提交，记得点击正式提交。</li></ul>
+              <ul class="check-list"><li>首次截止：<b>${esc(fmtTimeShort(me.task.first_deadline, me.task.timezone))}</b></li><li>补正截止：<b>${esc(fmtTimeShort(me.task.correction_deadline, me.task.timezone))}</b><span class="muted">（${esc(me.task.timezone)}）</span></li><li>正式提交会形成不可篡改的版本，再次提交会形成补正版本。</li><li>上传成功 ≠ 正式提交，记得点「正式提交」。</li></ul>
             </section>
             <section class="card side-note"><div class="eyebrow">如果有疑问</div><h2>提交之后</h2>
               <p class="field-help">核对后会列出对应的材料、原文位置和建议做法。觉得有一处没看清，可以补充说明请组织者再核对；需要更正时也可以直接补交材料。</p>

@@ -2567,13 +2567,18 @@ dialog p {
 }
 .login-hero .feat .ic {
   background:#ffffffaa;
-  color:#9888bb;
+  color:#8a79ae;
   border:1px solid #dcd4ec;
   border-radius:9px;
   width:30px;
   height:30px;
+  flex:none;
+  display:flex;
+  align-items:center;
+  justify-content:center;
   box-shadow:0 2px 6px #0000000a
 }
+.login-hero .feat .ic svg { width:15px; height:15px; }
 .login-hero .feat b {
   font-size:12px;
   font-weight:550

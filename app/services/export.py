@@ -34,9 +34,35 @@ from ..models import (
 )
 from ..security import utcnow
 
+try:  # 任务时区转换：3.9+ 自带 zoneinfo，缺失时退回 UTC 展示
+    from zoneinfo import ZoneInfo
+except ImportError:  # pragma: no cover
+    ZoneInfo = None  # type: ignore[assignment]
+
 
 class ExportIntegrityError(ValueError):
     """快照引用的材料不可完整读取或与固定元数据不符。"""
+
+
+def _local_display(iso_value: Optional[str], tz_name: str) -> str:
+    """把清单里的 UTC ISO 时间转成任务时区的可读时间，方便直接看表。"""
+    if not iso_value:
+        return ""
+    try:
+        dt = datetime.fromisoformat(str(iso_value))
+    except (TypeError, ValueError):
+        return str(iso_value)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    tz = None
+    if ZoneInfo is not None:
+        try:
+            tz = ZoneInfo(tz_name or "Asia/Shanghai")
+        except Exception:  # noqa: BLE001 - 非法时区名退回 UTC，不影响导出
+            tz = None
+    if tz is None:
+        return dt.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    return dt.astimezone(tz).strftime("%Y-%m-%d %H:%M")
 
 
 def _utc(dt: Optional[datetime]) -> Optional[str]:
@@ -140,14 +166,14 @@ def _csv_safe(value) -> str:
     return s
 
 
-def _build_csv(manifest: dict) -> bytes:
+def _build_csv(manifest: dict, tz_name: str = "Asia/Shanghai") -> bytes:
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow(["主体ID", "名称", "正式版本", "回执", "收件时间", "是否纳入", "排除原因", "资格结论", "资格说明"])
     for e in manifest["entries"]:
         writer.writerow([_csv_safe(e["subject_id"]), _csv_safe(e["name"]),
                          _csv_safe(e["revision"]), _csv_safe(e["receipt"]),
-                         _csv_safe(e["formal_submitted_at"]),
+                         _csv_safe(_local_display(e["formal_submitted_at"], tz_name)),
                          "是" if e["included"] else "否", _csv_safe(e["excluded_reason"]),
                          _csv_safe({"eligible": "符合", "ineligible": "不符合", "pending": "待核实",
                                     "not_assessed": "未评估"}.get(e.get("eligibility", {}).get("status"), "")),
@@ -230,7 +256,8 @@ def run_export(db: Session, snapshot: DeliverySnapshot) -> ExportJob:
         csv_tmp = out_dir / f".{csv_path.name}.part"
         zip_tmp = out_dir / f".{zip_path.name}.part"
         partial_paths = [csv_tmp, zip_tmp, csv_path, zip_path]
-        csv_tmp.write_bytes(_build_csv(manifest))
+        task = db.get(Task, snapshot.task_id)
+        csv_tmp.write_bytes(_build_csv(manifest, getattr(task, "timezone", "") or "Asia/Shanghai"))
 
         name_map = {}
         with zipfile.ZipFile(zip_tmp, "w", zipfile.ZIP_DEFLATED) as zf:

@@ -154,6 +154,13 @@ def _execute_request(db: Session, job: AgentDraftRequest, task: Task, payload: d
     if payload["kind"] == "agent":
         result = draft_blueprint(payload["requirement"], template=payload.get("template") or None)
         if _model_failed(result):
+            # 区分"没配密钥"和"这次没回好"：前者重试也不会成功，必须如实说
+            unavailable = next((str(w) for w in result.warnings
+                                if str(w).startswith("需求 Agent 暂不可用")), "")
+            if "未配置" in unavailable or "API_KEY" in unavailable:
+                raise AgentRequestError(
+                    "当前没有接入 AI 模型（未配置模型密钥），小齐暂时无法自动起草。"
+                    "可以先用模板开始，或手动编辑右侧草案；配好密钥后同一段话再发一次即可。")
             raise AgentRequestError("小齐这次没有收到完整回复，原草案没有更改。你的原文仍保留，可以重试或先选模板继续。")
         blueprint = task_service.save_draft(
             db, task, result, source_text=payload["requirement"])
@@ -168,6 +175,12 @@ def _execute_request(db: Session, job: AgentDraftRequest, task: Task, payload: d
         answered=payload.get("answered") or {},
         instruction=payload.get("instruction", ""))
     if _model_failed(result):
+        unavailable = next((str(w) for w in result.warnings
+                            if str(w).startswith("需求 Agent 暂不可用")), "")
+        if "未配置" in unavailable or "API_KEY" in unavailable:
+            raise AgentRequestError(
+                "当前没有接入 AI 模型（未配置模型密钥），小齐暂时无法处理这次修改。"
+                "草案没有改动；可以先手动调整右侧内容，配好密钥后再说一次即可。")
         raise AgentRequestError("小齐这次没有收到完整回复，草案没有更改。你的回答仍保留，可以重试。")
     blocking, advisories = task_service.split_publish_checks(result.blueprint, blueprint, result)
     return {"blueprint_version_id": blueprint.id, "version": blueprint.version,
