@@ -2791,6 +2791,8 @@ function subDoneCard() {
 /* ---------------------------------------------------------------- 交付与归档 */
 async function viewDelivery(taskId) {
   state.deliveryTaskId = taskId;
+  state.deliveryHistory = [];
+  state.deliveryHistoryHasMore = false;
   document.getElementById("app").innerHTML = `
     <div class="breadcrumb"><a href="#/tasks">我的任务</a><span>/</span><span>交付与归档</span></div>
     <div class="page-heading"><div><div class="eyebrow">DELIVERY & ARCHIVE</div><h1>交付与归档<span class="heading-dot">.</span></h1><p>先固定一份快照，再导出。之后的新提交不会改变已固定的包。</p></div>
@@ -2807,41 +2809,119 @@ async function viewDelivery(taskId) {
         <ul class="check-list"><li>CSV 汇总每个主体的登记信息、版本、回执与验收状态。</li><li>ZIP 按交付命名规则打包材料原件。</li><li>导出基于快照，不在导出时读取最新数据。</li></ul>
       </section>
     </div>
+    <section class="card delivery-history"><div class="section-heading"><div><div class="eyebrow">HISTORY</div><h2>历史快照与导出</h2></div><button class="ghost sm" onclick="loadDeliveryHistory(${taskId})">刷新记录</button></div>
+      <p class="field-help">离开页面后，已固定的清单和成功生成的文件仍可从这里找回。</p>
+      <div id="delivery-history-list"><p class="muted">正在读取历史记录…</p></div>
+    </section>
     <div id="snap-view"></div>`;
+  loadDeliveryHistory(taskId);
+}
+function deliveryHistoryHtml(snapshots, taskId, hasMore) {
+  if (!snapshots?.length) return '<div class="delivery-history-empty"><b>还没有固定快照</b><span>生成后，清单与可下载文件会保留在这里。</span></div>';
+  const statusLabel = {success:"已生成", failed:"未完成", running:"生成中", queued:"排队中"};
+  const items = snapshots.map(snapshot => {
+    const id = Number(snapshot.snapshot_id);
+    const jobs = Array.isArray(snapshot.exports) ? snapshot.exports : [];
+    const latest = jobs[0];
+    const needsExport = !latest || latest.status !== "success" || !latest.csv_available || !latest.zip_available;
+    const jobHtml = jobs.length ? jobs.map(job => {
+      const jobId = Number(job.job_id);
+      const downloads = [
+        job.csv_available ? `<button class="ghost sm" onclick="downloadFile('/api/exports/${jobId}/csv','summary_${jobId}.csv')">下载 CSV</button>` : "",
+        job.zip_available ? `<button class="ghost sm" onclick="downloadFile('/api/exports/${jobId}/zip','materials_${jobId}.zip')">下载 ZIP</button>` : "",
+      ].filter(Boolean).join("");
+      const missing = job.status === "success" && (!job.csv_available || !job.zip_available);
+      return `<div class="delivery-history-export"><div class="delivery-history-export-head"><b>导出 #${jobId}</b><span class="badge ${job.status === "success" && !missing ? "ok" : job.status === "failed" || missing ? "warn" : "info"}">${esc(statusLabel[job.status] || job.status)}${missing ? " · 文件缺失" : ""}</span><time>${esc(fmtTime(job.created_at))}</time></div>
+        ${job.error ? `<p class="field-help">${esc(job.error)}</p>` : missing ? '<p class="field-help">部分文件不再可用，可从原快照重新生成。</p>' : ""}
+        ${downloads ? `<div class="row-actions">${downloads}</div>` : ""}</div>`;
+    }).join("") : '<p class="muted">尚未生成 CSV / ZIP。</p>';
+    return `<article class="delivery-history-item"><div class="delivery-history-item-head"><div><b>${snapshot.kind === "formal" ? "正式快照" : "整理预览快照"} #${id}</b><time>${esc(fmtTime(snapshot.created_at))}</time></div><span class="badge">纳入 ${Number(snapshot.totals?.included || 0)} / 排除 ${Number(snapshot.totals?.excluded || 0)}</span></div>
+      <div class="delivery-history-exports">${jobHtml}</div>
+      <div class="row-actions delivery-history-actions"><button class="ghost sm" onclick="inspectSnapshot(${id})">查看固定清单</button>${needsExport ? `<button class="ghost sm" onclick="runExport(${id},'history-export-${id}')">${latest ? "重新生成 CSV + ZIP" : "生成 CSV + ZIP"}</button>` : ""}<span id="history-export-${id}" class="row-actions"></span></div>
+    </article>`;
+  }).join("");
+  return `${items}${hasMore ? `<div class="delivery-history-more"><button class="ghost sm" onclick="loadDeliveryHistory(${taskId},true)">加载更早记录</button><span id="delivery-history-more-error" class="muted"></span></div>` : ""}`;
+}
+async function loadDeliveryHistory(taskId, append = false) {
+  const epoch = state.routeEpoch, token = orgToken();
+  const container = document.getElementById("delivery-history-list");
+  if (!container) return;
+  const offset = append ? (state.deliveryHistoryOffset || 0) : 0;
+  if (!append) { state.deliveryHistory = []; state.deliveryHistoryOffset = 0; }
+  try {
+    const result = await api(`/api/tasks/${taskId}/snapshots?limit=20&offset=${offset}`);
+    if (epoch !== state.routeEpoch || token !== orgToken() || Number(taskId) !== Number(state.deliveryTaskId)) return;
+    const received = result.snapshots || [];
+    if (append) {
+      const known = new Set((state.deliveryHistory || []).map(snapshot => snapshot.snapshot_id));
+      state.deliveryHistory = (state.deliveryHistory || []).concat(
+        received.filter(snapshot => !known.has(snapshot.snapshot_id)));
+    } else state.deliveryHistory = received;
+    state.deliveryHistoryOffset = Number.isInteger(result.next_offset)
+      ? result.next_offset : offset + received.length;
+    state.deliveryHistoryHasMore = !!result.has_more;
+    container.innerHTML = deliveryHistoryHtml(state.deliveryHistory, taskId, state.deliveryHistoryHasMore);
+  } catch (error) {
+    if (epoch !== state.routeEpoch || token !== orgToken()) return;
+    const message = `<span class="flash err">${esc(error.message || "历史记录暂时无法读取")}</span>`;
+    if (append) {
+      const moreError = document.getElementById("delivery-history-more-error");
+      if (moreError) moreError.innerHTML = message;
+    } else container.innerHTML = `${message}<button class="ghost sm" onclick="loadDeliveryHistory(${Number(taskId)})">重试</button>`;
+  }
+}
+async function inspectSnapshot(snapshotId) {
+  const epoch = state.routeEpoch, token = orgToken();
+  await guard(async () => {
+    const snapshot = await api(`/api/snapshots/${snapshotId}`);
+    if (epoch !== state.routeEpoch || token !== orgToken()) return;
+    paintSnapshot(snapshot.snapshot_id, JSON.parse(snapshot.manifest));
+    document.getElementById("snap-view")?.scrollIntoView({behavior:"smooth", block:"start"});
+    setFlash(`已打开快照 #${snapshot.snapshot_id}，清单保持不变`, "ok");
+  }, () => epoch === state.routeEpoch && token === orgToken());
+}
+function paintSnapshot(snapshotId, manifest) {
+  const excluded = (manifest.entries || []).filter(entry => !entry.included);
+  const target = document.getElementById("snap-view");
+  if (!target) return;
+  target.innerHTML = `<section class="card snapshot-result">
+    <div class="section-heading"><div><div class="eyebrow">SNAPSHOT #${snapshotId}</div><h2>${manifest.kind === "formal" ? "正式快照" : "整理预览快照"}</h2></div><span class="badge ${manifest.kind === "formal" ? "ok" : "info"}">已固定</span></div>
+    <div class="overview-stats">${[["主体总数", manifest.totals.subjects], ["纳入", manifest.totals.included], ["排除", manifest.totals.excluded], ["蓝图版本", "#" + manifest.blueprint_version_id]].map(([label, value]) => `<div class="overview-stat"><span>${label}</span><strong>${value}</strong><i>${icon("delivery")}</i></div>`).join("")}</div>
+    <div class="table-wrap"><table><thead><tr><th>主体</th><th>版本</th><th>纳入</th><th>排除原因</th><th>材料</th></tr></thead>
+    <tbody>${(manifest.entries || []).map(entry => `<tr><td>${esc(entry.name)}</td><td>${entry.revision ?? "-"}</td>
+      <td>${entry.included ? '<span class="badge ok">是</span>' : '<span class="badge">否</span>'}</td><td>${esc(entry.excluded_reason || "—")}</td>
+      <td>${(entry.files || []).length}</td></tr>`).join("")}</tbody></table></div>
+    ${excluded.length ? `<p class="field-help">有 ${excluded.length} 个主体未纳入：正式快照只包含已验收版本，可在工作台逐个人工验收后重新固定。</p>` : ""}
+    <div class="row-actions snapshot-actions"><button onclick="runExport(${snapshotId})">生成 CSV + ZIP ${icon("arrow")}</button><span id="dl" class="row-actions"></span></div>
+  </section>`;
 }
 async function createSnapshot(taskId) {
   await guard(async () => {
     const kind = document.getElementById("snap-kind").value;
     const r = await api(`/api/tasks/${taskId}/snapshots`,
                         { method: "POST", form: { kind } });
-    const m = JSON.parse(r.manifest);
-    const excluded = (m.entries || []).filter(e => !e.included);
-    document.getElementById("snap-view").innerHTML = `<section class="card snapshot-result">
-      <div class="section-heading"><div><div class="eyebrow">SNAPSHOT #${r.snapshot_id}</div><h2>${m.kind === "formal" ? "正式快照" : "整理预览快照"}</h2></div><span class="badge ${m.kind === "formal" ? "ok" : "info"}">已固定</span></div>
-      <div class="overview-stats">${[["主体总数", m.totals.subjects], ["纳入", m.totals.included], ["排除", m.totals.excluded], ["蓝图版本", "#" + m.blueprint_version_id]].map(([l, v]) => `<div class="overview-stat"><span>${l}</span><strong>${v}</strong><i>${icon("delivery")}</i></div>`).join("")}</div>
-      <div class="table-wrap"><table><thead><tr><th>主体</th><th>版本</th><th>纳入</th><th>排除原因</th><th>材料</th></tr></thead>
-      <tbody>${(m.entries || []).map(e => `<tr><td>${esc(e.name)}</td><td>${e.revision ?? "-"}</td>
-        <td>${e.included ? '<span class="badge ok">是</span>' : '<span class="badge">否</span>'}</td><td>${esc(e.excluded_reason || "—")}</td>
-        <td>${(e.files || []).length}</td></tr>`).join("")}</tbody></table></div>
-      ${excluded.length ? `<p class="field-help">有 ${excluded.length} 个主体未纳入：正式快照只包含已验收版本，可在工作台逐个人工验收后重新固定。</p>` : ""}
-      <div class="row-actions snapshot-actions"><button onclick="runExport(${r.snapshot_id})">生成 CSV + ZIP ${icon("arrow")}</button><span id="dl" class="row-actions"></span></div>
-    </section>`;
+    paintSnapshot(r.snapshot_id, JSON.parse(r.manifest));
     setFlash(`快照 #${r.snapshot_id} 已固定`, "ok");
+    await loadDeliveryHistory(taskId);
   });
 }
-async function runExport(snapId) {
+async function runExport(snapId, targetId = "dl") {
   await guard(async () => {
     const r = await api(`/api/snapshots/${snapId}/export`, { method: "POST" });
     state.lastJob = r;
+    const target = document.getElementById(targetId);
+    if (!target) return;
     if (r.status !== "success" || !r.csv || !r.zip) {
-      document.getElementById("dl").innerHTML = '<span class="badge bad">未生成可下载文件</span>';
+      target.innerHTML = '<span class="badge bad">未生成可下载文件</span>';
       setFlash(r.error || `导出作业 #${r.job_id} 未完成，请核对材料后重试`, "err");
+      await loadDeliveryHistory(state.deliveryTaskId);
       return;
     }
-    document.getElementById("dl").innerHTML = `
+    target.innerHTML = `
       <button class="ghost sm" onclick="downloadFile('/api/exports/${r.job_id}/csv','summary_${r.job_id}.csv')">下载 CSV</button>
       <button class="ghost sm" onclick="downloadFile('/api/exports/${r.job_id}/zip','materials_${r.job_id}.zip')">下载 ZIP</button>`;
     setFlash(`导出作业 #${r.job_id} 已生成`, "ok");
+    await loadDeliveryHistory(state.deliveryTaskId);
   });
 }
 async function downloadFile(url, filename) {

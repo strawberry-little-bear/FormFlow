@@ -975,6 +975,60 @@ def create_snapshot(task_id: int, kind: str = Form("formal"),
     db.commit()
     return {"snapshot_id": snap.id, "manifest": snap.manifest_json}
 
+@router.get("/tasks/{task_id}/snapshots")
+def list_task_snapshots(task_id: int, limit: int = 20, offset: int = 0,
+                        db: Session = Depends(get_db), acct: Account = Depends(current_account)):
+    """Return recent fixed snapshots and their latest export records to the owner."""
+    task = _owned_task(db, acct, task_id)
+    limit = min(max(limit, 1), 50)
+    offset = max(offset, 0)
+    rows = db.scalars(select(DeliverySnapshot).where(
+        DeliverySnapshot.task_id == task.id
+    ).order_by(DeliverySnapshot.created_at.desc(), DeliverySnapshot.id.desc())
+        .offset(offset).limit(limit + 1)).all()
+    has_more = len(rows) > limit
+    history = []
+    for snapshot in rows[:limit]:
+        try:
+            manifest = json.loads(snapshot.manifest_json)
+        except (TypeError, ValueError):
+            manifest = {}
+        totals = manifest.get("totals", {}) if isinstance(manifest, dict) else {}
+        if not isinstance(totals, dict):
+            totals = {}
+        jobs = db.scalars(select(ExportJob).where(
+            ExportJob.snapshot_id == snapshot.id
+        ).order_by(ExportJob.created_at.desc(), ExportJob.id.desc()).limit(10)).all()
+        history.append({
+            "snapshot_id": snapshot.id,
+            "kind": snapshot.kind,
+            "created_at": iso_utc(snapshot.created_at),
+            "totals": {key: totals.get(key, 0) for key in ("subjects", "included", "excluded")},
+            "exports": [{
+                "job_id": job.id, "status": job.status, "error": job.error,
+                "created_at": iso_utc(job.created_at), "finished_at": iso_utc(job.finished_at),
+                "csv_available": (job.status == "success" and bool(job.csv_path)
+                                  and Path(job.csv_path).is_file()),
+                "zip_available": (job.status == "success" and bool(job.zip_path)
+                                  and Path(job.zip_path).is_file()),
+            } for job in jobs],
+        })
+    return {"snapshots": history, "has_more": has_more,
+            "next_offset": offset + len(rows[:limit]) if has_more else None}
+
+
+@router.get("/snapshots/{snapshot_id}")
+def get_snapshot(snapshot_id: int, db: Session = Depends(get_db),
+                 acct: Account = Depends(current_account)):
+    """Return one immutable snapshot manifest to its owning organizer."""
+    snapshot = db.get(DeliverySnapshot, snapshot_id)
+    if snapshot is None:
+        raise HTTPException(404, "快照不存在")
+    _owned_task(db, acct, snapshot.task_id)
+    return {"snapshot_id": snapshot.id, "kind": snapshot.kind,
+            "created_at": iso_utc(snapshot.created_at), "manifest": snapshot.manifest_json}
+
+
 @router.post("/snapshots/{snapshot_id}/export")
 def run_export(snapshot_id: int, db: Session = Depends(get_db),
                acct: Account = Depends(current_account)):

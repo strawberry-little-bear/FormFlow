@@ -138,19 +138,43 @@ def test_export_snapshot_requires_ownership(client, db_session):
     r = client.post(f"/api/tasks/{task_id}/snapshots", headers=ha)
     assert r.status_code == 200, r.text
     snap_id = r.json()["snapshot_id"]
+    assert client.get(f"/api/tasks/{task_id}/snapshots", headers=hb).status_code == 404
+    assert client.get(f"/api/snapshots/{snap_id}", headers=hb).status_code == 404
+    snapshot_detail = client.get(f"/api/snapshots/{snap_id}", headers=ha)
+    assert snapshot_detail.status_code == 200
+    assert snapshot_detail.json()["snapshot_id"] == snap_id
+    newer = client.post(f"/api/tasks/{task_id}/snapshots", data={"kind": "preview"}, headers=ha)
+    assert newer.status_code == 200, newer.text
+    first_page = client.get(f"/api/tasks/{task_id}/snapshots?limit=1", headers=ha).json()
+    assert [item["snapshot_id"] for item in first_page["snapshots"]] == [newer.json()["snapshot_id"]]
+    assert first_page["has_more"] is True and first_page["next_offset"] == 1
+    second_page = client.get(f"/api/tasks/{task_id}/snapshots?limit=1&offset=1", headers=ha).json()
+    assert [item["snapshot_id"] for item in second_page["snapshots"]] == [snap_id]
     r = client.post(f"/api/snapshots/{snap_id}/export", headers=hb)
     assert r.status_code == 404  # 他人快照不可导出
     r = client.post(f"/api/snapshots/{snap_id}/export", headers=ha)
     assert r.status_code == 200
     assert r.json()["status"] == "success"
     job = db_session.get(ExportJob, r.json()["job_id"])
+    history = client.get(f"/api/tasks/{task_id}/snapshots", headers=ha).json()["snapshots"]
+    original_history = next(item for item in history if item["snapshot_id"] == snap_id)
+    assert original_history["exports"][0]["status"] == "success"
+    assert original_history["exports"][0]["csv_available"] is True
     Path(job.csv_path).unlink()
+    history = client.get(f"/api/tasks/{task_id}/snapshots", headers=ha).json()["snapshots"]
+    original_history = next(item for item in history if item["snapshot_id"] == snap_id)
+    assert original_history["exports"][0]["csv_available"] is False
+    assert original_history["exports"][0]["zip_available"] is True
     assert client.get(f"/api/exports/{job.id}/csv", headers=ha).status_code == 410
     assert client.get(f"/api/exports/{job.id}/zip", headers=ha).status_code == 200
     job.status = "failed"
     job.csv_path = ""
     job.zip_path = ""
     db_session.commit()
+    history = client.get(f"/api/tasks/{task_id}/snapshots", headers=ha).json()["snapshots"]
+    original_history = next(item for item in history if item["snapshot_id"] == snap_id)
+    assert original_history["exports"][0]["status"] == "failed"
+    assert not original_history["exports"][0]["csv_available"]
     assert client.get(f"/api/exports/{job.id}/csv", headers=ha).status_code == 409
     assert client.get(f"/api/exports/{job.id}/zip", headers=ha).status_code == 409
 

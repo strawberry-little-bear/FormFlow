@@ -3506,6 +3506,20 @@ a.wb-next-action:hover, button.wb-next-action:hover { background:var(--brand-dee
 .snapshot-result .table-wrap { border:1px solid var(--line-soft); border-radius:9px; }
 .snapshot-actions { margin-top:16px; justify-content:space-between; }
 .snapshot-actions > button { margin-left:0; }
+.delivery-history { margin:16px 0; padding:22px 24px; }
+.delivery-history-list { display:flex; flex-direction:column; gap:10px; }
+.delivery-history-item { min-width:0; border:1px solid var(--line-soft); border-radius:10px; padding:14px; background:#fff; }
+.delivery-history-item-head { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px; }
+.delivery-history-item-head > div { display:flex; flex-wrap:wrap; align-items:center; gap:10px; min-width:0; }
+.delivery-history-item-head time, .delivery-history-export-head time { color:var(--muted); font-size:11px; }
+.delivery-history-exports { margin-top:10px; border-top:1px solid var(--line-soft); }
+.delivery-history-export { padding:9px 0; border-bottom:1px solid var(--line-soft); }
+.delivery-history-export-head { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.delivery-history-export .row-actions { margin-top:7px; }
+.delivery-history-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:10px; }
+.delivery-history-empty { display:flex; flex-direction:column; gap:5px; padding:16px; border:1px dashed var(--line); border-radius:9px; color:var(--muted); font-size:12px; }
+.delivery-history-empty b { color:var(--ink); font-size:13px; }
+.delivery-history-more { display:flex; flex-wrap:wrap; align-items:center; justify-content:center; gap:10px; padding-top:12px; }
 
 /* ---------------------------------------------------------------- 响应式 */
 @media(max-width:1180px) {

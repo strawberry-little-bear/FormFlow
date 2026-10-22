@@ -22,7 +22,7 @@ function element(value = '') {
 function setup(sharedStorage = storage()) {
   const els = Object.fromEntries(['sub', 'draft-hint', 'flash', 'receipt-out', 'decision-submit',
     'review-conflict', 'dc-type', 'dc-rule', 'dc-reason', 'dc-exp', 'acceptance-reason', 'acceptance-submit',
-    'review-draft-status', 'submission-errors', 'field-error-name', 'dl', 'app', 'rv', 'rv-name', 'my-results', 'nav', 'role-label', 'wb-next-step', 'btn-logout'].map(id => [id, element()]));
+    'review-draft-status', 'submission-errors', 'field-error-name', 'dl', 'delivery-history-list', 'delivery-history-more-error', 'snap-view', 'app', 'rv', 'rv-name', 'my-results', 'nav', 'role-label', 'wb-next-step', 'btn-logout'].map(id => [id, element()]));
   const fields = [Object.assign(element('old'), {dataset: {field:'name'}})];
   els['field-name'] = fields[0];
   const document = {getElementById: id => els[id] || null,
@@ -31,7 +31,7 @@ function setup(sharedStorage = storage()) {
     window: {addEventListener() {}}, location: {hash:'#/submit'}, Intl, URLSearchParams, FormData,
     setTimeout, clearTimeout, confirm: () => true, console,
     fetch: async () => {throw new Error('Unexpected request');}});
-  vm.runInContext(source + '\nthis.app = {state, useVersionAsBase, loadDesignVersion, cacheDesignInputs, restoreDesignInputs, recoverDesignInput, paintChat, runAgent, runExport, canPublishDesign, publishDiffHtml, publishBp, confirmPublish, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, draftFingerprint, collectDraftFields, cacheSubmissionDraft, setSubMode, refreshSlotConditions, wbMatches, api, submitDecision, saveDraft, doSubmit, uploadSlot, deleteSlotFile, cacheReviewDraft, discardReviewDraft, logout, nextPendingReview, setReviewFilter, selectReviewRule, viewReview, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, chooseWorkbenchNextStep, workbenchNextStepHtml, agentRunCard, submitterGuidance, ruleCard, receiptFilesHtml, submissionIssues, checkAgentRequestNow, resumePendingAgentRequest, savePendingAgentRequest, agentRequestProgressHtml, retryAgent, pollAgentRequest, showSubmissionIssues, initSubChat};', context);
+  vm.runInContext(source + '\nthis.app = {state, useVersionAsBase, loadDesignVersion, cacheDesignInputs, restoreDesignInputs, recoverDesignInput, paintChat, runAgent, runExport, deliveryHistoryHtml, loadDeliveryHistory, inspectSnapshot, paintSnapshot, canPublishDesign, publishDiffHtml, publishBp, confirmPublish, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, draftFingerprint, collectDraftFields, cacheSubmissionDraft, setSubMode, refreshSlotConditions, wbMatches, api, submitDecision, saveDraft, doSubmit, uploadSlot, deleteSlotFile, cacheReviewDraft, discardReviewDraft, logout, nextPendingReview, setReviewFilter, selectReviewRule, viewReview, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, chooseWorkbenchNextStep, workbenchNextStepHtml, agentRunCard, submitterGuidance, ruleCard, receiptFilesHtml, submissionIssues, checkAgentRequestNow, resumePendingAgentRequest, savePendingAgentRequest, agentRequestProgressHtml, retryAgent, pollAgentRequest, showSubmissionIssues, initSubChat};', context);
   Object.assign(context.app.state, {routeEpoch: 1, me:{task:{id:1, status:'collecting', timezone:'Asia/Shanghai'},subject:{id:2}},
     draftVersion:1, fileMeta:{}, sub:{mode:'chat',phase:'fields',fIdx:0, fields:[{id:'name'}],slots:[],answers:{}}});
   context.localStorage.setItem('ff_sub_token', 'test-only-credential');
@@ -546,6 +546,45 @@ test('formal receipt retains its submitted file list separately from the correct
   assert.match(html,/报名单 &lt;final&gt;\.txt/);
   assert.match(html,/活动报名单 · 17 B/);
   assert.equal(app.receiptFilesHtml({formal:false,files:[{name:'draft.txt'}]}),'');
+});
+test('delivery history restores old snapshot manifests and only offers available files', async () => {
+  const {app,context,els}=setup();app.state.deliveryTaskId=7;
+  context.localStorage.setItem('ff_org_token','test-owner-token');
+  const requested=[];let page=0;
+  context.fetch=async url=>{
+    requested.push(url);
+    if(page++>0)return response({has_more:false,snapshots:[]});
+    return response({has_more:true,next_offset:20,snapshots:[
+      {snapshot_id:12,kind:'formal',created_at:'2026-10-22T04:00:00Z',totals:{subjects:3,included:2,excluded:1},exports:[
+        {job_id:44,status:'success',error:'',created_at:'2026-10-22T04:01:00Z',csv_available:true,zip_available:true}]},
+      {snapshot_id:11,kind:'preview',created_at:'2026-10-21T04:00:00Z',totals:{subjects:3,included:3,excluded:0},exports:[
+        {job_id:40,status:'failed',error:'原件 <missing>',created_at:'2026-10-21T04:01:00Z',csv_available:false,zip_available:false}]},
+    ]});
+  };
+  await app.loadDeliveryHistory(7);
+  assert.equal(requested[0],'/api/tasks/7/snapshots?limit=20&offset=0');
+  assert.match(els['delivery-history-list'].innerHTML,/正式快照 #12/);
+  assert.match(els['delivery-history-list'].innerHTML,/downloadFile\('\/api\/exports\/44\/csv/);
+  assert.match(els['delivery-history-list'].innerHTML,/查看固定清单/);
+  assert.match(els['delivery-history-list'].innerHTML,/加载更早记录/);
+  assert.match(els['delivery-history-list'].innerHTML,/原件 &lt;missing&gt;/);
+  assert.doesNotMatch(els['delivery-history-list'].innerHTML,/downloadFile\('\/api\/exports\/40/);
+  assert.match(els['delivery-history-list'].innerHTML,/重新生成 CSV \+ ZIP/);
+  await app.loadDeliveryHistory(7,true);
+  assert.equal(requested[1],'/api/tasks/7/snapshots?limit=20&offset=20');
+  assert.doesNotMatch(els['delivery-history-list'].innerHTML,/加载更早记录/);
+});
+test('an old snapshot can be reopened from its immutable manifest', async () => {
+  const {app,context,els}=setup();
+  context.localStorage.setItem('ff_org_token','test-owner-token');
+  context.fetch=async url=>{
+    assert.equal(url,'/api/snapshots/12');
+    return response({snapshot_id:12,manifest:JSON.stringify({kind:'formal',totals:{subjects:1,included:1,excluded:0},blueprint_version_id:2,
+      entries:[{name:'张三 <组>',revision:1,included:true,excluded_reason:'',files:[{file_id:'f1'}]}]})});
+  };
+  await app.inspectSnapshot(12);
+  assert.match(els['snap-view'].innerHTML,/SNAPSHOT #12/);
+  assert.match(els['snap-view'].innerHTML,/张三 &lt;组&gt;/);
 });
 test('failed delivery export exposes no CSV or ZIP download controls', async () => {
   const {app,context,els}=setup();
