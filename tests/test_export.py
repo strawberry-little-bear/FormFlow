@@ -8,6 +8,7 @@ import zipfile
 
 import pytest
 
+from app import storage
 from app.models import Subject
 from app.services import decisions as dec
 from app.services import export as export_service
@@ -51,6 +52,36 @@ def test_snapshot_excludes_unaccepted(db_session, stub_llm):
     assert by_name["李四"]["included"] is False
     assert "未验收" in by_name["李四"]["excluded_reason"]
     assert manifest["totals"] == {"subjects": 2, "included": 1, "excluded": 1}
+
+
+def test_snapshot_refuses_to_silently_omit_a_referenced_file_record(db_session, stub_llm):
+    task, s1, _ = _setup(db_session)
+    _, fo = _formal_with_file(db_session, task, s1, "missing-record")
+    dec.record_decision(db_session, task, s1, decision="accept_current", reason="ok")
+    db_session.delete(fo)
+    db_session.flush()
+
+    with pytest.raises(export_service.ExportIntegrityError, match=fo.file_id):
+        export_service.create_snapshot(db_session, task, kind="formal")
+
+
+@pytest.mark.parametrize("mutation", ["missing", "changed"])
+def test_incomplete_snapshot_material_fails_export_without_download_paths(db_session, stub_llm, mutation):
+    task, s1, _ = _setup(db_session)
+    _, fo = _formal_with_file(db_session, task, s1, f"{mutation}-original")
+    dec.record_decision(db_session, task, s1, decision="accept_current", reason="ok")
+    snap = export_service.create_snapshot(db_session, task, kind="formal")
+    source = storage.file_dir(fo.file_id) / f"original_{fo.safe_name}"
+    if mutation == "missing":
+        source.unlink()
+    else:
+        source.write_bytes(b"tampered bytes")
+
+    job = export_service.run_export(db_session, snap)
+    assert job.status == "failed"
+    assert not job.csv_path and not job.zip_path
+    assert fo.file_id in job.error
+    assert "未生成交付文件" in job.error
 
 
 def test_export_zip_and_csv_share_snapshot(db_session, stub_llm):

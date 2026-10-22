@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from app import storage
 from app.models import RESULT_ISSUE, Subject
 from app.services import submissions as sub
 from app.services import tasks as task_service
@@ -155,6 +156,23 @@ def test_delete_unreferenced_draft_file(db_session, scenario):
     sub.delete_file(db_session, submission, fo.file_id)
     view = sub.draft_view(db_session, task, submission)
     assert view["slot_file_ids"] == {}
+
+
+def test_rolled_back_file_deletion_keeps_the_original_on_disk(db_session, scenario):
+    task, subject, submission = scenario
+    fo = sub.attach_file(db_session, submission, slot="report",
+                         original_name="rollback.txt", content=b"%PDF-1", sha256="",
+                         mime="application/pdf")
+    db_session.commit()
+    original = storage.file_dir(fo.file_id) / f"original_{fo.safe_name}"
+    assert original.is_file()
+
+    sub.delete_file(db_session, submission, fo.file_id, expected_version=submission.draft_version)
+    db_session.rollback()
+
+    db_session.refresh(submission)
+    assert original.is_file()
+    assert [f["file_id"] for f in sub.draft_view(db_session, task, submission)["slot_file_ids"]["report"]] == [fo.file_id]
 
 
 def test_delete_file_used_by_formal_revision_rejected(db_session, scenario):

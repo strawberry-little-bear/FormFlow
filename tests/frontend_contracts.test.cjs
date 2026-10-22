@@ -22,7 +22,7 @@ function element(value = '') {
 function setup(sharedStorage = storage()) {
   const els = Object.fromEntries(['sub', 'draft-hint', 'flash', 'receipt-out', 'decision-submit',
     'review-conflict', 'dc-type', 'dc-rule', 'dc-reason', 'dc-exp', 'acceptance-reason', 'acceptance-submit',
-    'review-draft-status', 'submission-errors', 'field-error-name', 'app', 'rv', 'rv-name', 'my-results', 'nav', 'role-label', 'wb-next-step', 'btn-logout'].map(id => [id, element()]));
+    'review-draft-status', 'submission-errors', 'field-error-name', 'dl', 'app', 'rv', 'rv-name', 'my-results', 'nav', 'role-label', 'wb-next-step', 'btn-logout'].map(id => [id, element()]));
   const fields = [Object.assign(element('old'), {dataset: {field:'name'}})];
   els['field-name'] = fields[0];
   const document = {getElementById: id => els[id] || null,
@@ -31,7 +31,7 @@ function setup(sharedStorage = storage()) {
     window: {addEventListener() {}}, location: {hash:'#/submit'}, Intl, URLSearchParams, FormData,
     setTimeout, clearTimeout, confirm: () => true, console,
     fetch: async () => {throw new Error('Unexpected request');}});
-  vm.runInContext(source + '\nthis.app = {state, useVersionAsBase, loadDesignVersion, cacheDesignInputs, restoreDesignInputs, recoverDesignInput, paintChat, runAgent, canPublishDesign, publishDiffHtml, publishBp, confirmPublish, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, draftFingerprint, collectDraftFields, cacheSubmissionDraft, setSubMode, refreshSlotConditions, wbMatches, api, submitDecision, saveDraft, doSubmit, uploadSlot, cacheReviewDraft, discardReviewDraft, logout, nextPendingReview, setReviewFilter, selectReviewRule, viewReview, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, chooseWorkbenchNextStep, workbenchNextStepHtml, agentRunCard, submitterGuidance, ruleCard, receiptFilesHtml, submissionIssues, checkAgentRequestNow, resumePendingAgentRequest, savePendingAgentRequest, agentRequestProgressHtml, retryAgent, pollAgentRequest, showSubmissionIssues, initSubChat};', context);
+  vm.runInContext(source + '\nthis.app = {state, useVersionAsBase, loadDesignVersion, cacheDesignInputs, restoreDesignInputs, recoverDesignInput, paintChat, runAgent, runExport, canPublishDesign, publishDiffHtml, publishBp, confirmPublish, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, draftFingerprint, collectDraftFields, cacheSubmissionDraft, setSubMode, refreshSlotConditions, wbMatches, api, submitDecision, saveDraft, doSubmit, uploadSlot, deleteSlotFile, cacheReviewDraft, discardReviewDraft, logout, nextPendingReview, setReviewFilter, selectReviewRule, viewReview, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, chooseWorkbenchNextStep, workbenchNextStepHtml, agentRunCard, submitterGuidance, ruleCard, receiptFilesHtml, submissionIssues, checkAgentRequestNow, resumePendingAgentRequest, savePendingAgentRequest, agentRequestProgressHtml, retryAgent, pollAgentRequest, showSubmissionIssues, initSubChat};', context);
   Object.assign(context.app.state, {routeEpoch: 1, me:{task:{id:1, status:'collecting', timezone:'Asia/Shanghai'},subject:{id:2}},
     draftVersion:1, fileMeta:{}, sub:{mode:'chat',phase:'fields',fIdx:0, fields:[{id:'name'}],slots:[],answers:{}}});
   context.localStorage.setItem('ff_sub_token', 'test-only-credential');
@@ -121,11 +121,53 @@ test('double submit is locked; network retry reuses key; success starts next ite
   await app.doSubmit();assert.equal(retryKey,key);assert.equal(app.state.pendingSubmission,null);
   assert.match(els['receipt-out'].innerHTML,/R1/);
 });
+test('uploads claim the loaded draft version and advance the local version on success', async () => {
+  const {app,context,els} = setup();
+  els['file-r']={files:[new Blob(['test'])],value:'file'};
+  app.state.serverDraftFields={name:'saved'}; app.state.serverDraftFingerprint=app.draftFingerprint({name:'saved'},{});
+  context.document.getElementById('field-name').value='saved';
+  let sent;
+  context.fetch=async(_url,opts)=>{sent=opts.body;return {ok:true,status:200,json:async()=>({file_id:'file-new',size:4,draft_version:2})};};
+  await app.uploadSlot('r');
+  assert.equal(sent.get('expected_version'),'1');
+  assert.equal(app.state.draftVersion,2);
+  assert.deepEqual(Array.from(app.state.files.r),['file-new']);
+  assert.match(els['draft-hint'].textContent,/已与服务器草稿同步/);
+});
+test('file deletion sends a compare-and-swap version and adopts the returned version', async () => {
+  const {app,context,els} = setup();
+  app.state.files={r:['file-a']};app.state.fileMeta={'file-a':{name:'report.txt'}};
+  app.state.serverDraftFields={name:'saved'};app.state.serverDraftFingerprint=app.draftFingerprint({name:'saved'},{r:['file-a']});
+  context.document.getElementById('field-name').value='saved';
+  let path,opts;
+  context.fetch=async(url,options)=>{path=url;opts=options;return response({deleted:'file-a',draft_version:2,cleanup_pending:true});};
+  await app.deleteSlotFile('r','file-a');
+  assert.equal(path,'/api/me/files/file-a');assert.equal(opts.method,'DELETE');
+  assert.equal(opts.body.get('expected_version'),'1');
+  assert.equal(app.state.draftVersion,2);assert.deepEqual(app.state.files.r,[]);
+  assert.match(els['draft-hint'].textContent,/已与服务器草稿同步/);
+  assert.match(els.flash.innerHTML,/存储清理未完成/);
+});
+test('stale attachment operations preserve the selected file and existing local references', async () => {
+  const {app,context,els}=setup();
+  els['file-r']={files:[new Blob(['new'])],value:'selected'};
+  context.fetch=async()=>({ok:false,status:409,json:async()=>({detail:'草稿已更新'})});
+  await app.uploadSlot('r');
+  assert.equal(els['file-r'].value,'selected');
+  assert.equal(app.state.draftVersion,1);assert.equal(app.state.files.r,undefined);
+  assert.match(els.flash.innerHTML,/草稿已更新/);
+
+  app.state.files={r:['file-a']};
+  context.fetch=async()=>response({detail:'草稿已更新'},409);
+  await app.deleteSlotFile('r','file-a');
+  assert.deepEqual(Array.from(app.state.files.r),['file-a']);
+  assert.equal(app.state.draftVersion,1);assert.match(els.flash.innerHTML,/草稿已更新/);
+});
 test('late upload cannot attach a previous subject file to the current subject', async () => {
   const {app,context,els} = setup();els['file-r']={files:[new Blob(['test'])],value:'file'};
   const pending=deferred();context.fetch=()=>pending.promise;
   const uploaded=app.uploadSlot('r');app.state.routeEpoch++;app.state.me.subject.id=99;
-  pending.resolve(response({file_id:'old-subject-file'}));await uploaded;
+  pending.resolve({ok:true,status:200,json:async()=>({file_id:'old-subject-file',draft_version:2})});await uploaded;
   assert.equal(app.state.files.r,undefined);
 });
 test('storage failure retains an in-memory route cache and warns on reload risk', () => {
@@ -504,6 +546,15 @@ test('formal receipt retains its submitted file list separately from the correct
   assert.match(html,/报名单 &lt;final&gt;\.txt/);
   assert.match(html,/活动报名单 · 17 B/);
   assert.equal(app.receiptFilesHtml({formal:false,files:[{name:'draft.txt'}]}),'');
+});
+test('failed delivery export exposes no CSV or ZIP download controls', async () => {
+  const {app,context,els}=setup();
+  context.fetch=async()=>response({job_id:7,status:'failed',error:'快照材料缺失',csv:'',zip:''});
+  await app.runExport(3);
+  assert.equal(app.state.lastJob.status,'failed');
+  assert.match(els.dl.innerHTML,/未生成可下载文件/);
+  assert.doesNotMatch(els.dl.innerHTML,/downloadFile/);
+  assert.match(els.flash.innerHTML,/快照材料缺失/);
 });
 test('submitter-facing result cards explain status in calm plain language without changing the result', () => {
   const {app} = setup();

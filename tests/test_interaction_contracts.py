@@ -47,21 +47,81 @@ def test_draft_content_and_files_survive_new_session(db_session, scenario):
         initial = client.get("/api/me/draft", headers=h).json()
         assert initial["fields"] == {} and initial["slot_file_ids"] == {}
         assert initial["draft_version"] == 1
-        upload = client.post("/api/me/files", headers=h, data={"slot": "report"},
+        upload = client.post("/api/me/files", headers=h, data={"slot": "report", "expected_version": 1},
                              files={"file": ("report.txt", b"draft", "text/plain")}).json()
         files = {"report": [upload["file_id"]]}
+        assert upload["draft_version"] == 2
         r = client.post("/api/me/draft", headers=h, json={
-            "fields": {"name": "未提交的填写"}, "slot_file_ids": files, "expected_version": 1})
+            "fields": {"name": "未提交的填写"}, "slot_file_ids": files,
+            "expected_version": upload["draft_version"]})
         assert r.status_code == 200, r.text
         saved = client.get("/api/me/draft", headers=h).json()
         assert saved["fields"] == {"name": "未提交的填写"}
         assert [f["file_id"] for f in saved["slot_file_ids"]["report"]] == files["report"]
-        assert saved["draft_version"] == 2
+        assert saved["draft_version"] == 3
         assert client.get("/api/me/receipt", headers=h).json() == {"formal": False}
         conflict = client.post("/api/me/draft", headers=h, json={
             "fields": {"name": "另一个标签页"}, "expected_version": 1})
         assert conflict.status_code == 409
         assert client.get("/api/me/draft", headers=h).json() == saved
+
+
+def test_upload_is_a_versioned_draft_edit_and_stale_save_cannot_drop_its_file(db_session, scenario):
+    task, subject, headers = scenario
+    version = db_session.get(BlueprintVersion, task.current_blueprint_id)
+    version.blueprint_json = Blueprint(slots=[SlotDef(
+        id="report", label="报告", formats=["txt"])]).model_dump_json()
+    db_session.commit()
+    with TestClient(app) as client:
+        stale = client.get("/api/me/draft", headers=headers).json()
+        uploaded = client.post("/api/me/files", headers=headers,
+            data={"slot": "report", "expected_version": stale["draft_version"]},
+            files={"file": ("report.txt", b"uploaded in another tab", "text/plain")})
+        assert uploaded.status_code == 200, uploaded.text
+        result = uploaded.json()
+        assert result["draft_version"] == stale["draft_version"] + 1
+
+        stale_upload = client.post("/api/me/files", headers=headers,
+            data={"slot": "report", "expected_version": stale["draft_version"]},
+            files={"file": ("stale.txt", b"stale upload", "text/plain")})
+        assert stale_upload.status_code == 409, stale_upload.text
+
+        stale_save = client.post("/api/me/draft", headers=headers, json={
+            "fields": {"name": "另一标签页填写"}, "slot_file_ids": {},
+            "expected_version": stale["draft_version"]})
+        assert stale_save.status_code == 409, stale_save.text
+        current = client.get("/api/me/draft", headers=headers).json()
+        assert current["draft_version"] == result["draft_version"]
+        assert [f["file_id"] for f in current["slot_file_ids"]["report"]] == [result["file_id"]]
+        assert current["fields"] == {}
+
+
+def test_file_deletion_checks_and_advances_the_same_draft_version(db_session, scenario):
+    task, subject, headers = scenario
+    version = db_session.get(BlueprintVersion, task.current_blueprint_id)
+    version.blueprint_json = Blueprint(slots=[SlotDef(
+        id="report", label="报告", formats=["txt"])]).model_dump_json()
+    db_session.commit()
+    with TestClient(app) as client:
+        uploaded = client.post("/api/me/files", headers=headers,
+            data={"slot": "report", "expected_version": 1},
+            files={"file": ("report.txt", b"draft file", "text/plain")})
+        assert uploaded.status_code == 200, uploaded.text
+        file_id = uploaded.json()["file_id"]
+        version_after_upload = uploaded.json()["draft_version"]
+
+        stale_delete = client.request("DELETE", f"/api/me/files/{file_id}", headers=headers,
+                                      data={"expected_version": 1})
+        assert stale_delete.status_code == 409, stale_delete.text
+        current = client.get("/api/me/draft", headers=headers).json()
+        assert current["draft_version"] == version_after_upload
+        assert current["slot_file_ids"]["report"][0]["file_id"] == file_id
+
+        deleted = client.request("DELETE", f"/api/me/files/{file_id}", headers=headers,
+                                  data={"expected_version": version_after_upload})
+        assert deleted.status_code == 200, deleted.text
+        assert deleted.json()["draft_version"] == version_after_upload + 1
+        assert client.get("/api/me/draft", headers=headers).json()["slot_file_ids"] == {}
 
 
 def test_draft_cas_rechecks_even_when_session_cached_old_version(db_session, scenario):

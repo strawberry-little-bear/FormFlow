@@ -48,6 +48,10 @@ class IdempotencyConflict(SubmitError):
     """同幂等键但内容不同。"""
 
 
+class DraftConflict(SubmitError):
+    """草稿在其他标签页或设备上已更新。"""
+
+
 def _payload_hash(fields: dict, slot_file_ids: dict) -> str:
     raw = json.dumps({"fields": fields, "files": slot_file_ids},
                      ensure_ascii=False, sort_keys=True)
@@ -107,6 +111,32 @@ def _validate_files(db: Session, submission: Submission, files: dict) -> None:
                 raise SubmitError(f"文件 {fid} 不属于当前提交的槽位 {slot}")
 
 
+def assert_draft_version(db: Session, submission: Submission,
+                         expected_version: Optional[int]) -> int:
+    """Check a caller's snapshot against the latest persisted draft version."""
+    current = db.scalar(select(Submission.draft_version).where(Submission.id == submission.id))
+    if current is None:
+        raise SubmitError("提交草稿不存在，请刷新后重试")
+    if expected_version is not None and current != expected_version:
+        raise DraftConflict(
+            f"草稿已在其他页面更新到 v{current}；请先重新加载服务器草稿，再继续操作")
+    return current
+
+
+def _advance_draft_version(db: Session, submission: Submission,
+                           expected_version: Optional[int]) -> int:
+    """Atomically claim one draft edit and return its new version."""
+    current = assert_draft_version(db, submission, expected_version)
+    changed = db.execute(update(Submission).where(
+        Submission.id == submission.id, Submission.draft_version == current
+    ).values(draft_version=Submission.draft_version + 1)
+        .execution_options(synchronize_session=False))
+    if changed.rowcount != 1:
+        raise DraftConflict("草稿刚刚又有更新；请重新加载服务器草稿后再操作")
+    db.refresh(submission)
+    return submission.draft_version
+
+
 def save_draft(db: Session, submission: Submission, fields: dict,
                expected_version: Optional[int] = None, *, slot_file_ids: Optional[dict] = None) -> int:
     """Compare-and-swap before writing content; conflicts never overwrite either draft."""
@@ -160,8 +190,9 @@ def _referenced_file_ids(db: Session, submission: Submission) -> set[str]:
     return used
 
 
-def delete_file(db: Session, submission: Submission, file_id: str) -> None:
-    """删除尚未进入正式版本的上传文件。"""
+def delete_file(db: Session, submission: Submission, file_id: str,
+                expected_version: Optional[int] = None) -> tuple[int, str]:
+    """从版本化草稿中移除文件；返回需在提交事务后清理的原件路径。"""
     from .. import storage
 
     task_service.ensure_task_writable(db.get(Task, submission.task_id))  # V24 readonly
@@ -170,18 +201,16 @@ def delete_file(db: Session, submission: Submission, file_id: str) -> None:
         raise SubmitError("文件不存在或不属于当前提交")
     if file_id in _referenced_file_ids(db, submission):
         raise SubmitError("该文件已进入正式版本，不能从草稿中删除（历史版本不可篡改）")
+    version = _advance_draft_version(db, submission, expected_version)
+    content = read_draft(db, submission)
+    files = {slot: [fid for fid in ids if fid != file_id]
+             for slot, ids in content["slot_file_ids"].items()}
+    files = {slot: ids for slot, ids in files.items() if ids}
+    _write_draft(db, submission, content["fields"], files)
     path = storage.file_dir(file_id) / f"original_{fo.safe_name}"
-    try:
-        path.unlink()
-    except FileNotFoundError:
-        pass
-    draft = db.scalar(select(SubmissionDraft).where(SubmissionDraft.submission_id == submission.id))
-    if draft is not None:
-        files = json.loads(draft.slot_file_ids_json)
-        files = {slot: [fid for fid in ids if fid != file_id] for slot, ids in files.items()}
-        draft.slot_file_ids_json = json.dumps({slot: ids for slot, ids in files.items() if ids})
     db.delete(fo)
     db.flush()
+    return version, str(path)
 
 
 def validate_upload(task: Task, blueprint: Optional[Blueprint], *, slot: str,
@@ -226,10 +255,13 @@ def validate_slot_count(db: Session, submission: Submission, blueprint: Optional
 
 
 def attach_file(db: Session, submission: Submission, *, slot: str, original_name: str,
-                content: bytes, sha256: str, mime: str) -> FileObject:
+                content: bytes, sha256: str, mime: str,
+                expected_version: Optional[int] = None) -> FileObject:
     from .. import storage
 
     task_service.ensure_task_writable(db.get(Task, submission.task_id))  # V24 readonly
+    _advance_draft_version(db, submission, expected_version)
+    previous = read_draft(db, submission)
 
     file_id = storage.new_file_id()
     path, digest = storage.save_original(file_id, original_name, content)
@@ -240,12 +272,9 @@ def attach_file(db: Session, submission: Submission, *, slot: str, original_name
     )
     db.add(fo)
     db.flush()
-    draft = db.scalar(select(SubmissionDraft).where(SubmissionDraft.submission_id == submission.id))
-    if draft is not None:
-        files = json.loads(draft.slot_file_ids_json)
-        files.setdefault(slot, []).append(fo.file_id)
-        draft.slot_file_ids_json = json.dumps(files)
-        db.flush()
+    files = previous["slot_file_ids"]
+    files.setdefault(slot, []).append(fo.file_id)
+    _write_draft(db, submission, previous["fields"], files)
     return fo
 
 

@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import secrets
 from datetime import datetime, timezone
 from pathlib import Path
@@ -86,6 +87,7 @@ from ..agents.requirements_agent import validate_blueprint
 from ..schemas import Blueprint
 from fastapi import APIRouter
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
 
 def _iso(dt) -> str:
@@ -519,6 +521,7 @@ def read_draft(grant_and_subject: tuple = Depends(current_subject),
 
 @router.post("/me/files")
 async def upload_file(slot: str = Form(...), file: UploadFile = File(...),
+                      expected_version: Optional[int] = Form(None),
                       grant_and_subject: tuple = Depends(current_subject),
                       db: Session = Depends(get_db)):
     grant, subject = grant_and_subject
@@ -528,35 +531,55 @@ async def upload_file(slot: str = Form(...), file: UploadFile = File(...),
     bp = db.get(BlueprintVersion, task.current_blueprint_id) if task.current_blueprint_id else None
     blueprint = Blueprint.model_validate_json(bp.blueprint_json) if bp else None
     try:
+        sub_service.assert_draft_version(db, submission, expected_version)
         sub_service.validate_slot_count(db, submission, blueprint, slot=slot)
         sub_service.validate_upload(task, blueprint, slot=slot,
                                     original_name=file.filename or "unnamed",
                                     size=len(content))
         fo = sub_service.attach_file(db, submission, slot=slot,
                                      original_name=file.filename or "unnamed",
-                                     content=content, sha256="", mime=file.content_type or "")
+                                     content=content, sha256="", mime=file.content_type or "",
+                                     expected_version=expected_version)
     except task_service.TaskNotWritable as e:
+        raise HTTPException(409, str(e))
+    except sub_service.DraftConflict as e:
         raise HTTPException(409, str(e))
     except sub_service.SubmitError as e:
         raise HTTPException(422, str(e))
     db.commit()
-    return {"file_id": fo.file_id, "status": fo.status, "size": fo.size}
+    return {"file_id": fo.file_id, "status": fo.status, "size": fo.size,
+            "draft_version": submission.draft_version}
 
 @router.delete("/me/files/{file_id}")
-def delete_file(file_id: str, grant_and_subject: tuple = Depends(current_subject),
+def delete_file(file_id: str, expected_version: Optional[int] = Form(None),
+                grant_and_subject: tuple = Depends(current_subject),
                 db: Session = Depends(get_db)):
     """删除尚未进入正式版本的草稿文件。"""
     grant, subject = grant_and_subject
     task = db.get(Task, grant.task_id)
     submission = sub_service.get_or_create_draft(db, task, subject.id)
     try:
-        sub_service.delete_file(db, submission, file_id)
+        sub_service.assert_draft_version(db, submission, expected_version)
+        version, original_path = sub_service.delete_file(
+            db, submission, file_id, expected_version=expected_version)
     except task_service.TaskNotWritable as e:
+        raise HTTPException(409, str(e))
+    except sub_service.DraftConflict as e:
         raise HTTPException(409, str(e))
     except sub_service.SubmitError as e:
         raise HTTPException(422, str(e))
     db.commit()
-    return {"deleted": file_id}
+    cleanup_pending = False
+    try:
+        Path(original_path).unlink()
+    except FileNotFoundError:
+        pass
+    except OSError:
+        cleanup_pending = True
+        logger.warning("Deleted attachment %s could not be cleaned from storage", file_id,
+                       exc_info=True)
+    return {"deleted": file_id, "draft_version": version,
+            "cleanup_pending": cleanup_pending}
 
 @router.post("/me/submit")
 def formal_submit(body: SubmitIn,
@@ -945,7 +968,10 @@ def findings(task_id: int, subject_id: int, db: Session = Depends(get_db),
 def create_snapshot(task_id: int, kind: str = Form("formal"),
                     db: Session = Depends(get_db), acct: Account = Depends(current_account)):
     task = _owned_task(db, acct, task_id)
-    snap = export_service.create_snapshot(db, task, kind=kind)
+    try:
+        snap = export_service.create_snapshot(db, task, kind=kind)
+    except export_service.ExportIntegrityError as e:
+        raise HTTPException(409, str(e))
     db.commit()
     return {"snapshot_id": snap.id, "manifest": snap.manifest_json}
 
@@ -959,7 +985,8 @@ def run_export(snapshot_id: int, db: Session = Depends(get_db),
     _owned_task(db, acct, snap.task_id)  # 快照也必须归属当前组织者
     job = export_service.run_export(db, snap)
     db.commit()
-    return {"job_id": job.id, "csv": job.csv_path, "zip": job.zip_path}
+    return {"job_id": job.id, "status": job.status, "error": job.error,
+            "csv": job.csv_path, "zip": job.zip_path}
 
 @router.get("/exports/{job_id}/csv")
 def download_csv(job_id: int, db: Session = Depends(get_db),
@@ -970,6 +997,10 @@ def download_csv(job_id: int, db: Session = Depends(get_db),
         raise HTTPException(404, "导出作业不存在")
     snap = db.get(DeliverySnapshot, job.snapshot_id)
     _owned_task(db, acct, snap.task_id)
+    if job.status != "success" or not job.csv_path:
+        raise HTTPException(409, "该导出作业未成功，没有可下载的 CSV")
+    if not Path(job.csv_path).is_file():
+        raise HTTPException(410, "CSV 导出文件已不存在，请重新生成交付包")
     return FileResponse(job.csv_path, media_type="text/csv",
                         filename=Path(job.csv_path).name)
 
@@ -982,5 +1013,9 @@ def download_zip(job_id: int, db: Session = Depends(get_db),
         raise HTTPException(404, "导出作业不存在")
     snap = db.get(DeliverySnapshot, job.snapshot_id)
     _owned_task(db, acct, snap.task_id)
+    if job.status != "success" or not job.zip_path:
+        raise HTTPException(409, "该导出作业未成功，没有可下载的 ZIP")
+    if not Path(job.zip_path).is_file():
+        raise HTTPException(410, "ZIP 导出文件已不存在，请重新生成交付包")
     return FileResponse(job.zip_path, media_type="application/zip",
                         filename=Path(job.zip_path).name)

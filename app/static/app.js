@@ -2213,6 +2213,7 @@ async function viewSubmit() {
     ]);
     if (epoch !== state.routeEpoch || token !== subToken()) return;
     state.me = me; state.draftVersion = draft.draft_version || null;
+    state.serverDraftFields = {...(draft.fields || {})};
     state.serverDraftFingerprint = draftFingerprint(draft.fields, draft.slot_file_ids);
     let cached = null;
     try { cached = JSON.parse(state.localDrafts?.[draftCacheKey()] || sessionStorage.getItem(draftCacheKey()) || "null"); } catch (e) {}
@@ -2322,6 +2323,7 @@ async function viewSubmit() {
 async function uploadFile(slot, file) {
   const fd = new FormData();
   fd.append("slot", slot);
+  fd.append("expected_version", String(state.draftVersion));
   fd.append("file", file);
   const r = await fetch("/api/me/files", {
     method: "POST", headers: { Authorization: "Bearer " + subToken() }, body: fd });
@@ -2338,14 +2340,16 @@ async function uploadSlot(slot) {
     const file = input.files[0];
     const data = await uploadFile(slot, file);
     if (!current()) return;
-    afterSlotUpload(slot, data.file_id, { name: file.name, size: file.size || data.size });
+    afterSlotUpload(slot, data.file_id, { name: file.name, size: file.size || data.size }, data.draft_version);
     input.value = "";
     setFlash(`「${file.name}」已上传（上传成功不等于正式提交）`, "ok");
   }, current);
 }
-function afterSlotUpload(slot, fileId, meta) {
+function afterSlotUpload(slot, fileId, meta, draftVersion) {
   (state.files[slot] = state.files[slot] || []).push(fileId);
   state.fileMeta[fileId] = { file_id: fileId, name: (meta && meta.name) || fileId, size: meta && meta.size };
+  if (Number.isInteger(draftVersion)) state.draftVersion = draftVersion;
+  state.serverDraftFingerprint = draftFingerprint(state.serverDraftFields || {}, state.files);
   cacheSubmissionDraft();
   const ro = state.sub ? state.sub.ro : false;
   paintSlotFiles(slot, ro);
@@ -2362,14 +2366,19 @@ function afterSlotUpload(slot, fileId, meta) {
 async function deleteSlotFile(slot, fileId) {
   const current = submissionContext();
   await guard(async () => {
-    await api(`/api/me/files/${encodeURIComponent(fileId)}`, { method: "DELETE", sub: true });
+    const result = await api(`/api/me/files/${encodeURIComponent(fileId)}`, { method: "DELETE", sub: true,
+      form: { expected_version: state.draftVersion } });
     if (!current()) return;
     state.files[slot] = (state.files[slot] || []).filter(x => x !== fileId);
     delete state.fileMeta[fileId];
+    if (Number.isInteger(result.draft_version)) state.draftVersion = result.draft_version;
+    state.serverDraftFingerprint = draftFingerprint(state.serverDraftFields || {}, state.files);
     cacheSubmissionDraft();
     paintSlotFiles(slot, state.sub ? state.sub.ro : false);
     if (state.sub && state.sub.slots) refreshSlotConditions(state.sub.slots);
-    setFlash("文件已从草稿中删除", "ok");
+    setFlash(result.cleanup_pending
+      ? "文件已从草稿中移除，但存储清理未完成，请联系管理员处理。"
+      : "文件已从草稿中删除", result.cleanup_pending ? "warn" : "ok");
   }, current);
 }
 async function saveDraft() {
@@ -2380,6 +2389,7 @@ async function saveDraft() {
     const r = await api("/api/me/draft", { method: "POST", sub: true,
       json: { fields, slot_file_ids: state.files, expected_version: state.draftVersion } });
     if (!current()) return;
+    state.serverDraftFields = {...fields};
     state.serverDraftFingerprint = snapshot;
     state.draftVersion = r.draft_version;
     cacheSubmissionDraft();
@@ -2418,6 +2428,7 @@ async function doSubmit() {
         throw error;
       }
       if (!current()) return;
+      state.serverDraftFields = {...fields};
       state.serverDraftFingerprint = draftFingerprint(fields, slotFiles);
       state.pendingSubmission = null;
       state.draftVersion = r.draft_version;
@@ -2822,6 +2833,11 @@ async function runExport(snapId) {
   await guard(async () => {
     const r = await api(`/api/snapshots/${snapId}/export`, { method: "POST" });
     state.lastJob = r;
+    if (r.status !== "success" || !r.csv || !r.zip) {
+      document.getElementById("dl").innerHTML = '<span class="badge bad">未生成可下载文件</span>';
+      setFlash(r.error || `导出作业 #${r.job_id} 未完成，请核对材料后重试`, "err");
+      return;
+    }
     document.getElementById("dl").innerHTML = `
       <button class="ghost sm" onclick="downloadFile('/api/exports/${r.job_id}/csv','summary_${r.job_id}.csv')">下载 CSV</button>
       <button class="ghost sm" onclick="downloadFile('/api/exports/${r.job_id}/zip','materials_${r.job_id}.zip')">下载 ZIP</button>`;

@@ -2,15 +2,17 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app import storage
 from app.db import Base, engine
 from app.main import app
-from app.models import AccessGrant, Account, AuthSession, Subject, Task
+from app.models import AccessGrant, Account, AuthSession, ExportJob, Subject, Task
 from app.security import utcnow
 from app.schemas import Blueprint, FieldDef
 from tests.conftest import publish_blueprint
@@ -140,6 +142,17 @@ def test_export_snapshot_requires_ownership(client, db_session):
     assert r.status_code == 404  # 他人快照不可导出
     r = client.post(f"/api/snapshots/{snap_id}/export", headers=ha)
     assert r.status_code == 200
+    assert r.json()["status"] == "success"
+    job = db_session.get(ExportJob, r.json()["job_id"])
+    Path(job.csv_path).unlink()
+    assert client.get(f"/api/exports/{job.id}/csv", headers=ha).status_code == 410
+    assert client.get(f"/api/exports/{job.id}/zip", headers=ha).status_code == 200
+    job.status = "failed"
+    job.csv_path = ""
+    job.zip_path = ""
+    db_session.commit()
+    assert client.get(f"/api/exports/{job.id}/csv", headers=ha).status_code == 409
+    assert client.get(f"/api/exports/{job.id}/zip", headers=ha).status_code == 409
 
 
 # ---------------------------------------------------------------- V21 越权回归
@@ -276,11 +289,15 @@ def test_draft_roundtrip_over_api(client, db_session):
                     files={"file": ("报告.txt", b"hello", "text/plain")})
     assert r.status_code == 200, r.text
     file_id = r.json()["file_id"]
+    original = storage.file_dir(file_id) / f"original_{storage.safe_name('报告.txt')}"
+    assert original.is_file()
     r = client.get("/api/me/draft", headers=hsub)
     assert [f["file_id"] for f in r.json()["slot_file_ids"]["report"]] == [file_id]
 
     r = client.delete(f"/api/me/files/{file_id}", headers=hsub)
     assert r.status_code == 200, r.text
+    assert r.json()["cleanup_pending"] is False
+    assert not original.exists()
     r = client.get("/api/me/draft", headers=hsub)
     assert r.json()["slot_file_ids"] == {}
 
