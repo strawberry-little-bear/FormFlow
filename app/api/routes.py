@@ -168,6 +168,18 @@ def login(username: str = Form(...), password: str = Form(...), db: Session = De
     db.commit()
     return {"token": token, "account_id": acct.id}
 
+@router.get("/auth/check-demo")
+def check_demo(db: Session = Depends(get_db)):
+    """Check if the demo account exists; used by login page to show demo shortcut."""
+    exists = db.scalar(select(Account).where(Account.username == "demo")) is not None
+    return {"exists": exists}
+
+@router.get("/config/status")
+def config_status():
+    """Public endpoint: report whether LLM is configured, for UI hints."""
+    from ..config import settings
+    return {"llm_configured": settings.llm_configured}
+
 # ---------------------------------------------------------------- 任务与蓝图
 @router.post("/tasks")
 def create_task(name: str = Form(...), mode: str = Form("roster"),

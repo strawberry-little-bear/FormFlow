@@ -66,7 +66,19 @@ FormFlow 以一次「收集任务」为单位，把散落的要求变成结构�
 
 ## 快速开始
 
-### 1. 安装
+### 一键启动演示环境（推荐）
+
+```bash
+git clone https://github.com/strawberry-little-bear/FormFlow.git
+cd FormFlow
+python scripts/start_demo.py
+```
+
+脚本自动完成依赖安装、种子数据写入、API 和 Worker 后台启动。启动后打开 `http://127.0.0.1:8000/`，组织者用 `demo / demo1234` 登录，登录页也会显示"体验演示环境"快捷入口。
+
+停止服务：`python scripts/start_demo.py --stop`
+
+### 手动安装（如需单独配置）
 
 本轮在 Python 3.12 验证；建议使用 Python 3.12。前端为原生 HTML/CSS/JavaScript，无需 Node 构建；Node 仅用于前端契约测试。
 
@@ -78,7 +90,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2. 启动独立演示环境（无需模型密钥）
+### 手动启动独立演示环境（无需模型密钥）
 
 **种子脚本会重置同名演示任务、演示凭证及相关附件。不要对业务库执行。** 以下使用单独数据库和存储目录：
 
@@ -163,7 +175,7 @@ git diff --check
 - 语义失败不丢件；未读页不是确认缺失；人工意见不改写原始机器证据。
 - 催交通知目前**只生成可复制文案，不真实外发**。未发送输入不提供跨设备自动合并。
 - 尚需补齐公网限流、上传隔离/恶意文件扫描、备份恢复演练、隐私与留存政策、目标用户试走及模型评估。不要直接用演示账号和原型配置公开承载真实材料。
-- 现有依赖弃用与 SQLAlchemy 外键环警告仍待处理；许可证尚未确定，仓库未声明 MIT 等授权。
+- 现有依赖弃用与 SQLAlchemy 外键环警告仍待处理。本项目基于 MIT 许可证开源。
 
 ## 设计资料与协作
 

@@ -40,7 +40,7 @@ async function api(path, opts = {}) {
   if (!r.ok) {
     const detail = data.detail;
     const error = new Error(Array.isArray(detail) ? detail.map(x => x.msg || JSON.stringify(x)).join("；")
-      : (typeof detail === "string" ? detail : detail?.message || "请求失败，请稍后重试（" + r.status + "）"));
+      : (typeof detail === "string" ? detail : detail?.message || "出了点问题，请稍后再试（" + r.status + "）"));
     error.status = r.status;
     error.issues = Array.isArray(detail?.issues) ? detail.issues : [];
     throw error;
@@ -120,14 +120,33 @@ const agentRunCard = (run, rules, toolTrace = []) => {
   const traceSimulation = (toolTrace || []).some(item => item.simulation === true);
   const traceModeUnknown = (toolTrace || []).some(item =>
     item.tool === "review.semantic_rule" && item.simulation !== true && item.simulation !== false);
+  const runtimeTools = [
+    {name: "review.deterministic_rule", scope: "review:deterministic", desc: "程序规则核验"},
+    {name: "review.semantic_rule", scope: "review:semantic", desc: "语义证据核验"},
+  ];
+  const runtimeHtml = `<details class="agent-runtime-info">
+    <summary><span class="eyebrow">Agent 运行时</span><small>skill · harness · 审计边界</small></summary>
+    <div class="runtime-grid">
+      <div class="runtime-item"><label>Skill</label><b>review_one_submission</b><span>按已发布蓝图逐条核验，不自行决定规则</span></div>
+      <div class="runtime-item"><label>授权范围</label><code>review:deterministic</code> <code>review:semantic</code><span>不授予 SQL、文件路径、网络或用户管理权限</span></div>
+      <div class="runtime-item"><label>工具白名单</label>${runtimeTools.map(t => `<code>${esc(t.name)}</code>`).join("")}<span>只能调用已注册的核验工具，不能自己选别的</span></div>
+      <div class="runtime-item"><label>调用预算</label><b>${run.llm_calls_used ?? 0} / ${Math.max(1, counts.deterministic + counts.semantic + counts.cross_material)} 次</b><span>预算用完后转人工，不会编造结果</span></div>
+      <div class="runtime-item"><label>步数上限</label><b>128 步</b><span>超出会自动停下来交给组织者</span></div>
+      <div class="runtime-item"><label>人工接手</label><b>不确定 / 失败 → 人工</b><span>拿不准或出问题时不会停在"通过"，而是交给组织者</span></div>
+      <div class="runtime-item"><label>结果上限</label><b>16 KB / 条</b><span>每条工具输出有截断，防止注入超长内容</span></div>
+      <div class="runtime-item"><label>审计记录</label><code>rule_result</code><span>每步记录工具名、范围、状态和耗时，不含原始材料</span></div>
+    </div>
+    <p class="runtime-foot">这个 skill 是单体应用内的受限运行时，不使用外部 MCP Server，不增加网络工具。模型不能自己选工具名、规则 ID、文件路径或授权主体。</p>
+  </details>`;
   const traceHtml = traceRows
     ? `<details class="agent-trace"><summary>本次运行记录（${Math.min((toolTrace || []).length, 64)} 项）</summary><ol>${traceRows}</ol><p>记录绑定当前检查运行和版本；这里只展示工具类别与结果摘要，不包含隐藏推理内容。</p>${traceSimulation ? '<div class="agent-simulation-note">演示模式：语义结果由离线脚本按样例生成，没有调用实时模型；真实任务会按当前配置调用模型。</div>' : ''}${traceModeUnknown ? '<div class="agent-simulation-note">这次历史记录没有保存语义检查模式，无法判断是否使用实时模型。</div>' : ''}</details>`
     : `<p class="agent-trace-empty">这次检查没有逐项工具记录（例如升级前的历史运行）；现有检查结论和证据仍可照常查看。</p>`;
   return `<details class="card agent-run-card">
     <summary><span><span class="eyebrow">检查是怎么完成的</span><b>按规则分工，不让模型包办</b><small class="agent-run-hint">展开查看程序、Agent 与人工的分工</small></span><span class="badge ${runState}">${esc(status)}</span></summary>
-    <p class="agent-run-intro">程序先处理能明确计算的规则；需要理解材料时才调用语义审核。每个判断仍回到原文证据，资格和最终验收由人负责。</p>
+    <p class="agent-run-intro">程序先处理能明确判断的规则，需要理解材料时才调用语义审核。每个判断都回到原文证据，资格和最终验收由人来把关。</p>
     <ol class="agent-run-steps">${stages.map((s, i) => `<li class="${esc(s.tone)}"><span class="agent-step-index">0${i + 1}</span><div><b>${esc(s.label)}</b><span>${esc(s.detail)}</span></div><em>${esc(s.count)}</em></li>`).join("")}</ol>
-    <p class="agent-run-foot">${run.budget_exhausted ? "本次模型检查预算已用尽；未完成项会保留为待处理，不会当作通过。" : "模型不可用或证据不足时会停下并转人工；检查结果不会自行发布、认定资格或完成验收。"}</p>
+    <p class="agent-run-foot">${run.budget_exhausted ? "这次模型检查的预算用完了，没完成的项会保留为待处理，不会当成通过。" : "模型不可用或证据不足时会停下来转人工，检查结果不会自行发布、认定资格或完成验收。"}</p>
+    ${runtimeHtml}
     ${traceHtml}
     ${run.coverage ? `<div class="agent-run-more">${esc(methods.length ? `材料处理：${methods.join("、")}` : "材料读取记录见下方")}${run.llm_calls_used ? ` · 语义检查预算使用 ${run.llm_calls_used} 次` : " · 本次未使用语义检查预算"}</div>` : ""}
   </details>`;
@@ -135,9 +154,9 @@ const agentRunCard = (run, rules, toolTrace = []) => {
 function submitterGuidance(r) {
   if (r.decision) return r.decision.resolves
     ? r.result === "unknown"
-      ? "系统当时还不能确认这一项；组织者已经人工核对，原始意见和后续处理分开展示。"
-      : "组织者已记录处理结果；原始检查意见和人工决定会分开展示。"
-    : "组织者确认这项还需要处理；可以按下方建议补充或核对。";
+      ? "系统当时还不能确认这一项，组织者已经人工核对过了，原始意见和后续处理分开展示。"
+      : "组织者已记录处理结果，原始检查意见和人工决定会分开展示。"
+    : "组织者确认这项还需要处理，可以按下方建议补充或核对。";
   if (r.result === "issue") return "这项材料还需要核对；只针对这条收集要求，不是在评价你本人。";
   if (r.result === "unknown") return "目前还没能从材料中找到足够清楚、可核对的依据；这不代表缺失，组织者可以帮你确认。";
   if (r.result === "failed") return "这次检查没能完成，材料已经收到；这不代表不合格。你可以稍后再看，组织者也可以重试或人工核对。";
@@ -292,16 +311,16 @@ function viewLogin() {
       <div class="logo"><span class="mark">齐</span><span style="font-size:17px">收齐啦 FormFlow</span></div>
       <h1>材料收集，<br>终于有条不紊。</h1>
       <p class="tag">从一句收集要求，到最后一份材料。<br>把反复催交和核对，留给更清晰的工作流。</p>
-      <div class="feat"><div class="ic">✧</div><div><b>对话即成问卷</b>
-        <span>和组织者助手聊几句，自动生成字段、材料要求与检查规则</span></div></div>
+      <div class="feat"><div class="ic">✧</div><div><b>聊几句就能出表</b>
+        <span>告诉助手你想收什么，字段、材料要求与检查规则自动生成</span></div></div>
       <div class="feat"><div class="ic">⌕</div><div><b>交上来逐条核对</b>
-        <span>每处问题都带原文位置与改法，不把「没读到」说成「确认缺失」</span></div></div>
+        <span>每处问题都带原文位置和改法，不把「没读到」说成「确认缺失」</span></div></div>
       <div class="feat"><div class="ic">▣</div><div><b>按正确版本交付</b>
         <span>正式版本不可篡改，快照固定，历史验收不丢失</span></div></div>
     </div>
     <div class="login-panel">
-      <h2>欢迎回来</h2>
-      <p class="tip">组织者使用账号；提交者使用组织者发放的凭证。</p>
+      <h2>你好，开始吧</h2>
+      <p class="tip">组织者用账号登录；提交者用组织者发放的凭证。</p>
       <div class="tabs">
         <button id="tab-org" class="on" onclick="switchLoginTab('org')">我是组织者</button>
         <button id="tab-sub" onclick="switchLoginTab('sub')">我是提交者</button>
@@ -312,20 +331,25 @@ function viewLogin() {
         <label>密码</label><input id="lg-pass" type="password" placeholder="请输入密码"
           autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
         <div class="row" style="margin-top:12px">
-          <button onclick="doLogin()" style="flex:2">登 录</button>
+          <button onclick="doLogin()" style="flex:2">登录</button>
           <button class="ghost" onclick="doRegister()">注册并登录</button>
         </div>
-        <p class="kv" style="margin-top:10px">第一次使用可直接「注册并登录」，账号数据仅存本机数据库。</p>
+        <p class="kv" style="margin-top:10px">第一次使用？直接点「注册并登录」就好，数据只存在你本机。</p>
+        <div class="demo-hint" id="demo-hint" style="display:none">
+          <button class="ghost sm demo-btn" onclick="fillDemoCred()">体验演示环境 →</button>
+          <span class="demo-note">演示账号 demo / demo1234，含虚构种子数据</span>
+        </div>
       </div>
       <div id="pane-sub" style="display:none">
         <label>提交凭证</label>
         <textarea id="lg-cred" placeholder="粘贴组织者发放的提交凭证（形如 v9MhIdcn_1_EUt...）"
           oninput="cacheSubmissionDraft()" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();doSubLogin()}"></textarea>
         <button onclick="doSubLogin()" style="width:100%">进入我的提交空间</button>
-        <p class="kv" style="margin-top:10px">凭证不见了？请联系组织者核验后重发，旧凭证会被撤销。</p>
+        <p class="kv" style="margin-top:10px">找不到凭证了？联系组织者重新发一份就好，旧的会自动失效。</p>
       </div>
     </div>
   </div>`;
+  checkDemoUser();
 }
 function switchLoginTab(which) {
   document.getElementById("tab-org").classList.toggle("on", which === "org");
@@ -337,6 +361,17 @@ function switchLoginTab(which) {
 function loginErr(msg) {
   const el = document.getElementById("login-err");
   if (el) { el.textContent = msg; el.style.display = ""; }
+}
+function fillDemoCred() {
+  document.getElementById("lg-user").value = "demo";
+  document.getElementById("lg-pass").value = "demo1234";
+  doLogin();
+}
+async function checkDemoUser() {
+  try {
+    const r = await api("/api/auth/check-demo");
+    if (r.exists) document.getElementById("demo-hint")?.style.setProperty("display", "");
+  } catch (e) { /* endpoint may not exist; silently skip */ }
 }
 async function doLogin() {
   const username = document.getElementById("lg-user").value.trim();
@@ -514,17 +549,18 @@ async function viewDesign(taskId) {
   Object.assign(state,{designTaskId:taskId,designOwnerId:null,designToken:token,designBaseId:0,designQuestions:[],designRenderedBase:null,designDirty:false,designCacheFailed:false,designNeedsRevision:false});
   Object.assign(state, {taskId, chat: [], bpId: null, draft: null, requirement: "", answeredDone: false, draftStatus: "draft", draftVersionId: null, designLoadFailed: false, retryRequest: null, agentRequest: null, agentRequestPollTimer: 0, agentResumeStarted: false, agentRequestDisplayedId: null, designTab: "preview", agentBusy: false, designBlocking: [], designAdvisories: [], designVersions: [], designHistory: [], viewingVersion: null});
   document.getElementById("app").innerHTML = `<div class="breadcrumb"><a href="#/tasks">我的任务</a><span>/</span><span id="design-name">收集任务 #${taskId}</span></div>
-    <div class="page-heading design-heading"><div><div class="eyebrow">COLLECTION DESIGN</div><h1>把要求，变成好用的收集表</h1><p>左边一起梳理需求，右边实时核对。确认无误后再发布。</p></div><span class="badge brand" id="draft-state">正在恢复草案</span></div>
+    <div class="page-heading design-heading"><div><div class="eyebrow">COLLECTION DESIGN</div><h1>把要求，变成好用的收集表</h1><p>左边一起梳理需求，右边实时核对。确认无误后再发布。</p></div><span class="badge brand" id="draft-state">正在加载…</span></div>
     <div id="flash" role="status" aria-live="polite"></div>
     <div id="agent-request-status" aria-live="polite"></div>
-    <div class="step-flow"><span class="st on"><span class="dot">1</span>描述需求</span><span class="arw"></span><span class="st" id="st-2"><span class="dot">2</span>核对与澄清</span><span class="arw"></span><span class="st" id="st-3"><span class="dot">3</span>确认发布</span><span class="step-hint">生成的草案存服务器；未发送输入仅本标签页暂存</span></div>
-    <div id="design-recovery"></div><div class="grid-chat"><section class="card agent-panel"><div class="agent-heading"><span class="agent-mark">✧</span><div><h2>小齐 <span>需求设计助手</span></h2><p id="agent-status">正在恢复上下文…</p></div><span class="agent-live"></span></div>
+    <div id="llm-status-banner" class="llm-banner" style="display:none"></div>
+    <div class="step-flow"><span class="st on"><span class="dot">1</span>描述需求</span><span class="arw"></span><span class="st" id="st-2"><span class="dot">2</span>核对与澄清</span><span class="arw"></span><span class="st" id="st-3"><span class="dot">3</span>确认发布</span><span class="step-hint">草案存在服务器上；没发出去的内容只留在当前标签页</span></div>
+    <div id="design-recovery"></div><div class="grid-chat"><section class="card agent-panel"><div class="agent-heading"><span class="agent-mark">✧</span><div><h2>小齐 <span>需求设计助手</span></h2><p id="agent-status">正在准备…</p></div><span class="agent-live"></span></div>
       <div class="chat"><div class="chat-scroll" id="chat-scroll" role="log" aria-label="需求对话" aria-live="polite"></div><div class="composer"><div class="chips" id="chat-chips"></div>
       <label class="sr-only" for="chat-in">告诉小齐你的收集要求</label><textarea id="chat-in" oninput="cacheDesignInputs()" placeholder="例如：收一份团课 PDF 报告，登记姓名和班级…" onkeydown="if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing){event.preventDefault();chatSend()}"></textarea>
       <div class="composer-foot"><span>Enter 发送 · Shift + Enter 换行</span><button id="chat-send" onclick="chatSend()" aria-label="发送需求">发送 ${icon('arrow')}</button></div><p class="field-help" id="design-input-hint" role="status"></p></div></div>
     </section><section id="draft-panel" aria-label="实时收集表预览"></section></div>
     <dialog id="publish-dialog" aria-labelledby="publish-title"><form onsubmit="event.preventDefault();confirmPublish()"><div class="eyebrow">REVIEW & PUBLISH</div><h2 id="publish-title" tabindex="-1">确认这份收集要求</h2><p>发布后，这个版本的字段、材料和规则会被冻结。后续修改将产生新版本。</p><div id="publish-summary"></div><label class="check-label"><input type="checkbox" id="publish-consent" required>我已核对材料要求、规则依据、截止时间和数据用途</label><div class="dialog-actions"><button type="button" class="ghost" onclick="this.closest('dialog').close()">返回核对</button><button type="submit" id="publish-confirm">确认并发布</button></div><div id="publish-error" role="alert" class="inline-error"></div></form></dialog>`;
-  setAgentBusy(true, "正在恢复草案"); renderDraftPanel();
+  setAgentBusy(true, "正在加载"); renderDraftPanel();
   try {
     const r = await api(`/api/tasks/${taskId}/design`);
     if (epoch !== state.designEpoch || token !== orgToken()) return;
@@ -537,7 +573,7 @@ async function viewDesign(taskId) {
       applyDraft(r); state.requirement = r.source_text || "";
       const when = r.versions && r.versions[0] ? fmtTime(r.versions[0].created_at) : "";
       agentSay(`已恢复这项任务的${r.status === 'published' ? '已发布蓝图' : '最新草案'} v${r.version}。`,
-        `${when ? `最后保存于 ${esc(when)}。` : ''}右侧实时预览可以核对；继续告诉我需要调整什么，修改会形成新版本。`);
+        `${when ? `最后保存于 ${esc(when)}。` : ''}右边可以实时预览，有什么要调整的继续告诉我就行。`);
       if ((r.history || []).length) {
         agentSay('这次任务的修改记录：', r.history.slice(-4).map(h => {
           const label = h.action === 'blueprint.publish' ? `发布 v${h.version}`
@@ -553,15 +589,25 @@ async function viewDesign(taskId) {
       }
     } else {
       agentSay('这次，你想收些什么？', '告诉我收集对象、需要登记的信息和材料。还没想清楚也没关系，我们可以从一份模板开始。');
-      agentSay('我会先整理草案，只追问影响收集的关键信息。', '不确定的地方会标出来；未经你确认，不会发布，也不会暗加材料门槛。');
+      agentSay('我会先帮你整理草案，只追问影响收集的关键信息。', '不确定的地方会标出来，未经你确认不会发布，也不会暗加材料门槛。');
     }
-  } catch(e) { if (epoch === state.designEpoch) { state.designLoadFailed = true; setFlash('未能恢复草案：' + e.message + '。请重新打开此页面，以免覆盖已有设计。'); } }
+  } catch(e) { if (epoch === state.designEpoch) { state.designLoadFailed = true; setFlash('草案没能加载：' + e.message + '。请重新打开这个页面，以免覆盖已有的设计。'); } }
   finally {
     if (epoch === state.designEpoch && token === orgToken()) {
       setAgentBusy(false); renderChips(); renderDraftPanel(); restoreDesignInputs();
       resumePendingAgentRequest(epoch, token);
+      checkLLMStatus();
     }
   }
+}
+async function checkLLMStatus() {
+  try {
+    const r = await api("/api/config/status");
+    if (!r.llm_configured) {
+      const el = document.getElementById("llm-status-banner");
+      if (el) { el.style.display = ""; el.innerHTML = '<span class="llm-banner-icon">ⓘ</span><span>当前没有配置 AI 模型密钥，所以智能起草暂时用不了。不过你可以用下面的模板快速开始，或者直接手动编辑草案。</span>'; }
+    }
+  } catch(e) { /* silently skip */ }
 }
 function applyDraft(r) {
   if(state.bpId !== r.blueprint_version_id) state.designNeedsRevision=false;
@@ -578,13 +624,13 @@ function applyDraft(r) {
 }
 function agentWaitCopy() {
   const elapsed = state.agentRequest?.createdAt ? Math.max(0, Date.now() - state.agentRequest.createdAt) : 0;
-  if (elapsed > 120000) return '这次内容比较长，我还在等模型回应。原草案和你的输入都保留着；你也可以先离开，回来继续查看。';
-  if (elapsed > 45000) return '还在整理这次内容，我正在确认服务器有没有收到完整结果；不会用半份结果覆盖草案。';
-  if (state.agentRequest?.status === 'queued') return '你的内容已安全收到，正在等小齐开始整理。';
-  if (state.agentRequest?.status === 'running') return '小齐正在整理字段和规则，完成后会在这里更新。';
-  return '正在连接服务器确认进度；如果刚才断线了，我会按同一个请求继续查，不会重复生成。';
+  if (elapsed > 120000) return '这次内容比较多，模型还在想。你的输入和草案都保留着，可以先做别的，回来再看结果。';
+  if (elapsed > 45000) return '还在整理中，正在确认结果有没有完整传回来，不会拿半份结果覆盖已有的草案。';
+  if (state.agentRequest?.status === 'queued') return '内容已收到，正在排队等小齐开始处理。';
+  if (state.agentRequest?.status === 'running') return '小齐正在整理字段和规则，好了会在这里更新。';
+  return '正在连接服务器确认进度，断线的话会按同一个请求继续查，不会重复生成。';
 }
-function setAgentBusy(on, label = "正在整理需求") {
+function setAgentBusy(on, label = "正在整理") {
   state.agentBusy = on;
   const locked=on || !!state.viewingVersion || state.designLoadFailed;
   document.getElementById('chat-send')?.toggleAttribute('disabled', locked);
@@ -592,7 +638,7 @@ function setAgentBusy(on, label = "正在整理需求") {
   document.querySelectorAll('#chat-chips button, #clar-card input, #clar-card button, [data-publish]').forEach(x => x.disabled = locked);
   document.querySelectorAll('.version-picker select').forEach(x=>x.disabled=on);
   const status = document.getElementById('agent-status');
-  if (status) status.textContent = on ? `${label} · ${agentWaitCopy()}` : '与你一起确认，不代替你做决定';
+  if (status) status.textContent = on ? `${label} · ${agentWaitCopy()}` : '有什么想收的，先告诉我吧';
   const box = document.getElementById('chat-scroll'); if (box) box.setAttribute('aria-busy', String(on));
   chatTyping(on);paintDesignInputState();
 }
@@ -635,8 +681,8 @@ async function quickTemplate(tpl) {
     if (epoch !== state.designEpoch) return;
     applyDraft(fresh || {...r, draft: r.draft || {blueprint: r.blueprint, clarifications: [], publish_summary: [], warnings: []}});
     userSay(`以「${tpl === 'class_report' ? '团课报告' : '比赛报名'}」模板开始`);
-    agentSay('模板已准备好。这只是起点，不是最终要求。', '请核对材料、时间、审核方式和数据用途。你可以继续输入修改意见。');
-  } catch(e) { if (epoch === state.designEpoch) agentSay('模板暂时没有载入，请稍后重试。', esc(e.message)); }
+    agentSay('模板已准备好，这只是个起点，不是最终要求。', '请核对材料、时间、审核方式和数据用途，有什么要改的继续告诉我就行。');
+  } catch(e) { if (epoch === state.designEpoch) agentSay('模板暂时没载入，请稍后再试。', esc(e.message)); }
   finally { if (epoch === state.designEpoch) { setAgentBusy(false); renderChips(); renderDraftPanel(); } }
 }
 function impactText(im = {}) {
@@ -733,21 +779,21 @@ function scheduleAgentRequestPoll(request, epoch, token, mode = "lookup") {
 }
 function finishAgentRequestFailure(request, message, epoch, token, permanent = false) {
   if (!currentDesignRequest(request, epoch, token)) return;
-  request.status = "failed"; request.error = message || request.error || "这次请求没有完成，原草案仍然保留。";
+  request.status = "failed"; request.error = message || request.error || "这次请求没能完成，原草案还在。";
   request.permanentError = !!permanent; state.retryRequest = request;
   savePendingAgentRequest(request); setAgentBusy(false); paintAgentRequestStatus(request);
   agentSay(request.permanentError && /草案已在另一页面更新/.test(request.error)
     ? "草案有了新版本，我先不把旧修改覆盖上去。"
-    : "这次整理没有完成，原草案还在。", "你刚才写的内容已保留；可以用同一请求重试，不会重复生成版本。");
+    : "这次整理没完成，原草案还在。", "你刚才写的内容保留了，可以用同一个请求重试，不会重复生成版本。");
   if (state.retryRequest && request.permanentError && !/草案已在另一页面更新/.test(request.error))
-    agentSay("你也可以编辑原文再重新发送；这次没有改动草案。");
+    agentSay("你也可以编辑原文再重新发送，这次没有改动草案。");
   renderChips(); renderDraftPanel();
 }
 async function completeAgentRequest(request, response, epoch, token) {
   if (!currentDesignRequest(request, epoch, token)) return;
   const result = response?.result;
   if (!result?.draft?.blueprint || !result.blueprint_version_id) {
-    finishAgentRequestFailure(request, "服务器没有返回完整草案；原草案仍保留。可以用原请求重试。", epoch, token);
+    finishAgentRequestFailure(request, "服务器没有返回完整草案，原草案还在。可以用原请求重试。", epoch, token);
     return;
   }
   let latest;
@@ -775,26 +821,26 @@ async function completeAgentRequest(request, response, epoch, token) {
     const bp = latest.draft?.blueprint || {};
     const empty = !bp.fields?.length && !bp.slots?.length && !bp.rules?.length;
     const unchanged = request.previousBlueprintId === result.blueprint_version_id;
-    agentSay(empty ? "这次没有整理出可用的收集表，原要求仍保留。"
-      : unchanged ? "这次没有形成新版本，原草案仍然保留。"
-      : request.previousBlueprintId ? "草案已更新；我们一起看看改动有没有按你的意思。"
-      : "第一份草案已经整理好，先核对一下有没有漏掉或多加的要求。",
+    agentSay(empty ? "这次没能整理出可用的收集表，原要求还在。"
+      : unchanged ? "这次没有形成新版本，原草案还在。"
+      : request.previousBlueprintId ? "草案更新了，我们一起看看改动有没有按你的意思来。"
+      : "第一份草案整理好了，先核对一下有没有漏掉或多加的要求。",
       request.previousBlueprintId ? impactText(result.impact) : empty
-        ? "可以用同一请求重试，或从模板开始。"
+        ? "可以用同一个请求重试，或者从模板开始。"
         : `整理出 ${bp.fields?.length || 0} 项登记信息、${bp.slots?.length || 0} 类材料和 ${bp.rules?.length || 0} 条核对规则。`);
     if (warnings.length) agentSay("有几处还需要你看一眼。", warnings.map(esc).join("<br>"));
     if (empty || (unchanged && warnings.length)) {
-      request.status = "failed"; request.error = "这次没有生成新的可用草案；原要求和旧版本仍保留。";
+      request.status = "failed"; request.error = "这次没有生成新的可用草案，原要求和旧版本还在。";
       request.permanentError = false; state.agentRequest = request; state.retryRequest = request;
       savePendingAgentRequest(request); paintAgentRequestStatus(request);
     } else { state.retryRequest = null; paintAgentRequestStatus(null); }
   } else {
     applyDraft(latest);
     state.requirement = latest.source_text || state.requirement;
-    request.status = "failed"; request.error = "这次处理完成时，另一个页面已经更新草案。我显示的是最新版本，没有用旧结果覆盖它；你的修改还留在恢复提示里。";
+    request.status = "failed"; request.error = "这次处理完成时，另一个页面已经更新了草案。我显示的是最新版本，没有用旧结果覆盖它，你的修改还留在恢复提示里。";
     request.permanentError = true;
     savePendingAgentRequest(request); paintAgentRequestStatus(request);
-    agentSay("草案在另一个页面已经有更新。", "我先显示最新版本，没有把这次旧结果盖上去；你的修改留在“旧草案的未发送内容”里，可检查后再带过来。");
+    agentSay("草案在另一个页面已经有更新了。", "我先显示最新版本，没有把旧结果盖上去。你的修改留在「旧草案的未发送内容」里，可以检查后再带过来。");
   }
   setAgentBusy(false); renderChips(); renderDraftPanel();
 }
@@ -866,8 +912,8 @@ function resumePendingAgentRequest(epoch, token) {
   if (pending.text && state.agentRequestDisplayedId !== pending.requestId) {
     userSay(pending.text); state.agentRequestDisplayedId = pending.requestId;
   }
-  agentSay("接上你刚才的整理请求", "请求和原文都还在服务器/本标签页保存中，我先核对进度；不会重复生成草案。");
-  setAgentBusy(true, "正在接回上次的整理请求");
+  agentSay("接着上次没完成的整理", "请求和原文都还在，我先确认一下进度，不会重复生成草案。");
+  setAgentBusy(true, "正在接回上次的整理");
   return pollAgentRequest(pending, epoch, token, "lookup");
 }
 function refreshAfterAgentConflict() {
@@ -985,7 +1031,7 @@ function useVersionAsBase() {
   state.viewingVersion = null;
   state.draftStatus = 'draft';
   setAgentBusy(false);
-  agentSay(`已切换到 v${v.version} 作为修订起点。`, '接下来的修改会基于这个版本形成新草案，历史版本仍然保留。');
+  agentSay(`已切换到 v${v.version} 作为修订起点。`, '接下来的修改会基于这个版本形成新草案，历史版本不会丢。');
   renderDraftPanel();
 }
 
@@ -1053,7 +1099,7 @@ async function confirmPublish() {
     const r = await api(`/api/tasks/${taskId}/blueprints/${bpId}/publish`, {method:'POST',form:{expected_published_id:state.publishReview.publishedId}});
     if(epoch !== state.designEpoch) return;
     state.draftStatus = 'published'; document.getElementById('publish-dialog').close();
-    agentSay(`版本 v${r.published_version} 已发布。`, `下一步：<a href="#/roster/${taskId}">管理名单与提交凭证 ${icon('arrow')}</a>。没有发放凭证，不代表已通知提交者。`);
+    agentSay(`版本 v${r.published_version} 已发布！`, `下一步：<a href="#/roster/${taskId}">管理名单与发放凭证 ${icon('arrow')}</a>。记得发凭证给提交者，否则他们看不到入口。`);
     const fresh = await api(`/api/tasks/${taskId}/design`);
     if (epoch === state.designEpoch) applyDraft(fresh);
     renderDraftPanel();
@@ -1132,7 +1178,7 @@ async function loadRoster(taskId) {
       <div class="roster-actions"><button class="ghost sm" onclick="issueGrant(${taskId},${e.id})">${
           e.granted ? "重发凭证" : "发放凭证"}</button></div>
     </article>`).join("")}`
-    : `<div class="empty-state"><div class="empty-icon">${icon("roster")}</div><h3>名册还是空的</h3><p>在左侧粘贴名单导入，系统会按行生成提交主体。</p></div>`;
+    : `<div class="empty-state"><div class="empty-icon">${icon("roster")}</div><h3>名单还是空的</h3><p>在左边粘贴名单导入，系统会按行生成提交主体。</p></div>`;
 }
 
 async function copyText(text) {
@@ -1162,7 +1208,7 @@ async function importRoster(taskId) {
 async function issueGrant(taskId, entryId) {
   await guard(async () => {
     const e = state.roster[entryId];
-    if (!e) throw new Error("名册条目不存在，请刷新页面");
+    if (!e) throw new Error("名单条目不存在，请刷新页面再试");
     const r = await api(`/api/tasks/${taskId}/grants`, {
       method: "POST",
       form: { subject_name: e.name, roster_entry_id: String(entryId) } });
@@ -1316,7 +1362,7 @@ function chooseWorkbenchNextStep(rows, task) {
       detail: "先看清技术原因，再决定重试或转人工；未完成不等于不通过。"};
     if ((b.pending_jobs || []).length || ["排队中", "检查中"].includes(actionable.summary)) return {
       ...base, tone: "info", kicker: "正在处理", title: `${base.name}的材料正在检查`,
-      detail: "检查完成后结果会自动更新；你可以先查看当前进度。"};
+      detail: "检查完成后结果会自动更新，你可以先看看当前进度。"};
     return {...base, tone: "ok", kicker: "还差最后一步", title: `${base.name}的规则检查已完成`,
       detail: "核对剩余事项后，单独验收当前版本即可。"};
   }
@@ -1396,7 +1442,7 @@ function paintWorkbench() {
   const box = document.getElementById("wb-list");
   if (!box) return;
   if (!rows.length) {
-    box.innerHTML = `<div class="empty-state"><div class="empty-icon">${icon("roster")}</div><h3>还没有提交主体</h3><p>先到 <a href="#/roster/${taskId}">名单与凭证</a> 导入名册或创建提交空间，这里就会显示每个人的进度。</p></div>`;
+    box.innerHTML = `<div class="empty-state"><div class="empty-icon">${icon("roster")}</div><h3>还没有提交主体</h3><p>先去 <a href="#/roster/${taskId}">名单与凭证</a> 导入名单或创建提交空间，这里就会显示每个人的进度。</p></div>`;
     return;
   }
   if (!visible.length) { box.innerHTML = `<div class="empty-state"><div class="empty-icon">${icon("search")}</div><h3>没有符合条件的提交者</h3><p>试试其他关键词或筛选条件。</p></div>`; return; }
@@ -1745,7 +1791,7 @@ function paintReview(taskId, sid) {
       ${active.explanation ? `<p class="evidence-explanation">${esc(active.explanation)}</p>` : ""}
       ${(active.evidence || []).length ? `<div class="evidence-list">${active.evidence.map(e => `<blockquote class="evidence"><span class="evidence-loc">${esc(e.locator || "未标注位置")} · ${esc(e.method || "-")}</span>${esc(e.quote || "")}</blockquote>`).join("")}</div>` : `<p class="muted">这条规则没有可引用的原文证据。</p>`}
       ${active.next_step ? `<div class="evidence-next"><b>${active.decision ? "原始检查建议" : "下一步"}</b><p>${esc(active.next_step)}</p></div>` : ""}
-    </article>` : `<article class="evidence-detail" id="review-evidence" tabindex="-1"><p class="muted">${rules.length ? "选择左侧任一规则查看证据。" : "暂无可展示的规则证据。"}</p></article>`;
+    </article>` : `<article class="evidence-detail" id="review-evidence" tabindex="-1"><p class="muted">${rules.length ? "点击左侧任意一条规则查看证据。" : "暂时没有可展示的规则证据。"}</p></article>`;
 
   const decision = `<section class="card decision-panel" id="review-decision" tabindex="-1" aria-label="人工决定">
     <div class="section-heading"><div><div class="eyebrow">DECISION</div><h2>${active ? "人工决定" : "免交与决定历史"}</h2></div><span class="muted">撤销只追加记录，不删历史</span></div>
@@ -2062,7 +2108,7 @@ function fmtBytes(n) {
 function apiError(data, status) {
   const detail = data && data.detail;
   return new Error(Array.isArray(detail) ? detail.map(x => x.msg || JSON.stringify(x)).join("；")
-    : (typeof detail === "string" ? detail : "请求失败，请稍后重试（" + status + "）"));
+    : (typeof detail === "string" ? detail : "出了点问题，请稍后再试（" + status + "）"));
 }
 function receiptFilesHtml(receipt) {
   const files = Array.isArray(receipt?.files) ? receipt.files : [];
@@ -2434,8 +2480,8 @@ async function doSubmit() {
       state.draftVersion = r.draft_version;
       cacheSubmissionDraft();
       document.getElementById("receipt-out").innerHTML = `
-        <div class="receipt"><div><span class="eyebrow">SUBMITTED</span><b>正式提交成功 · v${r.revision}</b><span class="receipt-no">${esc(r.receipt)}</span></div><div class="receipt-meta"><span>服务端时间</span><b>${esc(fmtTime(r.formal_submitted_at, state.me.task.timezone))}</b></div></div>`;
-      setFlash(`正式提交成功，回执 ${r.receipt}（v${r.revision}）`, "ok");
+        <div class="receipt"><div><span class="eyebrow">SUBMITTED</span><b>提交成功 · v${r.revision}</b><span class="receipt-no">${esc(r.receipt)}</span></div><div class="receipt-meta"><span>提交时间</span><b>${esc(fmtTime(r.formal_submitted_at, state.me.task.timezone))}</b></div></div>`;
+      setFlash(`提交成功！回执 ${r.receipt}（v${r.revision}）`, "ok");
       await loadMyResults();
     }, current);
   } finally { state.submitting = false; }
@@ -2485,7 +2531,7 @@ async function loadMyResults() {
       if (reviewed.length) html += `<details><summary>查看组织者的核对记录（${reviewed.length} 项）</summary>${reviewed.map(ruleCard).join("")}</details>`;
     }
     if (!details.length && r.summary && r.summary !== "未正式提交") {
-      html += `<p class="muted">目前还没有可展示的核对明细；检查完成后会在这里更新。</p>`;
+      html += `<p class="muted">目前还没有可展示的核对明细，检查完成后会在这里更新。</p>`;
     }
     const ruleLabel = id => details.find(x => x.rule_id === id)?.requirement?.statement || "一项要求";
     if (todo.length) {
@@ -2782,9 +2828,9 @@ function subDoneCard() {
     ${state.sub.fields.length ? `<table style="margin-top:8px"><tr><th>登记信息</th><th>内容</th></tr>${ans}</table>` : ""}
     ${state.sub.slots.length ? `<table style="margin-top:8px"><tr><th>材料</th><th>状态</th></tr>${files}</table>` : ""}
     ${missing.length ? `<div class="flash err" style="margin-top:8px">还有必交材料没上传：${esc(missing.map(s => s.label).join("、"))}。
-      传好后（或到表单区上传）再提交；未传齐就提交会被系统拦下。</div>` : ""}
-    <p class="mini">请在下方统一操作区保存草稿或正式提交，避免重复提交。</p>
-    <div class="mini">提交成功会拿到稳定回执；检查结果出来后，我会在这里告诉你要不要改、怎么改。</div>
+      传好后（或到表单区上传）再提交，没传齐的话系统会拦住。</div>` : ""}
+    <p class="mini">在下方统一操作区保存草稿或正式提交就好，不用重复提交。</p>
+    <div class="mini">提交成功后会拿到稳定回执，检查结果出来后，我会在这里告诉你要不要改、怎么改。</div>
   </div></div>`;
 }
 
@@ -2795,7 +2841,7 @@ async function viewDelivery(taskId) {
   state.deliveryHistoryHasMore = false;
   document.getElementById("app").innerHTML = `
     <div class="breadcrumb"><a href="#/tasks">我的任务</a><span>/</span><span>交付与归档</span></div>
-    <div class="page-heading"><div><div class="eyebrow">DELIVERY & ARCHIVE</div><h1>交付与归档<span class="heading-dot">.</span></h1><p>先固定一份快照，再导出。之后的新提交不会改变已固定的包。</p></div>
+    <div class="page-heading"><div><div class="eyebrow">DELIVERY & ARCHIVE</div><h1>交付与归档<span class="heading-dot">.</span></h1><p>先固定一份快照再导出，之后的新提交不会影响已经固定的包。</p></div>
       <a class="ghost" href="#/workbench/${taskId}">回工作台 ${icon("arrow")}</a></div>
     <div id="flash" role="status" aria-live="polite"></div>
     <div class="delivery-layout">
@@ -2817,7 +2863,7 @@ async function viewDelivery(taskId) {
   loadDeliveryHistory(taskId);
 }
 function deliveryHistoryHtml(snapshots, taskId, hasMore) {
-  if (!snapshots?.length) return '<div class="delivery-history-empty"><b>还没有固定快照</b><span>生成后，清单与可下载文件会保留在这里。</span></div>';
+  if (!snapshots?.length) return '<div class="delivery-history-empty"><b>还没有生成过快照</b><span>生成后，清单和可下载文件会保留在这里。</span></div>';
   const statusLabel = {success:"已生成", failed:"未完成", running:"生成中", queued:"排队中"};
   const items = snapshots.map(snapshot => {
     const id = Number(snapshot.snapshot_id);
