@@ -67,6 +67,9 @@ test('demo route explains the full workflow and points to the selected task', ()
 });
 test('task workspace explains offline mode without hiding the available workflow', () => {
   const {app, els} = setup();
+  assert.match(source, /review_one_submission/);
+  assert.match(source, /MCP 边界/);
+  assert.match(source, /review\.deterministic_rule/);
   app.state.llmConfigured = false;
   app.paintWorkspaceAgentStatus();
   assert.equal(els['workspace-agent-mode'].textContent, '离线演示');

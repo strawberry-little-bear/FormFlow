@@ -3816,17 +3816,18 @@ button.validation-link { border: 0; background: none; color: var(--bad); box-sha
 
 /* The task list is also the first architecture tour for a new organizer. */
 .workspace-runtime-strip {
-  display:grid; grid-template-columns:minmax(250px,.9fr) minmax(0,1.7fr); gap:20px;
+  display:grid; grid-template-columns:minmax(230px,.75fr) minmax(0,2.25fr); gap:20px;
   align-items:center; margin:0 0 16px; padding:17px 20px;
   border:1px solid #dedbea; border-radius:11px; background:#fff;
 }
 .runtime-strip-head { display:flex; align-items:center; justify-content:space-between; gap:10px; }
 .runtime-strip-lead h2 { margin:3px 0 5px; font-size:16px; line-height:1.45; }
 .runtime-strip-lead p { margin:0; color:var(--muted); font-size:11px; line-height:1.75; }
-.runtime-strip-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:9px; }
+.runtime-strip-grid { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:9px; }
 .runtime-strip-grid > div { min-width:0; padding:10px 11px; border-left:2px solid #e4def9; }
 .runtime-strip-grid b { display:block; color:var(--brand-deep); font-size:11px; }
 .runtime-strip-grid span { display:block; margin-top:4px; color:var(--muted); font-size:10px; line-height:1.55; overflow-wrap:anywhere; }
+.runtime-strip-grid code { font-size:9px; padding:1px 3px; word-break:normal; overflow-wrap:anywhere; }
 @media (max-width:900px) {
   .workspace-runtime-strip { grid-template-columns:1fr; gap:13px; }
 }
