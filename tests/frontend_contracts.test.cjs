@@ -660,8 +660,8 @@ test('review makes deterministic, semantic, and human handoffs visible without i
     {rule_id:'S-01',requirement:{executor:'semantic',statement:'活动日期需一致'}},
     {rule_id:'H-01',requirement:{executor:'human_only',statement:'组织者人工核对'}},
   ], [
-    {tool:'review.deterministic_rule',rule_id:'D-01',status:'satisfied',duration_ms:12},
-    {tool:'review.semantic_rule',rule_id:'S-01',status:'unknown',duration_ms:800,simulation:true},
+    {tool:'review.deterministic_rule',rule_id:'D-01',status:'satisfied',duration_ms:12,sequence:1,tool_version:'v1'},
+    {tool:'review.semantic_rule',rule_id:'S-01',status:'unknown',duration_ms:800,simulation:true,sequence:2,tool_version:'v1'},
   ]);
   assert.match(html, /程序核验/);
   assert.match(html, /语义审核/);
@@ -671,6 +671,9 @@ test('review makes deterministic, semantic, and human handoffs visible without i
   assert.match(html, /本次运行记录（2 项）/);
   assert.match(html, /姓名已经填写/);
   assert.match(html, /待人工确认/);
+  assert.match(html, /第 1 步/);
+  assert.match(html, /第 2 步/);
+  assert.match(html, /· v1/);
   assert.doesNotMatch(html, /D-01|S-01/);
   assert.match(html, /演示模式：语义结果由离线脚本按样例生成，没有调用实时模型/);
   assert.match(app.agentRunCard({status:'success'}, []).toString(), /历史运行/);
@@ -1079,6 +1082,38 @@ test('review queue groups pending, problems, incomplete checks and satisfied rul
   assert.ok(doneStart > -1);
   assert.ok(html.indexOf('人工已处理的问题',doneStart) > doneStart);
   assert.ok(html.indexOf('人工已接手的未完成检查',doneStart) > doneStart);
+});
+test('review evidence links only known current files and escapes long names and URLs', async () => {
+  const env=setup(),page=reviewPage(reviewScope('a'));
+  page.files=[{file_id:'file-1',name:'报告 <最终> 版本.txt',url:'/api/tasks/1/subjects/2/files/file-1?view=inline&x=<safe>',slot:'团课报告'}];
+  page.rules=[{rule_id:'A',result:'issue',requirement:{statement:'材料需要核对'},evidence:[
+    {file_id:'file-1',locator:'第 1 页',method:'文本',quote:'原文片段'},
+    {file_id:'missing',locator:'第 2 页',method:'OCR',quote:'没有文件元数据'},
+  ]}];
+  await openReview(env,page);
+  const html=env.els.rv.innerHTML;
+  assert.match(html,/打开原件/);
+  assert.match(html,/报告 &lt;最终&gt; 版本\.txt/);
+  assert.match(html,/href="\/api\/tasks\/1\/subjects\/2\/files\/file-1\?view=inline&amp;x=&lt;safe&gt;"/);
+  assert.match(html,/data-file-url="\/api\/tasks\/1\/subjects\/2\/files\/file-1\?view=inline&amp;x=&lt;safe&gt;"/);
+  assert.match(html,/openReviewFile\(event,this\.dataset\.fileUrl\)/);
+  assert.match(html,/target="_blank"/);assert.match(html,/rel="noreferrer"/);
+  assert.equal((html.match(/evidence-file-link/g) || []).length, 1);
+  assert.match(html,/没有文件元数据/);
+});
+test('long review queues keep all rules addressable and retain the next-pending shortcut', async () => {
+  const env=setup(),page=reviewPage(reviewScope('a'));
+  page.rules=Array.from({length:50},(_,i)=>({
+    rule_id:`R-${String(i+1).padStart(2,'0')}`,
+    result:i % 4 === 0 ? 'unknown' : i % 4 === 1 ? 'issue' : i % 4 === 2 ? 'failed' : 'satisfied',
+    requirement:{statement:`第 ${i+1} 条需要核对的要求`,executor:i % 2 ? 'semantic' : 'deterministic'},
+  }));
+  await openReview(env,page);
+  const html=env.els.rv.innerHTML;
+  assert.equal((html.match(/class="review-rule-item/g) || []).length,50);
+  assert.match(html,/下一待处理/);
+  assert.match(html,/50 项/);
+  assert.equal((html.match(/class="evidence-detail"/g) || []).length,1);
 });
 test('next pending review skips completed and confirmed-issue rules; shortcuts explain the final gate', async () => {
   const env=setup(),page=reviewPage(reviewScope('a'));

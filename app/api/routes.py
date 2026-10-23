@@ -18,6 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
+from .. import storage
 from ..timeutils import iso_utc
 from ..services.review_context import review_context
 from ..services.progress import workbench_data, exempt_subject_ids
@@ -924,6 +925,7 @@ def findings(task_id: int, subject_id: int, db: Session = Depends(get_db),
     if submission is None or submission.current_revision_id is None:
         return {"review_context": context, "eligibility": qualification, "subject": {"id": subject.id, "name": subject.display_name},
                 "revision": None, "run": None, "rules": [], "tool_trace": [], "decisions": decisions,
+                "files": [],
                 "acceptance": {"ready": False, "accepted": False,
                                "blockers": ["没有正式提交版本"]},
                 "same_name_subjects": same_name, "same_name_hint": same_name_hint}
@@ -932,6 +934,41 @@ def findings(task_id: int, subject_id: int, db: Session = Depends(get_db),
         CheckRun.revision_id == rev.id,
         CheckRun.status.not_in([RUN_SUPERSEDED])).order_by(CheckRun.id.desc()))
     rules = review_rule_details(db, run, task, subject.id, rev.id)
+    try:
+        manifest = json.loads(rev.slot_file_ids_json or "{}")
+    except (TypeError, ValueError):
+        manifest = {}
+    manifest = manifest if isinstance(manifest, dict) else {}
+    file_ids = [file_id for ids in manifest.values() if isinstance(ids, list)
+                for file_id in ids if isinstance(file_id, str)]
+    file_rows = db.scalars(select(FileObject).where(
+        FileObject.submission_id == submission.id,
+        FileObject.file_id.in_(file_ids) if file_ids else FileObject.file_id == "")).all()
+    by_file_id = {row.file_id: row for row in file_rows}
+    slot_labels = {}
+    blueprint_version = db.get(BlueprintVersion, run.blueprint_version_id) if run else None
+    if blueprint_version is None and task.current_blueprint_id:
+        blueprint_version = db.get(BlueprintVersion, task.current_blueprint_id)
+    if blueprint_version is not None:
+        try:
+            blueprint = Blueprint.model_validate_json(blueprint_version.blueprint_json)
+            slot_labels = {slot.id: slot.label for slot in blueprint.slots}
+        except Exception:
+            slot_labels = {}
+    files = []
+    for slot, ids in manifest.items():
+        for file_id in ids if isinstance(ids, list) else []:
+            file_obj = by_file_id.get(file_id)
+            if file_obj is None:
+                continue
+            files.append({
+                "file_id": file_obj.file_id,
+                "name": file_obj.original_name,
+                "slot": slot_labels.get(slot, slot),
+                "size": file_obj.size,
+                "mime": file_obj.mime,
+                "url": f"/api/tasks/{task.id}/subjects/{subject.id}/files/{file_obj.file_id}",
+            })
     tool_trace = []
     if run is not None:
         recent_tool_events = db.scalars(select(AuditEvent).where(
@@ -948,8 +985,14 @@ def findings(task_id: int, subject_id: int, db: Session = Depends(get_db),
                 duration_ms = max(0, min(600_000, int(entry.get("duration_ms") or 0)))
             except (TypeError, ValueError):
                 duration_ms = 0
+            try:
+                sequence = max(0, min(512, int(entry.get("sequence") or 0)))
+            except (TypeError, ValueError):
+                sequence = 0
             tool_trace.append({
                 "tool": str(entry.get("tool") or "")[:64],
+                "tool_version": str(entry.get("tool_version") or "v1")[:16],
+                "sequence": sequence,
                 "rule_id": str(entry.get("rule_id") or "")[:64],
                 "status": str(entry.get("status") or "")[:32],
                 "simulation": (entry.get("simulation") if isinstance(entry.get("simulation"), bool) else None),
@@ -968,12 +1011,48 @@ def findings(task_id: int, subject_id: int, db: Session = Depends(get_db),
                      "budget_exhausted": run.budget_exhausted,
                      "coverage": run_coverage(run)} if run else None),
             "rules": rules, "tool_trace": tool_trace, "decisions": decisions,
+            "files": files,
             "acceptance": {"ready": not blockers and not accepted,
                            "accepted": accepted, "blockers": blockers},
             "notes": [appeal_service.to_dict(db, n)
                       for n in appeal_service.pending_notes(db, task)
                       if n.subject_id == subject.id],
             "same_name_subjects": same_name, "same_name_hint": same_name_hint}
+
+
+@router.get("/tasks/{task_id}/subjects/{subject_id}/files/{file_id}")
+def download_review_file(task_id: int, subject_id: int, file_id: str,
+                         db: Session = Depends(get_db),
+                         acct: Account = Depends(current_account)):
+    """组织者只能打开当前正式复核版本中实际引用的原件。"""
+
+    task = _owned_task(db, acct, task_id)
+    subject = db.get(Subject, subject_id)
+    if subject is None or subject.task_id != task.id:
+        raise HTTPException(404, "主体不存在或不属于该任务")
+    submission = db.scalar(select(Submission).where(
+        Submission.task_id == task.id, Submission.subject_id == subject.id))
+    if submission is None or submission.current_revision_id is None:
+        raise HTTPException(404, "当前没有正式提交版本")
+    revision = db.get(Revision, submission.current_revision_id)
+    try:
+        manifest = json.loads(revision.slot_file_ids_json or "{}")
+    except (TypeError, ValueError):
+        manifest = {}
+    referenced = {candidate for ids in manifest.values() if isinstance(ids, list)
+                  for candidate in ids if isinstance(candidate, str)}
+    if file_id not in referenced:
+        raise HTTPException(404, "原件不属于当前正式版本")
+    file_obj = db.scalar(select(FileObject).where(
+        FileObject.file_id == file_id, FileObject.submission_id == submission.id))
+    if file_obj is None:
+        raise HTTPException(404, "原件不存在")
+    path = storage.file_dir(file_obj.file_id) / f"original_{file_obj.safe_name}"
+    if not path.is_file():
+        raise HTTPException(410, "原件已不存在，请重新提交材料")
+    return FileResponse(path, media_type=file_obj.mime or "application/octet-stream",
+                        filename=file_obj.original_name,
+                        content_disposition_type="inline")
 
 # ---------------------------------------------------------------- 交付
 @router.post("/tasks/{task_id}/snapshots")

@@ -37,9 +37,15 @@
 
 ## 回归
 
-- Python：335 项通过
-- 前端契约：84 项通过
+- Python：337 项通过
+- 前端契约：89 项通过
 - 本轮浏览器走查：无控制台报错、无 4xx/5xx 请求
 
 复现脚本：`scripts/ux_walkthrough.cjs`（组织者全流程）、`scripts/ux_review_check.cjs`（复核页与缺失编号）、
 `scripts/ux_submitter_check.cjs`（提交者端）、`scripts/ux_key_paths.cjs`（新建弹窗与无密钥降级）。
+
+## 2026-10-24 追加：复核运行轨迹可解释性
+
+复核页的 Agent 运行记录现在为每个受限工具调用展示顺序编号和工具版本，方便第一次演示时看懂“程序核验 → 语义审核 → 人工接手”的真实执行顺序。审计元数据只增加序号与版本，不记录原始参数、材料内容或隐藏推理；旧运行没有这些字段时前端仍以兼容文案展示。
+
+验证：`pytest` 337 项、Node 前端契约 89 项通过；`node --check app/static/app.js` 与 `git diff --check` 通过。重启本地服务后，复核页在 390px 视口下 `scrollWidth === clientWidth === 390`，工具轨迹序号可见，控制台与网络请求无错误。

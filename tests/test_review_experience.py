@@ -7,12 +7,12 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app.main import app
-from app.models import Account, AuditEvent, BlueprintVersion, RuleResult, Subject
-from app.schemas import Blueprint, FieldDef, RuleDef
+from app.models import Account, AuditEvent, BlueprintVersion, FileObject, RuleResult, Subject
+from app.schemas import Blueprint, FieldDef, RuleDef, SlotDef
 from app.security import utcnow
 from app.services.checks import create_run, execute_run, rule_details
 from app.services.decisions import record_decision, revoke_decision
-from app.services.submissions import formal_submit, get_or_create_draft
+from app.services.submissions import attach_file, formal_submit, get_or_create_draft
 from tests.conftest import make_task, publish_blueprint
 from tests.test_authz import _register
 
@@ -55,6 +55,47 @@ def test_no_formal_revision_is_not_ready(review):
     assert page['rules'] == []
     assert page['tool_trace'] == []
     assert page['acceptance'] == dict(ready=False, accepted=False, blockers=['没有正式提交版本'])
+    assert page['files'] == []
+
+
+def test_review_exposes_only_current_formal_files_and_serves_original(review):
+    db, client, h, task, subject, path = review
+    blueprint = Blueprint(
+        slots=[SlotDef(id='report', label='团课报告', formats=['txt'], max_count=2)],
+        rules=[RuleDef(id='H-01', statement='人工核对签字', requirement_source='任务说明', executor='human_only')],
+    )
+    version = BlueprintVersion(task_id=task.id, version=2, status='published',
+                               blueprint_json=blueprint.model_dump_json())
+    db.add(version)
+    db.flush()
+    task.current_blueprint_id = version.id
+    submission = get_or_create_draft(db, task, subject.id)
+    old_file = attach_file(db, submission, slot='report', original_name='旧版本.txt',
+                           content='old evidence'.encode(), sha256='', mime='text/plain')
+    formal_submit(db, task, submission, fields={},
+                  slot_file_ids={'report': [old_file.file_id]}, idempotency_key='review-file-v1')
+    new_file = attach_file(db, submission, slot='report', original_name='当前版本-很长的材料文件名.txt',
+                           content='current evidence'.encode(), sha256='', mime='text/plain')
+    second = formal_submit(db, task, submission, fields={},
+                           slot_file_ids={'report': [new_file.file_id]}, idempotency_key='review-file-v2')
+    db.commit()
+
+    page = findings(client, h, path)
+    assert page['revision']['id'] == second.id
+    assert [item['file_id'] for item in page['files']] == [new_file.file_id]
+    assert page['files'][0]['name'] == '当前版本-很长的材料文件名.txt'
+    assert page['files'][0]['slot'] == '团课报告'
+    assert page['files'][0]['url'].endswith(f'/files/{new_file.file_id}')
+
+    served = client.get(page['files'][0]['url'], headers=h)
+    assert served.status_code == 200, served.text
+    assert served.content == b'current evidence'
+    assert served.headers['content-type'].startswith('text/plain')
+    assert served.headers['content-disposition'].startswith('inline;')
+
+    assert client.get(f'{path}/files/{old_file.file_id}', headers=h).status_code == 404
+    assert client.get(f'{path}/files/{new_file.file_id}-other', headers=h).status_code == 404
+    assert db.scalar(select(FileObject).where(FileObject.file_id == old_file.file_id)) is not None
 
 
 def test_manual_review_uses_run_blueprint_without_fabricating_machine_results(review):
@@ -102,12 +143,16 @@ def test_findings_exposes_only_the_active_runs_audited_tool_trace(review, stub_l
     assert trace['rule_id'] == 'D-01'
     assert trace['status'] == 'satisfied'
     assert trace['simulation'] is True
+    assert trace['sequence'] == 1
+    assert trace['tool_version'] == 'v1'
     assert 'arguments' not in trace and 'result' not in trace
     event = db.scalar(select(AuditEvent).where(
         AuditEvent.task_id == task.id, AuditEvent.action == 'agent.tool.invoked'))
     owner_id = db.scalar(select(Account.id).where(Account.username == 'review-ux'))
     assert event.actor == f'review_agent:account:{owner_id}'
     assert json.loads(event.payload_json)['rule_id'] == 'D-01'
+    assert json.loads(event.payload_json)['sequence'] == 1
+    assert json.loads(event.payload_json)['tool_version'] == 'v1'
 
     # Starting a new run must not present the earlier run's tool trace as current.
     next_run = create_run(db, task, revision)

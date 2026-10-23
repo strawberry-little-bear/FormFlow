@@ -113,6 +113,8 @@ class ToolInvocation:
     duration_ms: int = 0
     idempotency_key: str = ""
     needs_human: bool = False
+    sequence: int = 0
+    tool_version: str = "v1"
 
 
 class ToolRegistry:
@@ -239,6 +241,7 @@ class AgentToolHarness:
                 duration_ms=int((time.monotonic() - started) * 1000),
                 idempotency_key=idempotency_key[:128], needs_human=True)
 
+        invocation.sequence = len(self.trace) + 1
         self.trace.append(invocation)
         _audit(db, context, invocation, entity=spec.audit_entity if spec else "agent_tool")
         if spec is not None and spec.idempotent and idempotency_key and request_hash:
@@ -313,6 +316,8 @@ def _audit(db: Session, context: ToolContext, invocation: ToolInvocation,
     payload = {
         "schema_version": 1,
         "tool": spec_name,
+        "tool_version": invocation.tool_version,
+        "sequence": invocation.sequence,
         "run_id": context.run_id,
         "subject_id": context.subject_id,
         "rule_id": context.rule_id,

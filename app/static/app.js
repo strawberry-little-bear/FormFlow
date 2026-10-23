@@ -81,6 +81,33 @@ async function api(path, opts = {}) {
   return data;
 }
 
+async function openReviewFile(event, url) {
+  event?.preventDefault();
+  const popup = window.open("", "_blank");
+  try {
+    const response = await fetch(url, { headers: { Authorization: "Bearer " + orgToken() } });
+    if (!response.ok) {
+      let detail = "原件暂时打不开，请刷新后再试";
+      try {
+        const payload = await response.json();
+        if (typeof payload.detail === "string") detail = payload.detail;
+      } catch (e) { /* keep the plain-language fallback */ }
+      throw new Error(detail);
+    }
+    const objectUrl = URL.createObjectURL(await response.blob());
+    if (popup && !popup.closed) {
+      popup.location.href = objectUrl;
+      popup.addEventListener("pagehide", () => URL.revokeObjectURL(objectUrl), { once: true });
+    } else {
+      window.location.href = objectUrl;
+    }
+  } catch (error) {
+    if (popup && !popup.closed) popup.close();
+    setFlash(error.message || "原件暂时打不开，请刷新后再试");
+  }
+  return false;
+}
+
 /* 把框架层校验报错翻成人话，别让英文原文直接出现在界面上 */
 const VALIDATION_HINTS = [
   [/valid integer|parse string as an integer|int_parsing/i, "链接里的编号不太对，请回到上一页重新进入"],
@@ -167,7 +194,9 @@ const agentRunCard = (run, rules, toolTrace = []) => {
       : item.duration_ms < 1000 ? `${item.duration_ms} 毫秒` : `${(item.duration_ms / 1000).toFixed(1)} 秒`;
     const label = traceStatus[item.status] || "已记录";
     const tone = ["issue", "failed"].includes(item.status) ? "warn" : item.status === "unknown" ? "info" : "ok";
-    return `<li class="agent-trace-row"><span class="agent-trace-kind ${tone}">${esc(toolLabel)}</span><div><b>${esc(title)}</b><span>${esc(label)} · 用时 ${esc(elapsed)}</span></div></li>`;
+    const sequence = Number(item.sequence) > 0 ? `第 ${item.sequence} 步` : "运行步骤";
+    const version = item.tool_version ? ` · ${item.tool_version}` : "";
+    return `<li class="agent-trace-row"><span class="agent-trace-kind ${tone}">${esc(toolLabel)}</span><div><b>${esc(title)}</b><span class="agent-trace-meta"><strong>${esc(sequence)}</strong><span>${esc(label)} · 用时 ${esc(elapsed)}${esc(version)}</span></span></div></li>`;
   }).join("");
   const traceSimulation = (toolTrace || []).some(item => item.simulation === true);
   const traceModeUnknown = (toolTrace || []).some(item =>
@@ -1869,6 +1898,7 @@ function paintReview(taskId, sid) {
   if (!rules.some(r => r.rule_id === state.reviewRule)) state.reviewRule = rules[0]?.rule_id || null;
   const active = rules.find(r => r.rule_id === state.reviewRule) || null;
   const run = d.run, notes = d.notes || [];
+  const reviewFiles = new Map((d.files || []).map(file => [file.file_id, file]));
   const retry = document.getElementById("review-retry");
   if (retry) retry.innerHTML = run && run.status === "failed"
     ? `<button class="ghost" onclick="retryCheck(${taskId},${sid},'review')" title="上次检查技术失败：重试生成新运行，旧运行标记被取代并保留">${icon("arrow")} 重试检查</button>` : "";
@@ -1936,7 +1966,7 @@ function paintReview(taskId, sid) {
       <div class="evidence-meta">${(active.requirement && active.requirement.executor) ? `<span class="badge">${esc(EXECUTOR_LABEL[active.requirement.executor] || active.requirement.executor)}</span>` : ""}${(active.requirement && active.requirement.capability) ? (CAP_BADGE[active.requirement.capability] || "") : ""}<span class="badge">${esc(severityLabel(active.severity))}</span>${(active.requirement && active.requirement.requirement_source) ? `<span class="source-quote">来源：${esc(active.requirement.requirement_source)}</span>` : ""}</div>
       ${active.decision ? `<div class="notice-warn"><b>${esc(DECISION_LABEL[active.decision.decision] || active.decision.decision)}</b><p>${esc(active.decision.reason)}</p><span class="muted">人工决定不改写原始检查结果；撤销后可重新核对。</span></div>` : ""}
       ${active.explanation ? `<p class="evidence-explanation">${esc(active.explanation)}</p>` : ""}
-      ${(active.evidence || []).length ? `<div class="evidence-list">${active.evidence.map(e => `<blockquote class="evidence"><span class="evidence-loc">${esc(e.locator || "未标注位置")} · ${esc(e.method || "-")}</span>${esc(e.quote || "")}</blockquote>`).join("")}</div>` : `<p class="muted">这条规则没有可引用的原文证据。</p>`}
+      ${(active.evidence || []).length ? `<div class="evidence-list">${active.evidence.map(e => { const file = e.file_id ? reviewFiles.get(e.file_id) : null; const fileLink = file?.url ? `<a class="evidence-file-link" href="${esc(file.url)}" data-file-url="${esc(file.url)}" onclick="return openReviewFile(event,this.dataset.fileUrl)" target="_blank" rel="noreferrer">${icon("delivery")} 打开原件 · ${esc(file.name || "未命名文件")}</a>` : ""; return `<blockquote class="evidence"><span class="evidence-loc">${esc(e.locator || "未标注位置")} · ${esc(e.method || "-")}</span>${fileLink}${esc(e.quote || "")}</blockquote>`; }).join("")}</div>` : `<p class="muted">这条规则没有可引用的原文证据。</p>`}
       ${active.next_step ? `<div class="evidence-next"><b>${active.decision ? "原始检查建议" : "下一步"}</b><p>${esc(active.next_step)}</p></div>` : ""}
     </article>` : `<article class="evidence-detail" id="review-evidence" tabindex="-1"><p class="muted">${rules.length ? "点击左侧任意一条规则查看证据。" : "暂时没有可展示的规则证据。"}</p></article>`;
 
