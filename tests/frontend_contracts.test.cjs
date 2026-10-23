@@ -93,11 +93,13 @@ test('demo route renders server lifecycle progress and the next stop', () => {
   assert.match(html, /2\/4 站已完成/);
   assert.match(html, /整理要求[\s\S]*已完成/);
   assert.match(html, /检查并接手[\s\S]*现在处理/);
-  assert.match(html, /当前站[\s\S]*检查并接手/);
   assert.match(html, /aria-current="step"/);
-  assert.match(html, /继续检查并接手/);
-  assert.doesNotMatch(html, /下一站：检查并接手/);
+  assert.match(html, /当前焦点[\s\S]*检查并接手/);
+  assert.match(html, /完成后[\s\S]*固定交付/);
+  assert.match(html, /role="progressbar"/);
+  assert.match(html, /aria-valuenow="2"/);
   assert.match(html, /进入检查并接手/);
+  assert.doesNotMatch(html, /下一站：检查并接手/);
 });
 test('task workspace explains offline mode without hiding the available workflow', () => {
   const {app, els} = setup();
@@ -133,6 +135,7 @@ test('presentation view is session-scoped, reversible, and keyboard discoverable
   const routeIndex = source.indexOf('<div id="demo-route"');
   const runtimeIndex = source.indexOf('class="workspace-runtime-strip"');
   assert.ok(routeIndex >= 0 && runtimeIndex > routeIndex, 'showcase route should lead the agent explanation');
+  assert.equal((source.match(/id="demo-route"/g) || []).length, 1, 'task page should mount one demo route container');
 });
 test('agent walkthrough makes the constrained execution path visible', () => {
   const {app} = setup();
