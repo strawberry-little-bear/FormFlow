@@ -1,7 +1,7 @@
 "use strict";
 /* 收齐啦 FormFlow 前端（P01–P05）。纯静态 SPA，直接调用 /api。 */
 const ORG_KEY = "ff_org_token", SUB_KEY = "ff_sub_token";
-const state = { taskId: null, chat: [], bpId: null, draft: null, requirement: "", answeredDone: false, files: {}, filesMeta: {}, draftVersion: null, me: null, lastJob: null, roster: {}, designEpoch: 0, agentBusy: false, agentRequest: null, agentRequestPollTimer: 0, agentResumeStarted: false, agentRequestDisplayedId: null, draftStatus: "draft", draftVersionId: null, designTab: "preview", tasks: [], designBlocking: [], designAdvisories: [], designVersions: [], designHistory: [], viewingVersion: null, wbRows: [], wbFilter: "all", reviewRule: null, reviewFilter: "all" };
+const state = { taskId: null, chat: [], bpId: null, draft: null, requirement: "", answeredDone: false, files: {}, filesMeta: {}, draftVersion: null, me: null, lastJob: null, roster: {}, designEpoch: 0, agentBusy: false, agentRequest: null, agentRequestPollTimer: 0, agentResumeStarted: false, agentRequestDisplayedId: null, draftStatus: "draft", draftVersionId: null, designTab: "preview", tasks: [], designBlocking: [], designAdvisories: [], designVersions: [], designHistory: [], viewingVersion: null, viewingPublished: null, viewingImpact: null, wbRows: [], wbFilter: "all", reviewRule: null, reviewFilter: "all" };
 
 const orgToken = () => localStorage.getItem(ORG_KEY) || "";
 const subToken = () => localStorage.getItem(SUB_KEY) || "";
@@ -600,7 +600,7 @@ async function viewDesign(taskId) {
   cacheDesignInputs();
   const epoch = ++state.designEpoch, token = orgToken();
   Object.assign(state,{designTaskId:taskId,designOwnerId:null,designToken:token,designBaseId:0,designQuestions:[],designRenderedBase:null,designDirty:false,designCacheFailed:false,designNeedsRevision:false});
-  Object.assign(state, {taskId, chat: [], bpId: null, draft: null, requirement: "", answeredDone: false, draftStatus: "draft", draftVersionId: null, designLoadFailed: false, retryRequest: null, agentRequest: null, agentRequestPollTimer: 0, agentResumeStarted: false, agentRequestDisplayedId: null, designTab: "preview", agentBusy: false, designBlocking: [], designAdvisories: [], designVersions: [], designHistory: [], viewingVersion: null});
+  Object.assign(state, {taskId, chat: [], bpId: null, draft: null, requirement: "", answeredDone: false, draftStatus: "draft", draftVersionId: null, designLoadFailed: false, retryRequest: null, agentRequest: null, agentRequestPollTimer: 0, agentResumeStarted: false, agentRequestDisplayedId: null, designTab: "preview", agentBusy: false, designBlocking: [], designAdvisories: [], designVersions: [], designHistory: [], viewingVersion: null, viewingPublished: null, viewingImpact: null});
   document.getElementById("app").innerHTML = `<div class="breadcrumb"><a href="#/tasks">我的任务</a><span>/</span><span id="design-name">收集任务 #${taskId}</span></div>
     <div class="page-heading design-heading"><div><div class="eyebrow">COLLECTION DESIGN</div><h1>把要求，变成好用的收集表</h1><p>左边一起梳理需求，右边实时核对。确认无误后再发布。</p></div><span class="badge brand" id="draft-state">正在加载…</span></div>
     <div id="flash" role="status" aria-live="polite"></div>
@@ -1084,7 +1084,8 @@ function renderDraftPanel() {
     ${viewing ? `<div class="version-banner" role="status"><div><b>正在查看历史版本 v${viewing.version}</b><span>这是只读快照，发布与修订仍以最新草案为准。</span></div><div class="row-actions"><button class="ghost sm" onclick="useVersionAsBase()">以此为起点修改</button><button class="ghost sm" onclick="backToLatest()">回到最新</button></div></div>` : ''}
     ${blocking.length ? `<div class="draft-warning blocking" role="alert"><b>发布前必须处理 ${blocking.length} 项</b><ul>${blocking.map(w => `<li>${esc(w)}</li>`).join('')}</ul></div>` : ''}
     ${advisories.length ? `<div class="draft-warning" role="status"><b>${blocking.length ? '另有' : ''} ${advisories.length} 项提醒（不阻止发布）</b><ul>${advisories.map(w => `<li>${esc(w)}</li>`).join('')}</ul></div>` : ''}
-     ${designReadinessHtml(bp, d, blocking, advisories, viewing)}
+    ${designReadinessHtml(bp, d, blocking, advisories, viewing)}
+    ${designVersionImpactHtml()}
     <div class="draft-content" role="tabpanel">${state.designTab === 'preview' ? `<div class="form-preview"><div class="preview-banner"><span>${scope.mode === 'open' ? '开放报名' : '名册收集'}</span><span>填写预览 · 不会提交</span></div><h2>${esc(scope.name || state.task?.name || '收集任务')}</h2><p class="muted">${esc(scope.description || '请按以下要求登记信息并提交材料。')}</p>
       <div class="preview-section-title"><b>01</b> 登记信息</div>${(bp.fields || []).map(f => `<div class="preview-field"><label>${esc(f.label)}${f.required ? '<em> *</em>' : ' <small>选填</small>'}</label>${f.type === 'enum' ? `<select disabled aria-label="${esc(f.label)}"><option>请选择${esc(f.label)}</option>${(f.options || []).map(o => `<option>${esc(o)}</option>`).join('')}</select>` : `<input disabled aria-label="${esc(f.label)}" placeholder="请填写${esc(f.label)}">`}${f.required_condition ? `<p class="field-help">条件：${esc(f.required_condition)}</p>` : ''}${f.purpose ? `<p class="field-help">用途：${esc(f.purpose)}</p>` : ''}</div>`).join('') || '<p class="muted">尚未设置登记字段</p>'}
       <div class="preview-section-title"><b>02</b> 提交材料</div>${(bp.slots || []).map(sl => `<div class="upload-preview">${icon('delivery')}<div><strong>${esc(sl.label)}</strong><p>${(sl.formats || []).map(x=>esc(x.toUpperCase())).join(' / ') || '未限定格式'} · 最多 ${sl.max_count} 份${sl.max_size_mib ? ` · 每份 ≤ ${sl.max_size_mib} MiB` : ''}${sl.max_pages ? ` · ≤ ${sl.max_pages} 页` : ''}</p>${sl.required_condition ? `<p>条件：${esc(sl.required_condition)}</p>` : ''}</div><span>上传区域</span></div>`).join('') || '<p class="muted">尚未设置材料</p>'}
@@ -1101,6 +1102,8 @@ async function loadDesignVersion(bpId) {
     const r = await api(`/api/tasks/${state.taskId}/blueprints/${bpId}`);
     if (epoch !== state.designEpoch) return;
     state.viewingVersion = {id: r.blueprint_version_id, version: r.version, status: r.status, source_text:r.source_text || ''};
+    state.viewingPublished = r.published || null;
+    state.viewingImpact = r.publish_impact || null;
     state.draft = r.draft;
     state.draftVersionId = r.version;
     state.draftStatus = r.status;
@@ -1112,6 +1115,8 @@ async function loadDesignVersion(bpId) {
 }
 function backToLatest() {
   state.viewingVersion = null;
+  state.viewingPublished = null;
+  state.viewingImpact = null;
   viewDesign(state.taskId);
 }
 function useVersionAsBase() {
@@ -1121,15 +1126,33 @@ function useVersionAsBase() {
   state.designQuestions=state.draft?.clarifications || [];state.designRenderedBase=null;state.designNeedsRevision=true;
   const input=document.getElementById('chat-in');if(input)input.value='';
   state.viewingVersion = null;
+  state.designPublished = state.viewingPublished || state.designPublished;
+  state.designPublishImpact = state.viewingImpact || state.designPublishImpact;
+  state.viewingPublished = null;
+  state.viewingImpact = null;
   state.draftStatus = 'draft';
   setAgentBusy(false);
   agentSay(`已切换到 v${v.version} 作为修订起点。`, '接下来的修改会基于这个版本形成新草案，历史版本不会丢。');
   renderDraftPanel();
 }
 
-function publishDiffHtml(server) {
+function designVersionImpactHtml() {
+  const viewing = state.viewingVersion;
+  const published = viewing ? state.viewingPublished : state.designPublished;
+  const impact = viewing ? state.viewingImpact : state.designPublishImpact;
+  if (!state.draft?.blueprint || !published || !impact) return '';
+  const heading = viewing
+    ? `v${viewing.version} 相对已发布 v${published.version} 的变化`
+    : `当前草案相对已发布 v${published.version} 的变化`;
+  const note = viewing
+    ? '这是历史版本的只读影响说明；回到最新草案后，发布核对会重新计算。'
+    : '发布只会影响这份草案；既有正式版本和历史决定不会自动套用新要求。';
+  return `<details class="version-impact" open><summary><span><b>版本变化</b><small>${esc(heading)}</small></span><span class="version-impact-mark">${impact.summary === '无实质变化' ? '无变化' : '需要核对'}</span></summary>${publishDiffHtml({published, draft:state.draft, publish_impact:impact}, {heading, note, compact:true}).replace(/^<div class="publish-group publish-diff">/, '<div class="publish-group publish-diff version-impact-body">')}</details>`;
+}
+
+function publishDiffHtml(server, options = {}) {
   const published=server.published;
-  if(!published) return '<div class="publish-group"><h3>首次发布</h3><p>尚无已发布版本；请核对下面的完整收集要求。</p></div>';
+  if(!published) return `<div class="publish-group"><h3>${esc(options.heading || '首次发布')}</h3><p>尚无已发布版本；请核对下面的完整收集要求。</p></div>`;
   const before=published.blueprint || {}, after=server.draft.blueprint, changes=server.publish_impact || {};
   const lines=[];
   const describe=(kind,item)=>kind==='fields'
@@ -1151,7 +1174,7 @@ function publishDiffHtml(server) {
   if(changes.auto_scope?.added?.length || changes.auto_scope?.removed?.length) lines.push('自动处理范围已调整，请逐条核对规则能力');
   for(const [key,label] of [['task_scope','收集对象与说明'],['delivery','交付设置'],['governance','用途与数据治理']])
     if(draftFingerprint(before[key] || {},{})!==draftFingerprint(after[key] || {},{}))lines.push(label+'已调整，请核对完整说明');
-  return `<div class="publish-group publish-diff"><h3>相对已发布 v${published.version} 的变化</h3>${lines.length ? `<ul>${lines.map(x=>`<li>${esc(x)}</li>`).join('')}</ul>` : '<p>没有配置变化。</p>'}<p class="field-help">既有正式版本和历史决定保留原范围，不自动套用新要求。</p></div>`;
+  return `<div class="publish-group publish-diff"><h3>${esc(options.heading || `相对已发布 v${published.version} 的变化`)}</h3>${lines.length ? `<ul>${lines.map(x=>`<li>${esc(x)}</li>`).join('')}</ul>` : '<p>没有配置变化。</p>'}<p class="field-help">${esc(options.note || '既有正式版本和历史决定保留原范围，不自动套用新要求。')}</p></div>`;
 }
 async function publishBp(taskId) {
   cacheDesignInputs();

@@ -25,6 +25,18 @@ def test_design_recovers_published_baseline_and_aggregate_difference(db_session)
     assert view["task"]["timezone"]=="Asia/Shanghai"
 
 
+def test_historical_version_returns_published_baseline_and_impact(db_session):
+    task=make_task(db_session)
+    first=draft(db_session,task,"姓名")
+    tasks.publish(db_session,task,first.id)
+    second=draft(db_session,task,"联系人姓名")
+    view=tasks.get_blueprint_version(db_session,task,second.id)
+    assert view["published"]["id"]==first.id
+    assert view["published"]["version"]==first.version
+    assert view["published"]["blueprint"]["fields"][0]["label"]=="姓名"
+    assert view["publish_impact"]["fields"]["changed"]==["name"]
+
+
 def test_newer_draft_prevents_publishing_stale_preview(db_session):
     task=make_task(db_session)
     old=draft(db_session,task,"姓名")

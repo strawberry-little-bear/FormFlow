@@ -31,7 +31,7 @@ function setup(sharedStorage = storage()) {
     window: {addEventListener() {}}, location: {hash:'#/submit'}, Intl, URLSearchParams, FormData,
     setTimeout, clearTimeout, confirm: () => true, console,
     fetch: async () => {throw new Error('Unexpected request');}});
-  vm.runInContext(source + '\nthis.app = {state, useVersionAsBase, loadDesignVersion, cacheDesignInputs, restoreDesignInputs, recoverDesignInput, paintChat, runAgent, runExport, deliveryHistoryHtml, loadDeliveryHistory, inspectSnapshot, paintSnapshot, canPublishDesign, publishDiffHtml, publishBp, confirmPublish, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, fmtTimeShort, designReadinessHtml, draftFingerprint, collectDraftFields, cacheSubmissionDraft, setSubMode, refreshSlotConditions, wbMatches, api, submitDecision, saveDraft, doSubmit, uploadSlot, deleteSlotFile, cacheReviewDraft, discardReviewDraft, logout, nextPendingReview, setReviewFilter, selectReviewRule, viewReview, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, chooseWorkbenchNextStep, workbenchNextStepHtml, agentRunCard, submitterGuidance, ruleCard, receiptFilesHtml, submissionIssues, checkAgentRequestNow, resumePendingAgentRequest, savePendingAgentRequest, agentRequestProgressHtml, retryAgent, pollAgentRequest, showSubmissionIssues, initSubChat};', context);
+  vm.runInContext(source + '\nthis.app = {state, useVersionAsBase, loadDesignVersion, cacheDesignInputs, restoreDesignInputs, recoverDesignInput, paintChat, runAgent, runExport, deliveryHistoryHtml, loadDeliveryHistory, inspectSnapshot, paintSnapshot, canPublishDesign, publishDiffHtml, designVersionImpactHtml, publishBp, confirmPublish, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, fmtTimeShort, designReadinessHtml, draftFingerprint, collectDraftFields, cacheSubmissionDraft, setSubMode, refreshSlotConditions, wbMatches, api, submitDecision, saveDraft, doSubmit, uploadSlot, deleteSlotFile, cacheReviewDraft, discardReviewDraft, logout, nextPendingReview, setReviewFilter, selectReviewRule, viewReview, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, chooseWorkbenchNextStep, workbenchNextStepHtml, agentRunCard, submitterGuidance, ruleCard, receiptFilesHtml, submissionIssues, checkAgentRequestNow, resumePendingAgentRequest, savePendingAgentRequest, agentRequestProgressHtml, retryAgent, pollAgentRequest, showSubmissionIssues, initSubChat};', context);
   Object.assign(context.app.state, {routeEpoch: 1, me:{task:{id:1, status:'collecting', timezone:'Asia/Shanghai'},subject:{id:2}},
     draftVersion:1, fileMeta:{}, sub:{mode:'chat',phase:'fields',fIdx:0, fields:[{id:'name'}],slots:[],answers:{}}});
   context.localStorage.setItem('ff_sub_token', 'test-only-credential');
@@ -879,6 +879,19 @@ test('publication diff shows removed requirements and safely escapes description
   const {app}=designSetup();const html=app.publishDiffHtml({published:{version:1,blueprint:{fields:[{id:'old',label:'<旧字段>',required:true}],slots:[],rules:[]}},
     draft:{blueprint:{fields:[],slots:[],rules:[],eligibility_required:true}},publish_impact:{fields:{removed:['old']},eligibility_required_changed:true}});
   assert.match(html,/相对已发布 v1/);assert.match(html,/移除字段/);assert.match(html,/&lt;旧字段&gt;/);assert.match(html,/资格前提：启用/);
+});
+test('design preview keeps published baseline changes visible for current and historical versions', () => {
+  const {app}=designSetup();
+  app.state.designPublished={id:3,version:1,blueprint:{fields:[{id:'name',label:'姓名'}],slots:[],rules:[]}};
+  app.state.designPublishImpact={fields:{added:['email'],removed:[],changed:[]},slots:{added:[],removed:[],changed:[]},rules:{added:[],removed:[],changed:[]},summary:'fields+1'};
+  app.state.draft={blueprint:{fields:[{id:'name',label:'姓名'},{id:'email',label:'<邮箱>'}],slots:[],rules:[]}};
+  let html=app.designVersionImpactHtml();
+  assert.match(html,/版本变化/);assert.match(html,/当前草案相对已发布 v1 的变化/);assert.match(html,/新增字段/);assert.match(html,/&lt;邮箱&gt;/);
+  app.state.viewingVersion={id:2,version:2};
+  app.state.viewingPublished=app.state.designPublished;
+  app.state.viewingImpact=app.state.designPublishImpact;
+  html=app.designVersionImpactHtml();
+  assert.match(html,/v2 相对已发布 v1 的变化/);
 });
 test('publication submits reviewed baseline and locks the dialog after a competing publish', async () => {
   const {app,els,context}=designSetup();const fresh={...updatedDesign(),blueprint_version_id:10,published:{id:3,version:1,blueprint:{fields:[],slots:[],rules:[]}},publish_impact:{fields:{added:['name']}}};

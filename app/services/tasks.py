@@ -127,9 +127,16 @@ def get_blueprint_version(db: Session, task: Task, bp_id: int) -> dict:
              else DraftResult(blueprint=blueprint))
     draft.blueprint = blueprint
     blocking, advisories = split_publish_checks(blueprint, bp, draft)
+    published = db.get(BlueprintVersion, task.current_blueprint_id) if task.current_blueprint_id else None
+    published_blueprint = Blueprint.model_validate_json(published.blueprint_json) if published else None
     return {"blueprint_version_id": bp.id, "version": bp.version, "status": bp.status,
             "source_text": bp.source_text or "", "draft": draft.model_dump(mode="json"),
-            "blocking": blocking, "advisories": advisories}
+            "blocking": blocking, "advisories": advisories,
+            "published": ({"id": published.id, "version": published.version,
+                            "blueprint": published_blueprint.model_dump(mode="json")}
+                           if published and published_blueprint else None),
+            "publish_impact": (blueprint_diff(published_blueprint, blueprint)
+                               if published_blueprint else None)}
 
 
 def split_publish_checks(blueprint: Blueprint, bp: BlueprintVersion,
