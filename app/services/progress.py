@@ -103,6 +103,20 @@ def demo_route_data(db: Session, task: Task) -> dict:
     review_detail = (f"已验收 {accepted}/{required} 个主体"
                      if required else "提交进入后会在这里逐条检查")
 
+    # The first-entry route should land on a real evidence review when one is
+    # available. Keep the workbench as the fallback so empty or pre-submission
+    # tasks never point at a review page without a subject.
+    review_target = next((row for row in wb["rows"]
+                          if row.get("subject_id") and row.get("formal")
+                          and not row.get("exempt")
+                          and row.get("acceptance") != "accepted"), None)
+    if review_target:
+        review_href = f"#/review/{task.id}/{review_target['subject_id']}"
+        review_detail = (f"已验收 {accepted}/{required} 个主体 · "
+                         f"先看 {review_target['name']} 的证据")
+    else:
+        review_href = f"#/workbench/{task.id}"
+
     formal_snapshot = db.scalar(select(DeliverySnapshot).where(
         DeliverySnapshot.task_id == task.id,
         DeliverySnapshot.kind == "formal").order_by(DeliverySnapshot.id.desc()))
@@ -130,7 +144,7 @@ def demo_route_data(db: Session, task: Task) -> dict:
         {"key": "roster", "title": "发放凭证", "detail": roster_detail,
          "status": roster_state, "href": f"#/roster/{task.id}"},
         {"key": "review", "title": "检查并接手", "detail": review_detail,
-         "status": review_state, "href": f"#/workbench/{task.id}"},
+         "status": review_state, "href": review_href},
         {"key": "delivery", "title": "固定交付",
          "detail": ("CSV + ZIP 已从正式快照生成" if export_ready
                     else "验收完成后固定快照并生成 CSV + ZIP"),

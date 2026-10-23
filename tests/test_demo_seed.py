@@ -59,3 +59,6 @@ def test_demo_route_projection_follows_seed_lifecycle(db_session):
     assert route["current"]["status"] == "current"
     assert route["next"]["title"] == "检查并接手"
     assert "已验收 1/4" in route["next"]["detail"]
+    assert route["next"]["href"] == f"#/review/{task.id}/2"
+    assert route["steps"][2]["href"] == f"#/review/{task.id}/2"
+    assert "李四" in route["next"]["detail"]
