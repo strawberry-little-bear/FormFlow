@@ -3845,6 +3845,72 @@ button.validation-link { border: 0; background: none; color: var(--bad); box-sha
   .review-group-head span { max-width:230px; }
 }
 
+/* The runtime strip states the boundary; this compact tour shows the execution path. */
+.agent-tour {
+  margin:0 0 18px;
+  border:1px solid #dedbea;
+  border-radius:11px;
+  background:#fbfaff;
+  overflow:hidden;
+}
+.agent-tour details > summary {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:16px;
+  padding:14px 18px;
+  cursor:pointer;
+  list-style:none;
+}
+.agent-tour details > summary::-webkit-details-marker { display:none; }
+.agent-tour details > summary > span:first-child { display:flex; flex-direction:column; gap:2px; min-width:0; }
+.agent-tour details > summary b { font-size:13px; line-height:1.45; }
+.agent-tour details > summary small { color:var(--muted); font-size:10px; line-height:1.5; }
+.agent-tour-summary { display:flex; align-items:center; gap:9px; flex:none; }
+.agent-tour-chevron { display:flex; align-items:center; justify-content:center; width:25px; height:25px; border:1px solid #ddd8f0; border-radius:6px; color:var(--brand); background:#fff; transition:transform .15s; }
+.agent-tour-chevron svg { width:13px; height:13px; }
+.agent-tour details[open] .agent-tour-chevron { transform:rotate(90deg); }
+.agent-tour details[open] > summary { border-bottom:1px solid #e6e2f1; }
+.agent-tour-body { padding:13px 18px 15px; }
+.agent-tour-intro { display:flex; align-items:baseline; justify-content:space-between; gap:14px; margin-bottom:12px; }
+.agent-tour-intro p { margin:0; color:#5f6270; font-size:11px; line-height:1.6; }
+.agent-tour-intro span { flex:none; color:#8a8499; font-size:10px; }
+.agent-tour-flow { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:8px; margin:0; padding:0; list-style:none; }
+.agent-tour-step { position:relative; min-width:0; min-height:108px; padding:11px 10px 10px 12px; border:1px solid #e4e0ef; border-radius:8px; background:#fff; }
+.agent-tour-step::after { content:""; position:absolute; top:22px; right:-8px; width:7px; border-top:1px dashed #c9c2dd; }
+.agent-tour-step:last-child::after { display:none; }
+.agent-tour-index { display:block; color:#a39db4; font-size:10px; font-variant-numeric:tabular-nums; }
+.agent-tour-step b { display:block; margin-top:5px; color:var(--brand-deep); font-size:10px; letter-spacing:.08em; text-transform:uppercase; }
+.agent-tour-step strong { display:block; margin-top:3px; font-size:11px; line-height:1.4; overflow-wrap:anywhere; }
+.agent-tour-step > div > span { display:block; margin-top:5px; color:var(--muted); font-size:10px; line-height:1.5; overflow-wrap:anywhere; }
+.agent-tour-step.input { border-top:2px solid #b7b0cf; }
+.agent-tour-step.skill { border-top:2px solid #9d8be0; }
+.agent-tour-step.harness { border-top:2px solid #7f9cc4; }
+.agent-tour-step.evidence { border-top:2px solid #8fb89c; }
+.agent-tour-step.human { border-top:2px solid #d2aa5b; }
+.agent-tour-boundary { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.25fr); gap:10px; margin-top:12px; padding-top:11px; border-top:1px solid #e6e2f1; }
+.agent-tour-boundary > div { display:flex; flex-direction:column; gap:4px; min-width:0; }
+.agent-tour-boundary b { color:#716b82; font-size:10px; }
+.agent-tour-boundary span { color:var(--muted); font-size:10px; line-height:1.5; overflow-wrap:anywhere; }
+.agent-tour-boundary code { display:inline-block; margin:0 4px 3px 0; padding:1px 4px; color:var(--brand-deep); background:#f0edff; font-size:9px; }
+@media (max-width:900px) {
+  .agent-tour-flow { grid-template-columns:repeat(3,minmax(0,1fr)); }
+  .agent-tour-step:nth-child(3)::after { display:none; }
+}
+@media (max-width:600px) {
+  .agent-tour details > summary { align-items:flex-start; padding:13px 14px; }
+  .agent-tour-summary { gap:6px; }
+  .agent-tour-summary .runtime-mode { max-width:88px; overflow:hidden; text-overflow:ellipsis; }
+  .agent-tour-body { padding:12px 14px 14px; }
+  .agent-tour-intro { align-items:flex-start; flex-direction:column; gap:4px; }
+  .agent-tour-flow { grid-template-columns:1fr; gap:6px; }
+  .agent-tour-step { min-height:0; padding:10px 10px 10px 12px; }
+  .agent-tour-step::after { top:auto; right:auto; bottom:-5px; left:22px; width:0; height:4px; border-top:0; border-left:1px dashed #c9c2dd; }
+  .agent-tour-step:nth-child(3)::after { display:block; }
+  .agent-tour-step:last-child::after { display:none; }
+  .agent-tour-boundary { grid-template-columns:1fr; gap:8px; }
+}
+
 /* Publish readiness turns the blueprint into a one-page handoff for a first-time organizer. */
 .design-readiness {
   margin:0 0 16px;

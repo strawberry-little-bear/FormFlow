@@ -539,6 +539,7 @@ async function viewTasks() {
     <div id="flash" role="status"></div>
     <section class="workspace-intro"><div class="intro-symbol">${icon("design")}</div><div><h2>不用从一张空表单开始</h2><p>告诉小齐要收什么，一起确认字段、材料和规则，再交给提交者。</p></div><span class="intro-note">你确认，才发布 ${icon("arrow")}</span></section>
     <section class="workspace-runtime-strip" aria-label="FormFlow Agent runtime"><div class="runtime-strip-lead"><div class="runtime-strip-head"><div class="eyebrow">FORMFLOW AGENT RUNTIME</div><span id="workspace-agent-mode" class="runtime-mode">读取状态…</span></div><h2>助手负责整理与取证，关键决定留给人</h2><p id="workspace-agent-status" role="status" aria-live="polite">正在读取当前模型配置；已有任务和程序流程仍可查看。</p></div><div class="runtime-strip-grid"><div><b>Skill</b><span><code>review_one_submission</code> 按当前规则逐条取证</span></div><div><b>工具白名单</b><span><code>review.deterministic_rule</code> / <code>review.semantic_rule</code></span></div><div><b>Harness</b><span>scope、预算、幂等键、结果上限与审计</span></div><div><b>MCP 边界</b><span>当前没有外部 adapter，不把网络或文件工具交给模型</span></div><div><b>人来决定</b><span>资格、补正与最终验收不会自动完成</span></div></div></section>
+    ${agentTourHtml()}
     <div id="demo-route" aria-live="polite"></div>
     <div id="task-stats" class="overview-stats"></div>
     <section class="card task-section"><div class="section-toolbar"><div class="task-filters" role="group" aria-label="任务状态筛选">
@@ -577,6 +578,23 @@ function demoRouteTask(tasks = []) {
     || tasks.find(t => !["archived", "cancelled", "closed"].includes(t.status))
     || tasks[0]
     || null;
+}
+function agentTourHtml(llmConfigured = state.llmConfigured) {
+  const mode = llmConfigured === false ? "离线演示" : llmConfigured === true ? "模型已接入" : "运行状态读取中";
+  const modeClass = llmConfigured === false ? "offline" : llmConfigured === true ? "online" : "";
+  const availability = llmConfigured === false
+    ? "当前没有模型密钥：程序规则、已有结果和人工接手仍可完整演示。"
+    : llmConfigured === true
+      ? "当前已配置模型密钥；语义审核仍受工具白名单、预算和证据约束。"
+      : "正在读取模型配置；已有任务和程序流程仍可查看。";
+  const steps = [
+    ["输入", "从一句要求或一份正式提交开始", "先锁定当前任务、发布蓝图和提交版本，Agent 不自行扩大范围。", "scope"],
+    ["Skill", "review_one_submission", "按规则逐条取证，把程序核验、语义审核和人工事项分开。", "skill"],
+    ["Harness", "受限工具运行时", "检查工具名、参数、授权范围、调用预算、幂等键和结果上限。", "harness"],
+    ["证据", "回到原文位置", "每条结果保留工具 trace、关联编号和覆盖范围；证据不足就停在待确认。", "evidence"],
+    ["接手", "组织者做最终决定", "资格、补正和最终验收由人确认，模型不会自行发布或认定通过。", "human"],
+  ];
+  return `<section class="agent-tour" aria-label="Agent 工作导览"><details open><summary><span><span class="eyebrow">现场演示 · AGENT WALKTHROUGH</span><b>一次运行怎样从要求走到可交付证据</b><small>展开查看 skill、harness、工具边界与人工接手点</small></span><span class="agent-tour-summary"><span id="agent-tour-mode" class="runtime-mode ${modeClass}">${esc(mode)}</span><span class="agent-tour-chevron">${icon("arrow")}</span></span></summary><div class="agent-tour-body"><div class="agent-tour-intro"><p id="agent-tour-availability">${esc(availability)}</p><span>每一步都可以在复核页的运行记录中回看</span></div><ol class="agent-tour-flow">${steps.map(([label, title, detail, tone], i) => `<li class="agent-tour-step ${tone}"><span class="agent-tour-index">0${i + 1}</span><div><b>${esc(label)}</b><strong>${esc(title)}</strong><span>${esc(detail)}</span></div></li>`).join("")}</ol><div class="agent-tour-boundary"><div><b>允许使用</b><span><code>review.deterministic_rule</code><code>review.semantic_rule</code></span></div><div><b>明确不做</b><span>当前未连接外部 MCP adapter；模型不能访问网络、文件系统或任意 SQL。</span></div></div></div></details></section>`;
 }
 const DEMO_ROUTE_STATUS = {done: "已完成", current: "现在处理", upcoming: "下一步", blocked: "先完成前置"};
 const DEMO_ROUTE_ICONS = {design: "design", roster: "roster", review: "review", delivery: "delivery"};
@@ -618,22 +636,31 @@ async function loadDemoRoute(task) {
 function paintWorkspaceAgentStatus() {
   const mode = document.getElementById("workspace-agent-mode");
   const status = document.getElementById("workspace-agent-status");
+  const tourMode = document.getElementById("agent-tour-mode");
+  const tourStatus = document.getElementById("agent-tour-availability");
   if (!mode || !status) return;
+  const paintTour = (label, text, tone = "") => {
+    if (tourMode) { tourMode.className = `runtime-mode ${tone}`.trim(); tourMode.textContent = label; }
+    if (tourStatus) tourStatus.textContent = text;
+  };
   mode.className = "runtime-mode";
   if (state.llmConfigured === false) {
     mode.classList.toggle("offline", true);
     mode.textContent = "离线演示";
     status.textContent = "没有模型密钥：可继续查看模板、已有结果和程序流程；新的需求起草会明确停下。";
+    paintTour("离线演示", "当前没有模型密钥：程序规则、已有结果和人工接手仍可完整演示。", "offline");
     return;
   }
   if (state.llmConfigured === true) {
     mode.classList.toggle("online", true);
     mode.textContent = "模型已接入";
     status.textContent = "语义核验按当前规则和调用预算运行；证据不足或失败时交给组织者处理。";
+    paintTour("模型已接入", "当前已配置模型密钥；语义审核仍受工具白名单、预算和证据约束。", "online");
     return;
   }
   mode.textContent = "读取状态…";
   status.textContent = "正在读取当前模型配置；已有任务和程序流程仍可查看。";
+  paintTour("运行状态读取中", "正在读取模型配置；已有任务和程序流程仍可查看。", "");
 }
 async function checkWorkspaceLLMStatus() {
   try {
