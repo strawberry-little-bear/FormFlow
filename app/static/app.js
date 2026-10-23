@@ -1,7 +1,7 @@
 "use strict";
 /* 收齐啦 FormFlow 前端（P01–P05）。纯静态 SPA，直接调用 /api。 */
 const ORG_KEY = "ff_org_token", SUB_KEY = "ff_sub_token";
-const state = { taskId: null, chat: [], bpId: null, draft: null, requirement: "", answeredDone: false, files: {}, filesMeta: {}, draftVersion: null, me: null, lastJob: null, roster: {}, designEpoch: 0, agentBusy: false, agentRequest: null, agentRequestPollTimer: 0, agentResumeStarted: false, agentRequestDisplayedId: null, draftStatus: "draft", draftVersionId: null, designTab: "preview", tasks: [], designBlocking: [], designAdvisories: [], designVersions: [], designHistory: [], viewingVersion: null, viewingPublished: null, viewingImpact: null, wbRows: [], wbFilter: "all", reviewRule: null, reviewFilter: "all" };
+const state = { taskId: null, chat: [], bpId: null, draft: null, requirement: "", answeredDone: false, files: {}, filesMeta: {}, draftVersion: null, me: null, lastJob: null, roster: {}, designEpoch: 0, agentBusy: false, agentRequest: null, agentRequestPollTimer: 0, agentResumeStarted: false, agentRequestDisplayedId: null, draftStatus: "draft", draftVersionId: null, designTab: "preview", tasks: [], llmConfigured: null, designBlocking: [], designAdvisories: [], designVersions: [], designHistory: [], viewingVersion: null, viewingPublished: null, viewingImpact: null, wbRows: [], wbFilter: "all", reviewRule: null, reviewFilter: "all" };
 
 const orgToken = () => localStorage.getItem(ORG_KEY) || "";
 const subToken = () => localStorage.getItem(SUB_KEY) || "";
@@ -519,7 +519,7 @@ async function viewTasks() {
       <button onclick="openDialog('create-dialog', this)">${icon("plus")} 新建收集任务</button></div>
     <div id="flash" role="status"></div>
     <section class="workspace-intro"><div class="intro-symbol">${icon("design")}</div><div><h2>不用从一张空表单开始</h2><p>告诉小齐要收什么，一起确认字段、材料和规则，再交给提交者。</p></div><span class="intro-note">你确认，才发布 ${icon("arrow")}</span></section>
-    <section class="workspace-runtime-strip" aria-label="FormFlow Agent runtime"><div class="runtime-strip-lead"><div class="eyebrow">FORMFLOW AGENT RUNTIME</div><h2>助手负责整理与取证，关键决定留给人</h2><p>需求 Agent 产出可核对草案，Review skill 逐条找证据；Harness 守住权限、预算和审计边界。</p></div><div class="runtime-strip-grid"><div><b>Skill</b><span>把自然语言整理成字段、材料和规则</span></div><div><b>工具白名单</b><span>只调用已注册的确定性 / 语义核验工具</span></div><div><b>Harness</b><span>scope、预算、幂等和结果上限</span></div><div><b>人来决定</b><span>资格、补正与最终验收不会自动完成</span></div></div></section>
+    <section class="workspace-runtime-strip" aria-label="FormFlow Agent runtime"><div class="runtime-strip-lead"><div class="runtime-strip-head"><div class="eyebrow">FORMFLOW AGENT RUNTIME</div><span id="workspace-agent-mode" class="runtime-mode">读取状态…</span></div><h2>助手负责整理与取证，关键决定留给人</h2><p id="workspace-agent-status">正在读取当前模型配置；已有任务和程序流程仍可查看。</p></div><div class="runtime-strip-grid"><div><b>Skill</b><span>把自然语言整理成字段、材料和规则</span></div><div><b>工具白名单</b><span>只调用已注册的确定性 / 语义核验工具</span></div><div><b>Harness</b><span>scope、预算、幂等和结果上限</span></div><div><b>人来决定</b><span>资格、补正与最终验收不会自动完成</span></div></div></section>
     <div id="demo-route" aria-live="polite"></div>
     <div id="task-stats" class="overview-stats"></div>
     <section class="card task-section"><div class="section-toolbar"><div class="task-filters" role="group" aria-label="任务状态筛选">
@@ -543,6 +543,7 @@ async function viewTasks() {
     const { tasks } = await api("/api/tasks");
     if (document.body.dataset.page !== "tasks") return;
     state.tasks = tasks; state.taskFilter = "all";
+    checkWorkspaceLLMStatus();
     renderDemoRoute(tasks);
     const n = status => tasks.filter(t => t.status === status).length;
     document.getElementById("task-stats").innerHTML = [["全部任务", tasks.length, "tasks"], ["正在收集", n("collecting"), "workbench"], ["待完善草稿", n("draft"), "design"], ["已经归档", n("archived"), "delivery"]].map(([label, value, ic]) => `<div class="overview-stat"><span>${label}</span><strong>${value.toString().padStart(2,"0")}</strong><i>${icon(ic)}</i></div>`).join("");
@@ -571,6 +572,35 @@ function renderDemoRoute(tasks = state.tasks) {
   const box = document.getElementById("demo-route");
   if (!box) return;
   box.innerHTML = demoRouteHtml(demoRouteTask(tasks));
+}
+function paintWorkspaceAgentStatus() {
+  const mode = document.getElementById("workspace-agent-mode");
+  const status = document.getElementById("workspace-agent-status");
+  if (!mode || !status) return;
+  mode.className = "runtime-mode";
+  if (state.llmConfigured === false) {
+    mode.classList.toggle("offline", true);
+    mode.textContent = "离线演示";
+    status.textContent = "没有模型密钥：可继续查看模板、已有结果和程序流程；新的需求起草会明确停下。";
+    return;
+  }
+  if (state.llmConfigured === true) {
+    mode.classList.toggle("online", true);
+    mode.textContent = "模型已接入";
+    status.textContent = "语义核验按当前规则和调用预算运行；证据不足或失败时交给组织者处理。";
+    return;
+  }
+  mode.textContent = "读取状态…";
+  status.textContent = "正在读取当前模型配置；已有任务和程序流程仍可查看。";
+}
+async function checkWorkspaceLLMStatus() {
+  try {
+    const r = await api("/api/config/status");
+    state.llmConfigured = !!r.llm_configured;
+  } catch (e) {
+    state.llmConfigured = null;
+  }
+  paintWorkspaceAgentStatus();
 }
 function filterTasks(filter) {
   state.taskFilter = filter;
@@ -739,11 +769,12 @@ async function checkLLMStatus() {
     const r = await api("/api/config/status");
     state.llmConfigured = !!r.llm_configured;
     paintAgentRuntime();
+    paintWorkspaceAgentStatus();
     if (!r.llm_configured) {
       const el = document.getElementById("llm-status-banner");
       if (el) { el.style.display = ""; el.innerHTML = '<span class="llm-banner-icon">ⓘ</span><span>当前没有配置 AI 模型密钥，所以智能起草暂时用不了。不过你可以用下面的模板快速开始，或者直接手动编辑草案。</span>'; }
     }
-  } catch(e) { paintAgentRuntime(); /* silently skip */ }
+  } catch(e) { paintAgentRuntime(); paintWorkspaceAgentStatus(); /* silently skip */ }
 }
 function applyDraft(r) {
   if(state.bpId !== r.blueprint_version_id) state.designNeedsRevision=false;

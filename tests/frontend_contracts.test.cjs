@@ -22,7 +22,7 @@ function element(value = '') {
 function setup(sharedStorage = storage()) {
   const els = Object.fromEntries(['sub', 'draft-hint', 'flash', 'receipt-out', 'decision-submit',
     'review-conflict', 'dc-type', 'dc-rule', 'dc-reason', 'dc-exp', 'acceptance-reason', 'acceptance-submit',
-    'review-draft-status', 'submission-errors', 'field-error-name', 'dl', 'delivery-history-list', 'delivery-history-more-error', 'snap-view', 'app', 'rv', 'rv-name', 'my-results', 'nav', 'role-label', 'wb-next-step', 'btn-logout'].map(id => [id, element()]));
+    'review-draft-status', 'submission-errors', 'field-error-name', 'dl', 'delivery-history-list', 'delivery-history-more-error', 'snap-view', 'app', 'rv', 'rv-name', 'my-results', 'nav', 'role-label', 'wb-next-step', 'btn-logout', 'workspace-agent-mode', 'workspace-agent-status'].map(id => [id, element()]));
   const fields = [Object.assign(element('old'), {dataset: {field:'name'}})];
   els['field-name'] = fields[0];
   const document = {getElementById: id => els[id] || null,
@@ -31,7 +31,7 @@ function setup(sharedStorage = storage()) {
     window: {addEventListener() {}}, location: {hash:'#/submit'}, Intl, URLSearchParams, FormData,
     setTimeout, clearTimeout, confirm: () => true, console,
     fetch: async () => {throw new Error('Unexpected request');}});
-  vm.runInContext(source + '\nthis.app = {state, useVersionAsBase, loadDesignVersion, cacheDesignInputs, restoreDesignInputs, recoverDesignInput, paintChat, runAgent, runExport, deliveryHistoryHtml, loadDeliveryHistory, inspectSnapshot, paintSnapshot, canPublishDesign, publishDiffHtml, designVersionImpactHtml, publishBp, confirmPublish, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, fmtTimeShort, designReadinessHtml, draftFingerprint, collectDraftFields, cacheSubmissionDraft, setSubMode, refreshSlotConditions, wbMatches, api, submitDecision, saveDraft, doSubmit, uploadSlot, deleteSlotFile, cacheReviewDraft, discardReviewDraft, logout, nextPendingReview, setReviewFilter, selectReviewRule, viewReview, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, chooseWorkbenchNextStep, workbenchNextStepHtml, agentRunCard, submitterGuidance, ruleCard, receiptFilesHtml, submissionIssues, checkAgentRequestNow, resumePendingAgentRequest, savePendingAgentRequest, agentRequestProgressHtml, retryAgent, pollAgentRequest, showSubmissionIssues, initSubChat, demoRouteTask, demoRouteHtml, renderDemoRoute};', context);
+  vm.runInContext(source + '\nthis.app = {state, useVersionAsBase, loadDesignVersion, cacheDesignInputs, restoreDesignInputs, recoverDesignInput, paintChat, runAgent, runExport, deliveryHistoryHtml, loadDeliveryHistory, inspectSnapshot, paintSnapshot, canPublishDesign, publishDiffHtml, designVersionImpactHtml, publishBp, confirmPublish, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, fmtTimeShort, designReadinessHtml, draftFingerprint, collectDraftFields, cacheSubmissionDraft, setSubMode, refreshSlotConditions, wbMatches, api, submitDecision, saveDraft, doSubmit, uploadSlot, deleteSlotFile, cacheReviewDraft, discardReviewDraft, logout, nextPendingReview, setReviewFilter, selectReviewRule, viewReview, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, chooseWorkbenchNextStep, workbenchNextStepHtml, agentRunCard, submitterGuidance, ruleCard, receiptFilesHtml, submissionIssues, checkAgentRequestNow, resumePendingAgentRequest, savePendingAgentRequest, agentRequestProgressHtml, retryAgent, pollAgentRequest, showSubmissionIssues, initSubChat, demoRouteTask, demoRouteHtml, renderDemoRoute, paintWorkspaceAgentStatus};', context);
   Object.assign(context.app.state, {routeEpoch: 1, me:{task:{id:1, status:'collecting', timezone:'Asia/Shanghai'},subject:{id:2}},
     draftVersion:1, fileMeta:{}, sub:{mode:'chat',phase:'fields',fIdx:0, fields:[{id:'name'}],slots:[],answers:{}}});
   context.localStorage.setItem('ff_sub_token', 'test-only-credential');
@@ -64,6 +64,18 @@ test('demo route explains the full workflow and points to the selected task', ()
   assert.match(html, /#\/roster\/7/);
   assert.match(html, /#\/workbench\/7/);
   assert.match(html, /#\/delivery\/7/);
+});
+test('task workspace explains offline mode without hiding the available workflow', () => {
+  const {app, els} = setup();
+  app.state.llmConfigured = false;
+  app.paintWorkspaceAgentStatus();
+  assert.equal(els['workspace-agent-mode'].textContent, '离线演示');
+  assert.match(els['workspace-agent-status'].textContent, /没有模型密钥/);
+  assert.match(els['workspace-agent-status'].textContent, /已有结果/);
+  app.state.llmConfigured = true;
+  app.paintWorkspaceAgentStatus();
+  assert.equal(els['workspace-agent-mode'].textContent, '模型已接入');
+  assert.match(els['workspace-agent-status'].textContent, /调用预算/);
 });
 test('agent trace keeps the run correlation visible without exposing tool payloads', () => {
   const {app} = setup();
