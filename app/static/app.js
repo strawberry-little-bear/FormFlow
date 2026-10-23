@@ -494,6 +494,7 @@ async function viewTasks() {
     <div id="flash" role="status"></div>
     <section class="workspace-intro"><div class="intro-symbol">${icon("design")}</div><div><h2>不用从一张空表单开始</h2><p>告诉小齐要收什么，一起确认字段、材料和规则，再交给提交者。</p></div><span class="intro-note">你确认，才发布 ${icon("arrow")}</span></section>
     <section class="workspace-runtime-strip" aria-label="FormFlow Agent runtime"><div class="runtime-strip-lead"><div class="eyebrow">FORMFLOW AGENT RUNTIME</div><h2>助手负责整理与取证，关键决定留给人</h2><p>需求 Agent 产出可核对草案，Review skill 逐条找证据；Harness 守住权限、预算和审计边界。</p></div><div class="runtime-strip-grid"><div><b>Skill</b><span>把自然语言整理成字段、材料和规则</span></div><div><b>工具白名单</b><span>只调用已注册的确定性 / 语义核验工具</span></div><div><b>Harness</b><span>scope、预算、幂等和结果上限</span></div><div><b>人来决定</b><span>资格、补正与最终验收不会自动完成</span></div></div></section>
+    <div id="demo-route" aria-live="polite"></div>
     <div id="task-stats" class="overview-stats"></div>
     <section class="card task-section"><div class="section-toolbar"><div class="task-filters" role="group" aria-label="任务状态筛选">
       <button class="filter active" data-filter="all" onclick="filterTasks('all')">全部任务</button>
@@ -516,10 +517,34 @@ async function viewTasks() {
     const { tasks } = await api("/api/tasks");
     if (document.body.dataset.page !== "tasks") return;
     state.tasks = tasks; state.taskFilter = "all";
+    renderDemoRoute(tasks);
     const n = status => tasks.filter(t => t.status === status).length;
     document.getElementById("task-stats").innerHTML = [["全部任务", tasks.length, "tasks"], ["正在收集", n("collecting"), "workbench"], ["待完善草稿", n("draft"), "design"], ["已经归档", n("archived"), "delivery"]].map(([label, value, ic]) => `<div class="overview-stat"><span>${label}</span><strong>${value.toString().padStart(2,"0")}</strong><i>${icon(ic)}</i></div>`).join("");
     paintTasks();
   } catch (e) { setFlash(e.message); document.getElementById("task-list").innerHTML = '<div class="empty">暂时无法读取任务。<button class="link" onclick="viewTasks()">重新加载</button></div>'; }
+}
+function demoRouteTask(tasks = []) {
+  return tasks.find(t => t.status === "collecting")
+    || tasks.find(t => t.status === "draft")
+    || tasks.find(t => !["archived", "cancelled", "closed"].includes(t.status))
+    || tasks[0]
+    || null;
+}
+function demoRouteHtml(task) {
+  if (!task || task.id == null) return "";
+  const id = encodeURIComponent(task.id);
+  const steps = [
+    {number: "01", title: "整理要求", detail: "把一句话变成可核对蓝图", href: `#/design/${id}`, icon: "design", tone: "route-design"},
+    {number: "02", title: "发放凭证", detail: "安排提交对象与访问边界", href: `#/roster/${id}`, icon: "roster", tone: "route-roster"},
+    {number: "03", title: "检查并接手", detail: "看证据，必要时人工判断", href: `#/workbench/${id}`, icon: "review", tone: "route-review"},
+    {number: "04", title: "固定交付", detail: "只导出已验收的正式版本", href: `#/delivery/${id}`, icon: "delivery", tone: "route-delivery"},
+  ];
+  return `<section class="demo-route" aria-label="展示路线"><div class="demo-route-head"><div><div class="eyebrow">DEMO ROUTE · 4 STOPS</div><h2>三分钟看懂一次收集</h2><p>按顺序点过四站，就能看到 FormFlow 如何把要求、证据和交付串起来。</p></div><span class="badge brand">${esc(task.name)} · ${esc(TASK_STATUS[task.status] || task.status)}</span></div><div class="demo-route-steps">${steps.map(s => `<a class="demo-route-step ${s.tone}" href="${s.href}"><span class="demo-route-index">${s.number}</span><span class="demo-route-icon">${icon(s.icon)}</span><span class="demo-route-copy"><b>${s.title}</b><span>${s.detail}</span></span><span class="demo-route-arrow">${icon("arrow")}</span></a>`).join("")}</div><div class="demo-route-foot"><span><i class="demo-route-pulse"></i>使用虚构种子数据，所有决定都可回到原文证据</span><a href="#/design/${id}">从需求设计开始 ${icon("arrow")}</a></div></section>`;
+}
+function renderDemoRoute(tasks = state.tasks) {
+  const box = document.getElementById("demo-route");
+  if (!box) return;
+  box.innerHTML = demoRouteHtml(demoRouteTask(tasks));
 }
 function filterTasks(filter) {
   state.taskFilter = filter;
