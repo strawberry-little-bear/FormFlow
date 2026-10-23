@@ -3944,6 +3944,10 @@ body.presentation-mode main {
   width:100%; max-width:1500px; margin:0 auto; padding:46px 58px 64px; min-height:100vh;
 }
 body.presentation-mode .page-heading { margin-bottom:28px; }
+body.presentation-mode .page-heading-actions > button:last-child,
+body.presentation-mode #task-stats,
+body.presentation-mode .task-section,
+body.presentation-mode .workspace-note { display:none; }
 body.presentation-mode .page-heading .eyebrow::after {
   content:"  ·  展示视图"; color:var(--brand); letter-spacing:.08em;
 }

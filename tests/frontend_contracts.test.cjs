@@ -128,6 +128,11 @@ test('presentation view is session-scoped, reversible, and keyboard discoverable
   assert.equal(els['presentation-toggle'].attributes['aria-pressed'], 'false');
   assert.match(source, /event\.key === "Escape"/);
   assert.match(styleSource, /body\.presentation-mode \.workspace-intro \{ display:none; \}/);
+  assert.match(styleSource, /body\.presentation-mode #task-stats/);
+  assert.match(styleSource, /body\.presentation-mode \.task-section/);
+  const routeIndex = source.indexOf('<div id="demo-route"');
+  const runtimeIndex = source.indexOf('class="workspace-runtime-strip"');
+  assert.ok(routeIndex >= 0 && runtimeIndex > routeIndex, 'showcase route should lead the agent explanation');
 });
 test('agent walkthrough makes the constrained execution path visible', () => {
   const {app} = setup();
