@@ -31,7 +31,7 @@ function setup(sharedStorage = storage()) {
     window: {addEventListener() {}}, location: {hash:'#/submit'}, Intl, URLSearchParams, FormData,
     setTimeout, clearTimeout, confirm: () => true, console,
     fetch: async () => {throw new Error('Unexpected request');}});
-  vm.runInContext(source + '\nthis.app = {state, useVersionAsBase, loadDesignVersion, cacheDesignInputs, restoreDesignInputs, recoverDesignInput, paintChat, runAgent, runExport, deliveryHistoryHtml, loadDeliveryHistory, inspectSnapshot, paintSnapshot, canPublishDesign, publishDiffHtml, publishBp, confirmPublish, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, draftFingerprint, collectDraftFields, cacheSubmissionDraft, setSubMode, refreshSlotConditions, wbMatches, api, submitDecision, saveDraft, doSubmit, uploadSlot, deleteSlotFile, cacheReviewDraft, discardReviewDraft, logout, nextPendingReview, setReviewFilter, selectReviewRule, viewReview, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, chooseWorkbenchNextStep, workbenchNextStepHtml, agentRunCard, submitterGuidance, ruleCard, receiptFilesHtml, submissionIssues, checkAgentRequestNow, resumePendingAgentRequest, savePendingAgentRequest, agentRequestProgressHtml, retryAgent, pollAgentRequest, showSubmissionIssues, initSubChat};', context);
+  vm.runInContext(source + '\nthis.app = {state, useVersionAsBase, loadDesignVersion, cacheDesignInputs, restoreDesignInputs, recoverDesignInput, paintChat, runAgent, runExport, deliveryHistoryHtml, loadDeliveryHistory, inspectSnapshot, paintSnapshot, canPublishDesign, publishDiffHtml, publishBp, confirmPublish, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, fmtTimeShort, designReadinessHtml, draftFingerprint, collectDraftFields, cacheSubmissionDraft, setSubMode, refreshSlotConditions, wbMatches, api, submitDecision, saveDraft, doSubmit, uploadSlot, deleteSlotFile, cacheReviewDraft, discardReviewDraft, logout, nextPendingReview, setReviewFilter, selectReviewRule, viewReview, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, chooseWorkbenchNextStep, workbenchNextStepHtml, agentRunCard, submitterGuidance, ruleCard, receiptFilesHtml, submissionIssues, checkAgentRequestNow, resumePendingAgentRequest, savePendingAgentRequest, agentRequestProgressHtml, retryAgent, pollAgentRequest, showSubmissionIssues, initSubChat};', context);
   Object.assign(context.app.state, {routeEpoch: 1, me:{task:{id:1, status:'collecting', timezone:'Asia/Shanghai'},subject:{id:2}},
     draftVersion:1, fileMeta:{}, sub:{mode:'chat',phase:'fields',fIdx:0, fields:[{id:'name'}],slots:[],answers:{}}});
   context.localStorage.setItem('ff_sub_token', 'test-only-credential');
@@ -49,6 +49,29 @@ test('deadline formatting uses task timezone, never browser timezone', () => {
   assert.equal(app.fmtTime('2026-11-08T10:00:00Z'), '2026-11-08 18:00 Asia/Shanghai');
   assert.equal(app.fmtTime('2026-11-08T10:00:00'), app.fmtTime('2026-11-08T18:00:00+08:00'));
   assert.equal(app.fmtTime('2026-11-08T10:00:00Z','America/New_York'), '2026-11-08 05:00 America/New_York');
+});
+test('publish readiness summarizes scope, collection, timing, review, and data boundaries', () => {
+  const {app} = setup();
+  const html = app.designReadinessHtml({
+    task_scope: {name: '<演示任务>', mode: 'open', subject_kind: 'team', description: '请提交团队材料'},
+    fields: [{label: '队名', required: true}],
+    slots: [{label: '方案 PDF', formats: ['pdf']}],
+    time_policy: {timezone: 'Asia/Shanghai', first_deadline: '2026-11-08T10:00:00Z', correction_deadline: '2026-11-09T10:00:00Z'},
+    rules: [{executor: 'deterministic'}, {executor: 'semantic'}, {executor: 'human_only'}],
+    manual_acceptance: true,
+    eligibility_required: true,
+    delivery: {group_by: '提交者', naming: '任务_主体'},
+    governance: {purpose: '评审与归档', model_processing: '只分析规则需要理解的内容', retention: '活动结束后 30 天删除'},
+  }, {publish_summary: ['已整理字段', '已标注人工验收']}, ['还缺少截止时间'], []);
+  assert.match(html, /发布前核对/);
+  assert.match(html, /谁来交/);
+  assert.match(html, /要交什么/);
+  assert.match(html, /什么时候交/);
+  assert.match(html, /怎么核对/);
+  assert.match(html, /交付与数据边界/);
+  assert.match(html, /发布前要处理 1 项/);
+  assert.match(html, /&lt;演示任务&gt;/);
+  assert.doesNotMatch(html, /<演示任务>/);
 });
 test('exempt subjects are not missing and formal submissions need not have check results', () => {
   const {app} = setup();

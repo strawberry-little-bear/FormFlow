@@ -21,6 +21,34 @@ function fmtTimeShort(s, timeZone = "Asia/Shanghai") {
   const full = fmtTime(s, timeZone);
   return full.endsWith(" " + timeZone) ? full.slice(0, -(timeZone.length + 1)) : full;
 }
+function designReadinessHtml(bp, draft, blocking = [], advisories = [], viewing = null) {
+  const scope = bp?.task_scope || {}, tp = bp?.time_policy || {};
+  const fields = bp?.fields || [], slots = bp?.slots || [], rules = bp?.rules || [];
+  const deterministic = rules.filter(r => r.executor === "deterministic").length;
+  const semantic = rules.filter(r => ["semantic", "cross_material"].includes(r.executor)).length;
+  const human = rules.filter(r => r.executor === "human_only").length;
+  const mode = scope.mode === "open" ? "开放报名" : "固定名册";
+  const subject = scope.subject_kind === "team" ? "团队提交" : "个人提交";
+  const delivery = bp?.delivery || {}, governance = bp?.governance || {};
+  const purpose = governance.purpose || governance.use || "按任务用途整理材料";
+  const retention = governance.retention || governance.retention_policy || "由组织者按约定留存";
+  const model = governance.model_processing || governance.ai_processing || (semantic ? "只对需要理解的规则做语义审核" : "本版本没有语义审核");
+  const status = blocking.length ? "待处理" : advisories.length ? "可发布 · 有提醒" : "可发布";
+  const statusTone = blocking.length ? "warn" : advisories.length ? "info" : "ok";
+  const summary = (draft?.publish_summary || []).filter(Boolean).slice(0, 4);
+  const item = (label, value, note = "") => `<div class="readiness-item"><span>${esc(label)}</span><b>${esc(value)}</b>${note ? `<small>${esc(note)}</small>` : ""}</div>`;
+  return `<section class="design-readiness ${viewing ? "readonly" : ""}" aria-label="发布前核对">
+    <div class="readiness-head"><div><div class="eyebrow">PUBLISH READINESS</div><h2>发布前核对</h2><p>把提交者要做的事、系统会检查的范围和你要确认的边界放在一张清单里。</p></div><span class="badge ${statusTone}">${esc(status)}</span></div>
+    <div class="readiness-grid">
+      <div class="readiness-group"><span class="readiness-label">谁来交</span>${item("对象", scope.name || "这项收集", `${mode} · ${subject}`)}${item("收集说明", scope.description || "按下方字段和材料要求提交", "提交者只会看到已发布版本")}</div>
+      <div class="readiness-group"><span class="readiness-label">要交什么</span>${item("登记字段", `${fields.length} 项`, fields.filter(f => f.required).length ? `${fields.filter(f => f.required).length} 项必填` : "没有必填字段")}${item("材料槽位", `${slots.length} 个`, slots.length ? slots.map(s => s.label).slice(0, 2).join("、") : "暂未设置材料")}</div>
+      <div class="readiness-group"><span class="readiness-label">什么时候交</span>${item("首次截止", fmtTimeShort(tp.first_deadline, tp.timezone), tp.timezone || "Asia/Shanghai")}${item("补正截止", fmtTimeShort(tp.correction_deadline, tp.timezone), "仅已正式提交者可用")}</div>
+      <div class="readiness-group"><span class="readiness-label">怎么核对</span>${item("规则分工", `${deterministic} 程序 · ${semantic} 语义 · ${human} 人工`, "不确定或失败会停在待处理")}${item("最终验收", bp.manual_acceptance ? "组织者人工确认" : "按规则处理", bp.eligibility_required ? "另需单独核对资格" : "未启用独立资格")}</div>
+    </div>
+    <div class="readiness-foot"><div><span class="readiness-label">交付与数据边界</span><p>${esc(delivery.group_by ? `按${delivery.group_by}整理，命名规则 ${delivery.naming || "由系统生成"}。` : "发布后可固定快照并导出清单。")}</p><p>${esc(purpose)}；${esc(model)}；${esc(retention)}。</p></div>${summary.length ? `<div class="readiness-summary"><span class="readiness-label">这次整理摘要</span><ul>${summary.map(x => `<li>${esc(x)}</li>`).join("")}</ul></div>` : ""}</div>
+    ${blocking.length ? `<div class="readiness-alert warn"><b>发布前要处理 ${blocking.length} 项</b><span>${esc(blocking[0])}${blocking.length > 1 ? `，另有 ${blocking.length - 1} 项` : ""}</span></div>` : advisories.length ? `<div class="readiness-alert info"><b>发布前建议看一眼</b><span>${esc(advisories[0])}${advisories.length > 1 ? `，另有 ${advisories.length - 1} 项提醒` : ""}</span></div>` : ""}
+  </section>`;
+}
 function navigate(hash) {
   if (location.hash === hash) route(); else location.hash = hash;
 }
@@ -582,7 +610,7 @@ async function viewDesign(taskId) {
     <div id="design-recovery"></div><div class="grid-chat"><section class="card agent-panel"><div class="agent-heading"><span class="agent-mark">✧</span><div><h2>小齐 <span>需求设计助手</span></h2><p id="agent-status">正在准备…</p></div><span class="agent-live"></span></div>
       <div class="chat"><div class="chat-scroll" id="chat-scroll" role="log" aria-label="需求对话" aria-live="polite"></div><div class="composer"><div class="chips" id="chat-chips"></div>
       <label class="sr-only" for="chat-in">告诉小齐你的收集要求</label><textarea id="chat-in" oninput="cacheDesignInputs()" placeholder="例如：收一份团课 PDF 报告，登记姓名和班级…" onkeydown="if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing){event.preventDefault();chatSend()}"></textarea>
-      <div class="composer-foot"><span>Enter 发送 · Shift + Enter 换行</span><button id="chat-send" onclick="chatSend()" aria-label="发送需求">发送 ${icon('arrow')}</button></div><p class="field-help" id="design-input-hint" role="status"></p></div></div>
+       <div class="composer-foot"><span>Enter 发送 · Shift + Enter 换行</span><button id="chat-send" onclick="chatSend()" aria-label="发送需求">发送 ${icon('arrow')}</button></div><p class="field-help" id="design-input-hint" role="status"></p></div><section class="agent-runtime-card" aria-label="智能协作边界"><div class="runtime-card-head"><div><div class="eyebrow">AGENT RUNTIME</div><h3>小齐的协作边界</h3></div><span class="runtime-mode" id="agent-runtime-mode">受限运行时</span></div><div class="runtime-card-grid"><div><b>需求 Agent</b><span>把自然语言整理成可核对草案</span></div><div><b>Review skill</b><span>只按当前发布蓝图逐条取证</span></div><div><b>Harness</b><span>scope、预算、幂等与审计都在边界内</span></div><div><b>外部工具</b><span>MCP 未连接，材料不会被发送到未知目的地</span></div></div><p class="runtime-card-foot" id="agent-runtime-status">运行状态会随模型配置和当前请求更新。</p></section></div>
     </section><section id="draft-panel" aria-label="实时收集表预览"></section></div>
     <dialog id="publish-dialog" aria-labelledby="publish-title"><form onsubmit="event.preventDefault();confirmPublish()"><div class="eyebrow">REVIEW & PUBLISH</div><h2 id="publish-title" tabindex="-1">确认这份收集要求</h2><p>发布后，这个版本的字段、材料和规则会被冻结。后续修改将产生新版本。</p><div id="publish-summary"></div><label class="check-label"><input type="checkbox" id="publish-consent" required>我已核对材料要求、规则依据、截止时间和数据用途</label><div class="dialog-actions"><button type="button" class="ghost" onclick="this.closest('dialog').close()">返回核对</button><button type="submit" id="publish-confirm">确认并发布</button></div><div id="publish-error" role="alert" class="inline-error"></div></form></dialog>`;
   setAgentBusy(true, "正在加载"); renderDraftPanel();
@@ -628,11 +656,13 @@ async function viewDesign(taskId) {
 async function checkLLMStatus() {
   try {
     const r = await api("/api/config/status");
+    state.llmConfigured = !!r.llm_configured;
+    paintAgentRuntime();
     if (!r.llm_configured) {
       const el = document.getElementById("llm-status-banner");
       if (el) { el.style.display = ""; el.innerHTML = '<span class="llm-banner-icon">ⓘ</span><span>当前没有配置 AI 模型密钥，所以智能起草暂时用不了。不过你可以用下面的模板快速开始，或者直接手动编辑草案。</span>'; }
     }
-  } catch(e) { /* silently skip */ }
+  } catch(e) { paintAgentRuntime(); /* silently skip */ }
 }
 function applyDraft(r) {
   if(state.bpId !== r.blueprint_version_id) state.designNeedsRevision=false;
@@ -665,7 +695,30 @@ function setAgentBusy(on, label = "正在整理") {
   const status = document.getElementById('agent-status');
   if (status) status.textContent = on ? `${label} · ${agentWaitCopy()}` : '有什么想收的，先告诉我吧';
   const box = document.getElementById('chat-scroll'); if (box) box.setAttribute('aria-busy', String(on));
-  chatTyping(on);paintDesignInputState();
+  chatTyping(on);paintDesignInputState(); paintAgentRuntime();
+}
+function paintAgentRuntime() {
+  const mode = document.getElementById('agent-runtime-mode');
+  const status = document.getElementById('agent-runtime-status');
+  if (!mode || !status) return;
+  const request = state.agentRequest;
+  if (state.llmConfigured === false) {
+    mode.textContent = "离线可演示";
+    status.textContent = "当前没有模型密钥：模板和手动编辑可用，需求 Agent 会保留原文并明确停下。";
+    return;
+  }
+  if (request?.status === "queued") {
+    mode.textContent = "请求已入队";
+    status.textContent = "请求已先落库；断线或刷新后会按同一个请求编号继续查询。";
+    return;
+  }
+  if (request?.status === "running" || request?.status === "checking") {
+    mode.textContent = "正在协作";
+    status.textContent = "需求 Agent 正在整理；旧草案不会被半份结果覆盖。";
+    return;
+  }
+  mode.textContent = "受限运行时";
+  status.textContent = "只在当前任务范围内运行；工具调用受 scope、预算、幂等和审计约束。";
 }
 function renderChips() {
   const box = document.getElementById('chat-chips'); if (!box) return;
@@ -1031,6 +1084,7 @@ function renderDraftPanel() {
     ${viewing ? `<div class="version-banner" role="status"><div><b>正在查看历史版本 v${viewing.version}</b><span>这是只读快照，发布与修订仍以最新草案为准。</span></div><div class="row-actions"><button class="ghost sm" onclick="useVersionAsBase()">以此为起点修改</button><button class="ghost sm" onclick="backToLatest()">回到最新</button></div></div>` : ''}
     ${blocking.length ? `<div class="draft-warning blocking" role="alert"><b>发布前必须处理 ${blocking.length} 项</b><ul>${blocking.map(w => `<li>${esc(w)}</li>`).join('')}</ul></div>` : ''}
     ${advisories.length ? `<div class="draft-warning" role="status"><b>${blocking.length ? '另有' : ''} ${advisories.length} 项提醒（不阻止发布）</b><ul>${advisories.map(w => `<li>${esc(w)}</li>`).join('')}</ul></div>` : ''}
+     ${designReadinessHtml(bp, d, blocking, advisories, viewing)}
     <div class="draft-content" role="tabpanel">${state.designTab === 'preview' ? `<div class="form-preview"><div class="preview-banner"><span>${scope.mode === 'open' ? '开放报名' : '名册收集'}</span><span>填写预览 · 不会提交</span></div><h2>${esc(scope.name || state.task?.name || '收集任务')}</h2><p class="muted">${esc(scope.description || '请按以下要求登记信息并提交材料。')}</p>
       <div class="preview-section-title"><b>01</b> 登记信息</div>${(bp.fields || []).map(f => `<div class="preview-field"><label>${esc(f.label)}${f.required ? '<em> *</em>' : ' <small>选填</small>'}</label>${f.type === 'enum' ? `<select disabled aria-label="${esc(f.label)}"><option>请选择${esc(f.label)}</option>${(f.options || []).map(o => `<option>${esc(o)}</option>`).join('')}</select>` : `<input disabled aria-label="${esc(f.label)}" placeholder="请填写${esc(f.label)}">`}${f.required_condition ? `<p class="field-help">条件：${esc(f.required_condition)}</p>` : ''}${f.purpose ? `<p class="field-help">用途：${esc(f.purpose)}</p>` : ''}</div>`).join('') || '<p class="muted">尚未设置登记字段</p>'}
       <div class="preview-section-title"><b>02</b> 提交材料</div>${(bp.slots || []).map(sl => `<div class="upload-preview">${icon('delivery')}<div><strong>${esc(sl.label)}</strong><p>${(sl.formats || []).map(x=>esc(x.toUpperCase())).join(' / ') || '未限定格式'} · 最多 ${sl.max_count} 份${sl.max_size_mib ? ` · 每份 ≤ ${sl.max_size_mib} MiB` : ''}${sl.max_pages ? ` · ≤ ${sl.max_pages} 页` : ''}</p>${sl.required_condition ? `<p>条件：${esc(sl.required_condition)}</p>` : ''}</div><span>上传区域</span></div>`).join('') || '<p class="muted">尚未设置材料</p>'}
