@@ -1,7 +1,7 @@
 "use strict";
 /* 收齐啦 FormFlow 前端（P01–P05）。纯静态 SPA，直接调用 /api。 */
-const ORG_KEY = "ff_org_token", SUB_KEY = "ff_sub_token";
-const state = { taskId: null, chat: [], bpId: null, draft: null, requirement: "", answeredDone: false, files: {}, filesMeta: {}, draftVersion: null, me: null, lastJob: null, roster: {}, designEpoch: 0, agentBusy: false, agentRequest: null, agentRequestPollTimer: 0, agentResumeStarted: false, agentRequestDisplayedId: null, draftStatus: "draft", draftVersionId: null, designTab: "preview", tasks: [], llmConfigured: null, designBlocking: [], designAdvisories: [], designVersions: [], designHistory: [], viewingVersion: null, viewingPublished: null, viewingImpact: null, wbRows: [], wbFilter: "all", reviewRule: null, reviewFilter: "all", reviewTraceFilter: "all" };
+const ORG_KEY = "ff_org_token", SUB_KEY = "ff_sub_token", PRESENTATION_KEY = "ff_tasks_presentation";
+const state = { taskId: null, chat: [], bpId: null, draft: null, requirement: "", answeredDone: false, files: {}, filesMeta: {}, draftVersion: null, me: null, lastJob: null, roster: {}, designEpoch: 0, agentBusy: false, agentRequest: null, agentRequestPollTimer: 0, agentResumeStarted: false, agentRequestDisplayedId: null, draftStatus: "draft", draftVersionId: null, designTab: "preview", tasks: [], llmConfigured: null, designBlocking: [], designAdvisories: [], designVersions: [], designHistory: [], viewingVersion: null, viewingPublished: null, viewingImpact: null, wbRows: [], wbFilter: "all", reviewRule: null, reviewFilter: "all", reviewTraceFilter: "all", presentationMode: false };
 
 const orgToken = () => localStorage.getItem(ORG_KEY) || "";
 const subToken = () => localStorage.getItem(SUB_KEY) || "";
@@ -52,6 +52,37 @@ function designReadinessHtml(bp, draft, blocking = [], advisories = [], viewing 
 function navigate(hash) {
   if (location.hash === hash) route(); else location.hash = hash;
 }
+function readPresentationMode() {
+  try { return sessionStorage.getItem(PRESENTATION_KEY) === "1"; } catch (e) { return false; }
+}
+function applyPresentationMode(focus = false) {
+  const active = !!state.presentationMode && document.body?.dataset?.page === "tasks";
+  document.body?.classList?.toggle("presentation-mode", active);
+  const button = document.getElementById("presentation-toggle");
+  if (!button) return;
+  button.setAttribute("aria-pressed", String(active));
+  button.setAttribute("aria-label", active ? "退出展示视图" : "进入展示视图");
+  button.title = active ? "退出展示视图（Esc）" : "进入展示视图";
+  button.innerHTML = `${icon(active ? "collapse" : "expand")} ${active ? "退出展示视图" : "进入展示视图"}`;
+  if (focus) button.focus();
+}
+function setPresentationMode(on, persist = true) {
+  state.presentationMode = !!on;
+  if (persist) {
+    try {
+      if (state.presentationMode) sessionStorage.setItem(PRESENTATION_KEY, "1");
+      else sessionStorage.removeItem(PRESENTATION_KEY);
+    } catch (e) { /* storage is an enhancement; the page still works in memory */ }
+  }
+  applyPresentationMode(true);
+}
+function togglePresentationMode() { setPresentationMode(!state.presentationMode); }
+window.addEventListener("keydown", event => {
+  if (event.key === "Escape" && state.presentationMode && document.body?.dataset?.page === "tasks") {
+    event.preventDefault();
+    setPresentationMode(false);
+  }
+});
 async function api(path, opts = {}) {
   const headers = {};
   let body;
@@ -372,6 +403,8 @@ function route() {
   const parts = h.split("/").filter(Boolean);
   document.body.classList.toggle("auth-page", parts[0] === "login");
   document.body.dataset.page = parts[0] || "login";
+  state.presentationMode = parts[0] === "tasks" && readPresentationMode();
+  document.body.classList.toggle("presentation-mode", state.presentationMode);
   renderNav();
   if (parts[0] !== "login" && parts[0] !== "submit" && !orgToken()) {
     location.hash = "#/login"; return;
@@ -400,7 +433,9 @@ const ICONS = {
   plus: '<path d="M12 5v14M5 12h14"/>',
   search: '<circle cx="10" cy="10" r="6"/><path d="m15 15 6 6"/>',
   check: '<path d="m5 12 4 4L19 6"/>',
-  review: '<path d="M4 4h11l5 5v11H4z"/><path d="M15 4v5h5"/><path d="m8.5 14.5 2 2 4-4"/>'
+  review: '<path d="M4 4h11l5 5v11H4z"/><path d="M15 4v5h5"/><path d="m8.5 14.5 2 2 4-4"/>',
+  expand: '<path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/>',
+  collapse: '<path d="M9 3v6H3M15 3v6h6M9 21v-6H3M15 21v-6h6"/>'
 };
 function icon(name) { return `<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] || ICONS.tasks}</svg>`; }
 function renderNav() {
@@ -549,7 +584,7 @@ const TASK_STATUS = { draft: "草稿", collecting: "收集中", closed: "已关�
 async function viewTasks() {
   document.getElementById("app").innerHTML = `
     <div class="page-heading"><div><div class="eyebrow">WORKSPACE / 任务管理</div><h1>我的任务<span class="heading-dot">.</span></h1><p>从需求到交付，把每一次收集安排妥当。</p></div>
-      <button onclick="openDialog('create-dialog', this)">${icon("plus")} 新建收集任务</button></div>
+      <div class="page-heading-actions"><button id="presentation-toggle" class="ghost presentation-toggle" aria-pressed="false" onclick="togglePresentationMode()">${icon("expand")} 进入展示视图</button><button onclick="openDialog('create-dialog', this)">${icon("plus")} 新建收集任务</button></div></div>
     <div id="flash" role="status"></div>
     <section class="workspace-intro"><div class="intro-symbol">${icon("design")}</div><div><h2>不用从一张空表单开始</h2><p>告诉小齐要收什么，一起确认字段、材料和规则，再交给提交者。</p></div><span class="intro-note">你确认，才发布 ${icon("arrow")}</span></section>
     <section class="workspace-runtime-strip" aria-label="FormFlow Agent runtime"><div class="runtime-strip-lead"><div class="runtime-strip-head"><div class="eyebrow">FORMFLOW AGENT RUNTIME</div><span id="workspace-agent-mode" class="runtime-mode">读取状态…</span></div><h2>助手负责整理与取证，关键决定留给人</h2><p id="workspace-agent-status" role="status" aria-live="polite">正在读取当前模型配置；已有任务和程序流程仍可查看。</p></div><div class="runtime-strip-grid"><div><b>Skill</b><span><code>review_one_submission</code> 按当前规则逐条取证</span></div><div><b>工具白名单</b><span><code>review.deterministic_rule</code> / <code>review.semantic_rule</code></span></div><div><b>Harness</b><span>scope、预算、幂等键、结果上限与审计</span></div><div><b>MCP 边界</b><span>当前没有外部 adapter，不把网络或文件工具交给模型</span></div><div><b>人来决定</b><span>资格、补正与最终验收不会自动完成</span></div></div></section>
@@ -573,6 +608,7 @@ async function viewTasks() {
       <div id="create-error" class="inline-error" role="alert"></div>
       <div class="dialog-actions"><button type="button" class="ghost" onclick="this.closest('dialog').close()">取消</button><button id="create-submit" type="submit">创建并设计 ${icon("arrow")}</button></div>
     </form></dialog>`;
+  applyPresentationMode();
   try {
     const { tasks } = await api("/api/tasks");
     if (document.body.dataset.page !== "tasks") return;

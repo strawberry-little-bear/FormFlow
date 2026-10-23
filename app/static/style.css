@@ -3933,6 +3933,38 @@ button.validation-link { border: 0; background: none; color: var(--bad); box-sha
 .agent-tour-boundary b { color:#716b82; font-size:10px; }
 .agent-tour-boundary span { color:var(--muted); font-size:10px; line-height:1.5; overflow-wrap:anywhere; }
 .agent-tour-boundary code { display:inline-block; margin:0 4px 3px 0; padding:1px 4px; color:var(--brand-deep); background:#f0edff; font-size:9px; }
+
+/* Presentation view gives the demo route the whole viewport without changing task data. */
+.page-heading-actions { display:flex; align-items:center; justify-content:flex-end; gap:8px; flex-wrap:wrap; }
+.presentation-toggle { white-space:nowrap; }
+.presentation-toggle svg { width:15px; height:15px; }
+body.presentation-mode .sidebar,
+body.presentation-mode .topbar { display:none; }
+body.presentation-mode main {
+  width:100%; max-width:1500px; margin:0 auto; padding:46px 58px 64px; min-height:100vh;
+}
+body.presentation-mode .page-heading { margin-bottom:28px; }
+body.presentation-mode .page-heading .eyebrow::after {
+  content:"  ·  展示视图"; color:var(--brand); letter-spacing:.08em;
+}
+body.presentation-mode .workspace-intro,
+body.presentation-mode .workspace-runtime-strip,
+body.presentation-mode .agent-tour,
+body.presentation-mode .demo-route,
+body.presentation-mode .task-section { box-shadow:0 8px 28px #27203b0c; }
+body.presentation-mode .workspace-runtime-strip { grid-template-columns:minmax(280px,.72fr) minmax(0,2.28fr); padding:20px 24px; }
+body.presentation-mode .demo-route { padding:24px; }
+body.presentation-mode .demo-route-step { min-height:118px; padding:15px 14px; }
+body.presentation-mode .runtime-strip-grid { gap:12px; }
+body.presentation-mode .agent-tour details > summary { padding:16px 20px; }
+@media (max-width:700px) {
+  .page-heading-actions { width:100%; justify-content:flex-start; }
+  .page-heading-actions button { font-size:10px; gap:4px; padding:9px 10px; min-height:34px; }
+  body.presentation-mode main { padding:24px 16px 40px; }
+  body.presentation-mode .page-heading { margin-bottom:22px; }
+  body.presentation-mode .workspace-runtime-strip { grid-template-columns:1fr; padding:15px 16px; }
+  body.presentation-mode .demo-route { padding:17px; }
+}
 @media (max-width:900px) {
   .agent-tour-flow { grid-template-columns:repeat(3,minmax(0,1fr)); }
   .agent-tour-step:nth-child(3)::after { display:none; }
