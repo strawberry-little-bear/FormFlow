@@ -137,8 +137,11 @@ def demo_route_data(db: Session, task: Task) -> dict:
          "status": delivery_state, "href": f"#/delivery/{task.id}"},
     ]
     next_step = next((s for s in steps if s["status"] != "done"), steps[-1])
+    current_step = next((s for s in steps if s["status"] == "current"), next_step)
     completed = sum(s["status"] == "done" for s in steps)
     return {"task_id": task.id, "completed": completed, "total": len(steps),
+            "current": {"title": current_step["title"], "href": current_step["href"],
+                        "detail": current_step["detail"], "status": current_step["status"]},
             "next": {"title": next_step["title"], "href": next_step["href"],
                      "detail": next_step["detail"]},
             "steps": steps}

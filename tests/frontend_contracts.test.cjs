@@ -80,7 +80,10 @@ test('demo route renders server lifecycle progress and the next stop', () => {
   assert.match(html, /2\/4 站已完成/);
   assert.match(html, /整理要求[\s\S]*已完成/);
   assert.match(html, /检查并接手[\s\S]*现在处理/);
-  assert.match(html, /下一站：检查并接手/);
+  assert.match(html, /当前站[\s\S]*检查并接手/);
+  assert.match(html, /aria-current="step"/);
+  assert.match(html, /继续检查并接手/);
+  assert.doesNotMatch(html, /下一站：检查并接手/);
   assert.match(html, /进入检查并接手/);
 });
 test('task workspace explains offline mode without hiding the available workflow', () => {

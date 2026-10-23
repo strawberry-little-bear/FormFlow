@@ -55,5 +55,7 @@ def test_demo_route_projection_follows_seed_lifecycle(db_session):
     assert [step["status"] for step in route["steps"]] == [
         "done", "done", "current", "upcoming"
     ]
+    assert route["current"]["title"] == "检查并接手"
+    assert route["current"]["status"] == "current"
     assert route["next"]["title"] == "检查并接手"
     assert "已验收 1/4" in route["next"]["detail"]

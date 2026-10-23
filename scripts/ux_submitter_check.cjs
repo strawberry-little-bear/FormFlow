@@ -7,6 +7,10 @@ const OUT = 'E:/FormFlow/docs/ux-review-2026-10-23';
 const BASE = 'http://127.0.0.1:8000';
 const EXEC = 'C:/Users/18428/AppData/Local/ms-playwright/chromium-1248/chrome-win64/chrome.exe';
 const CRED = process.argv[2];
+if (!CRED) {
+  console.error('缺少提交凭证。用法：node scripts/ux_submitter_check.cjs <种子脚本输出的提交凭证>');
+  process.exit(2);
+}
 fs.mkdirSync(OUT, { recursive: true });
 
 (async () => {
