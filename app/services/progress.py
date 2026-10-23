@@ -95,6 +95,28 @@ def _review_signal(db: Session, task: Task, subject_id: int | None) -> dict | No
                         if rule.get("requirement", {}).get("executor") == "deterministic")
     semantic = sum(1 for rule in rules
                    if rule.get("requirement", {}).get("executor") in {"semantic", "cross_material"})
+    focus_rule = None
+    focus_labels = {
+        "issue": "有问题",
+        "unknown": "待确认",
+        "failed": "检查未完成",
+        "manual_pending": "人工判断",
+    }
+    for rule in rules:
+        result = rule.get("result")
+        if result not in {"issue", "unknown", "failed", "manual_pending"}:
+            continue
+        if (rule.get("decision") or {}).get("resolves"):
+            continue
+        requirement = rule.get("requirement") or {}
+        executor = requirement.get("executor") or ""
+        focus_rule = {
+            "rule_id": rule.get("rule_id"),
+            "statement": requirement.get("statement") or rule.get("rule_id"),
+            "status": focus_labels.get(result, result),
+            "executor": executor,
+        }
+        break
     coverage = run_coverage(run)
     return {"subject_id": subject_id, "subject_name": subject.display_name if subject else "",
             "run_id": run.id, "status": run.status,
@@ -103,7 +125,8 @@ def _review_signal(db: Session, task: Task, subject_id: int | None) -> dict | No
             "rules_total": len(rules), "deterministic_rules": deterministic,
             "semantic_rules": semantic, "human_rules": human,
             "pending_rules": pending, "coverage_complete": coverage["complete"],
-            "coverage_gaps": coverage["unread_pages"] + coverage["failed_pages"]}
+            "coverage_gaps": coverage["unread_pages"] + coverage["failed_pages"],
+            "focus_rule": focus_rule}
 
 
 def demo_route_data(db: Session, task: Task) -> dict:

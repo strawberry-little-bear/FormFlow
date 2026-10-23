@@ -91,7 +91,8 @@ test('demo route renders server lifecycle progress and the next stop', () => {
     ],
     review_signal:{subject_name:'李四', run_id:12, status:'success', pages_read:2,
       deterministic_rules:1, semantic_rules:2, human_rules:1, pending_rules:2,
-      coverage_complete:true, coverage_gaps:0, llm_calls_used:1},
+      coverage_complete:true, coverage_gaps:0, llm_calls_used:1,
+      focus_rule:{rule_id:'r_term_match', statement:'报告期次须为 2026 秋季第 1 期', status:'待确认', executor:'semantic'}},
   }});
   assert.match(html, /2\/4 站已完成/);
   assert.match(html, /整理要求[\s\S]*已完成/);
@@ -107,6 +108,9 @@ test('demo route renders server lifecycle progress and the next stop', () => {
   assert.match(html, /运行 #12 · 李四/);
   assert.match(html, /程序 1 · 语义 2/);
   assert.match(html, /2 项待处理/);
+  assert.match(html, /建议先处理/);
+  assert.match(html, /报告期次须为 2026 秋季第 1 期/);
+  assert.match(html, /待确认 · 语义审核/);
 });
 test('task workspace explains offline mode without hiding the available workflow', () => {
   const {app, els} = setup();

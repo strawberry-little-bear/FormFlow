@@ -657,7 +657,11 @@ function demoRouteSignalHtml(signal) {
     ? "材料覆盖完整"
     : `${signal.coverage_gaps || 0} 页未读或失败，结论会停在待确认`;
   const run = signal.run_id ? `运行 #${signal.run_id}` : "检查已排队";
-  return `<div class="demo-route-signal" aria-label="真实复核运行摘要"><div class="demo-route-signal-head"><div><span class="eyebrow">真实复核运行</span><strong>${esc(run)} · ${esc(signal.subject_name || "当前主体")}</strong></div><span class="runtime-mode ${tone}">${esc(status)}</span></div><div class="demo-route-signal-stages"><span><b>读取材料</b><em>${signal.pages_read || 0} 页</em></span><span><b>受限工具</b><em>程序 ${signal.deterministic_rules || 0} · 语义 ${signal.semantic_rules || 0}</em></span><span><b>人工接手</b><em>${signal.pending_rules || 0} 项待处理 · ${signal.human_rules || 0} 项人工规则</em></span></div><p>${esc(coverage)}${signal.llm_calls_used ? ` · 语义调用 ${signal.llm_calls_used} 次` : ""}</p></div>`;
+  const focus = signal.focus_rule;
+  const focusHtml = focus
+    ? `<div class="demo-route-signal-focus"><span class="eyebrow">建议先处理</span><strong>${esc(focus.statement || focus.rule_id || "待处理规则")}</strong><span>${esc(focus.status || "待确认")}${focus.executor ? ` · ${esc(EXECUTOR_LABEL[focus.executor] || focus.executor)}` : ""}</span></div>`
+    : "";
+  return `<div class="demo-route-signal" aria-label="真实复核运行摘要"><div class="demo-route-signal-head"><div><span class="eyebrow">真实复核运行</span><strong>${esc(run)} · ${esc(signal.subject_name || "当前主体")}</strong></div><span class="runtime-mode ${tone}">${esc(status)}</span></div><div class="demo-route-signal-stages"><span><b>读取材料</b><em>${signal.pages_read || 0} 页</em></span><span><b>受限工具</b><em>程序 ${signal.deterministic_rules || 0} · 语义 ${signal.semantic_rules || 0}</em></span><span><b>人工接手</b><em>${signal.pending_rules || 0} 项待处理 · ${signal.human_rules || 0} 项人工规则</em></span></div><p>${esc(coverage)}${signal.llm_calls_used ? ` · 语义调用 ${signal.llm_calls_used} 次` : ""}</p>${focusHtml}</div>`;
 }
 function demoRouteHtml(task) {
   if (!task || task.id == null) return "";

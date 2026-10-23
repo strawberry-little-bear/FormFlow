@@ -70,3 +70,6 @@ def test_demo_route_projection_follows_seed_lifecycle(db_session):
     assert signal["deterministic_rules"] >= 1
     assert signal["semantic_rules"] >= 1
     assert signal["pending_rules"] >= 1
+    assert signal["focus_rule"]["statement"]
+    assert signal["focus_rule"]["status"] in {"有问题", "待确认", "检查未完成", "人工判断"}
+    assert signal["focus_rule"]["executor"] in {"deterministic", "semantic", "cross_material", "human_only"}
