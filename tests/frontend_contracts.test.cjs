@@ -89,6 +89,9 @@ test('demo route renders server lifecycle progress and the next stop', () => {
       {key:'review', title:'检查并接手', detail:'已验收 1/4 个主体', status:'current', href:'#/workbench/7'},
       {key:'delivery', title:'固定交付', detail:'验收完成后固定快照', status:'upcoming', href:'#/delivery/7'},
     ],
+    review_signal:{subject_name:'李四', run_id:12, status:'success', pages_read:2,
+      deterministic_rules:1, semantic_rules:2, human_rules:1, pending_rules:2,
+      coverage_complete:true, coverage_gaps:0, llm_calls_used:1},
   }});
   assert.match(html, /2\/4 站已完成/);
   assert.match(html, /整理要求[\s\S]*已完成/);
@@ -100,6 +103,10 @@ test('demo route renders server lifecycle progress and the next stop', () => {
   assert.match(html, /aria-valuenow="2"/);
   assert.match(html, /进入检查并接手/);
   assert.doesNotMatch(html, /下一站：检查并接手/);
+  assert.match(html, /真实复核运行/);
+  assert.match(html, /运行 #12 · 李四/);
+  assert.match(html, /程序 1 · 语义 2/);
+  assert.match(html, /2 项待处理/);
 });
 test('task workspace explains offline mode without hiding the available workflow', () => {
   const {app, els} = setup();

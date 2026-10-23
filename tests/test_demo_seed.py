@@ -62,3 +62,11 @@ def test_demo_route_projection_follows_seed_lifecycle(db_session):
     assert route["next"]["href"] == f"#/review/{task.id}/2"
     assert route["steps"][2]["href"] == f"#/review/{task.id}/2"
     assert "李四" in route["next"]["detail"]
+    signal = route["review_signal"]
+    assert signal["subject_name"] == "李四"
+    assert signal["run_id"] is not None
+    assert signal["status"] == "success"
+    assert signal["pages_read"] >= 1
+    assert signal["deterministic_rules"] >= 1
+    assert signal["semantic_rules"] >= 1
+    assert signal["pending_rules"] >= 1

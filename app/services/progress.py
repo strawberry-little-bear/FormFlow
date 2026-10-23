@@ -1,12 +1,12 @@
 """Roster denominators and subject state are separate from check/acceptance state."""
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from ..models import (DeliverySnapshot, Exemption, ExportJob, ManualDecision,
-                      BlueprintVersion, Revision, RosterEntry, Submission,
-                      Subject, Task)
+from ..models import (CheckRun, DeliverySnapshot, Exemption, ExportJob,
+                      ManualDecision, BlueprintVersion, Revision, RosterEntry,
+                      Submission, Subject, Task, RUN_SUPERSEDED)
 from ..security import utcnow
 from ..timeutils import as_utc
-from .checks import current_summary
+from .checks import current_summary, review_rule_details, run_coverage
 from .tasks import has_valid_grant
 
 
@@ -61,6 +61,51 @@ def workbench_data(db: Session, task: Task) -> dict:
     return {"rows": rows, "counts": counts}
 
 
+def _review_signal(db: Session, task: Task, subject_id: int | None) -> dict | None:
+    """Expose a small, honest summary for the first-entry showcase route.
+
+    The route must explain the real run without copying the review page or
+    inventing an Agent trace. Detailed evidence and audited tool events remain
+    behind the findings endpoint.
+    """
+    if not subject_id:
+        return None
+    submission = db.scalar(select(Submission).where(
+        Submission.task_id == task.id, Submission.subject_id == subject_id))
+    if submission is None or submission.current_revision_id is None:
+        return None
+    run = db.scalar(select(CheckRun).where(
+        CheckRun.revision_id == submission.current_revision_id,
+        CheckRun.status != RUN_SUPERSEDED).order_by(CheckRun.id.desc()))
+    if run is None:
+        return {"status": "queued", "run_id": None, "pages_read": 0,
+                "llm_calls_used": 0, "rules_total": 0, "deterministic_rules": 0,
+                "semantic_rules": 0, "human_rules": 0,
+                "pending_rules": 0, "coverage_complete": True,
+                "coverage_gaps": 0}
+    subject = db.get(Subject, subject_id)
+    rules = review_rule_details(db, run, task, subject_id,
+                                submission.current_revision_id)
+    pending = sum(1 for rule in rules if rule.get("result") in {
+        "issue", "unknown", "failed", "manual_pending"}
+        and not (rule.get("decision") or {}).get("resolves"))
+    human = sum(1 for rule in rules
+                if rule.get("requirement", {}).get("executor") == "human_only")
+    deterministic = sum(1 for rule in rules
+                        if rule.get("requirement", {}).get("executor") == "deterministic")
+    semantic = sum(1 for rule in rules
+                   if rule.get("requirement", {}).get("executor") in {"semantic", "cross_material"})
+    coverage = run_coverage(run)
+    return {"subject_id": subject_id, "subject_name": subject.display_name if subject else "",
+            "run_id": run.id, "status": run.status,
+            "pages_read": run.pages_read or 0,
+            "llm_calls_used": run.llm_calls_used or 0,
+            "rules_total": len(rules), "deterministic_rules": deterministic,
+            "semantic_rules": semantic, "human_rules": human,
+            "pending_rules": pending, "coverage_complete": coverage["complete"],
+            "coverage_gaps": coverage["unread_pages"] + coverage["failed_pages"]}
+
+
 def demo_route_data(db: Session, task: Task) -> dict:
     """Return the smallest useful progress model for the first-entry tour.
 
@@ -110,6 +155,7 @@ def demo_route_data(db: Session, task: Task) -> dict:
                           if row.get("subject_id") and row.get("formal")
                           and not row.get("exempt")
                           and row.get("acceptance") != "accepted"), None)
+    review_signal = _review_signal(db, task, review_target["subject_id"] if review_target else None)
     if review_target:
         review_href = f"#/review/{task.id}/{review_target['subject_id']}"
         review_detail = (f"已验收 {accepted}/{required} 个主体 · "
@@ -158,4 +204,4 @@ def demo_route_data(db: Session, task: Task) -> dict:
                         "detail": current_step["detail"], "status": current_step["status"]},
             "next": {"title": next_step["title"], "href": next_step["href"],
                      "detail": next_step["detail"]},
-            "steps": steps}
+            "steps": steps, "review_signal": review_signal}
