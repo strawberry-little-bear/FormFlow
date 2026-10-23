@@ -65,6 +65,24 @@ test('demo route explains the full workflow and points to the selected task', ()
   assert.match(html, /#\/workbench\/7/);
   assert.match(html, /#\/delivery\/7/);
 });
+test('demo route renders server lifecycle progress and the next stop', () => {
+  const {app} = setup();
+  const html = app.demoRouteHtml({id:7, name:'演示任务', status:'collecting', demo_route:{
+    completed:2, total:4,
+    next:{title:'检查并接手', href:'#/workbench/7', detail:'已验收 1/4 个主体'},
+    steps:[
+      {key:'design', title:'整理要求', detail:'正式蓝图已发布', status:'done', href:'#/design/7'},
+      {key:'roster', title:'发放凭证', detail:'5/5 位已安排', status:'done', href:'#/roster/7'},
+      {key:'review', title:'检查并接手', detail:'已验收 1/4 个主体', status:'current', href:'#/workbench/7'},
+      {key:'delivery', title:'固定交付', detail:'验收完成后固定快照', status:'upcoming', href:'#/delivery/7'},
+    ],
+  }});
+  assert.match(html, /2\/4 站已完成/);
+  assert.match(html, /整理要求[\s\S]*已完成/);
+  assert.match(html, /检查并接手[\s\S]*现在处理/);
+  assert.match(html, /下一站：检查并接手/);
+  assert.match(html, /进入检查并接手/);
+});
 test('task workspace explains offline mode without hiding the available workflow', () => {
   const {app, els} = setup();
   assert.match(source, /review_one_submission/);

@@ -21,7 +21,7 @@ from ..db import get_db
 from .. import storage
 from ..timeutils import iso_utc
 from ..services.review_context import review_context
-from ..services.progress import workbench_data, exempt_subject_ids
+from ..services.progress import demo_route_data, workbench_data, exempt_subject_ids
 from ..models import (
     EXEMPTION_ACTIVE,
     AccessGrant,
@@ -402,6 +402,13 @@ def list_tasks(db: Session = Depends(get_db), acct: Account = Depends(current_ac
                        .order_by(Task.id.desc())).all()
     return {"tasks": [{"id": t.id, "name": t.name, "status": t.status,
                        "mode": t.mode, "created_at": t.created_at} for t in tasks]}
+
+
+@router.get("/tasks/{task_id}/demo-route")
+def get_demo_route(task_id: int, db: Session = Depends(get_db),
+                   acct: Account = Depends(current_account)):
+    """First-entry tour progress, derived from the same state as each workspace."""
+    return demo_route_data(db, _owned_task(db, acct, task_id))
 
 @router.get("/tasks/{task_id}/blueprint")
 def get_blueprint(task_id: int, db: Session = Depends(get_db), acct: Account = Depends(current_account)):

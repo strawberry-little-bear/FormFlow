@@ -1,10 +1,13 @@
 """Roster denominators and subject state are separate from check/acceptance state."""
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from ..models import Exemption, ManualDecision, Revision, RosterEntry, Submission, Subject, Task
+from ..models import (DeliverySnapshot, Exemption, ExportJob, ManualDecision,
+                      BlueprintVersion, Revision, RosterEntry, Submission,
+                      Subject, Task)
 from ..security import utcnow
 from ..timeutils import as_utc
 from .checks import current_summary
+from .tasks import has_valid_grant
 
 
 def exempt_subject_ids(db: Session, task: Task) -> set[int]:
@@ -56,3 +59,86 @@ def workbench_data(db: Session, task: Task) -> dict:
             and r["eligibility"]["status"] in {"not_assessed", "pending"} and not r["exempt"]
             and (task.mode != "roster" or r["in_roster"]) for r in rows)
     return {"rows": rows, "counts": counts}
+
+
+def demo_route_data(db: Session, task: Task) -> dict:
+    """Return the smallest useful progress model for the first-entry tour.
+
+    This is deliberately a read-only projection of existing lifecycle state. It
+    does not introduce a second workflow or infer acceptance from a model result.
+    """
+    latest = db.scalar(select(BlueprintVersion).where(
+        BlueprintVersion.task_id == task.id).order_by(BlueprintVersion.version.desc()))
+    published = task.current_blueprint_id is not None
+    has_draft = latest is not None
+
+    entries = db.scalars(select(RosterEntry).where(
+        RosterEntry.task_id == task.id).order_by(RosterEntry.id)).all()
+    exempt = exempt_subject_ids(db, task)
+    subjects = db.scalars(select(Subject).where(Subject.task_id == task.id)).all()
+    if task.mode == "roster":
+        unissued = []
+        for entry in entries:
+            if entry.subject_id in exempt:
+                continue
+            subject = db.get(Subject, entry.subject_id) if entry.subject_id else None
+            if subject is None or not has_valid_grant(db, subject):
+                unissued.append(entry)
+        roster_total = len(entries)
+        roster_done = roster_total > 0 and not unissued
+        roster_detail = (f"{roster_total - len(unissued)}/{roster_total} 位已安排"
+                         if roster_total else "还没有导入提交名单")
+    else:
+        roster_total = len(subjects)
+        roster_done = roster_total > 0
+        roster_detail = (f"已登记 {roster_total} 个提交主体"
+                         if roster_total else "等待第一位提交主体进入")
+
+    wb = workbench_data(db, task)
+    counts = wb["counts"]
+    required = counts.get("required", counts.get("registered", 0))
+    submitted = counts.get("submitted", 0)
+    accepted = counts.get("accepted", 0)
+    review_done = required > 0 and accepted >= required
+    review_detail = (f"已验收 {accepted}/{required} 个主体"
+                     if required else "提交进入后会在这里逐条检查")
+
+    formal_snapshot = db.scalar(select(DeliverySnapshot).where(
+        DeliverySnapshot.task_id == task.id,
+        DeliverySnapshot.kind == "formal").order_by(DeliverySnapshot.id.desc()))
+    export_ready = bool(formal_snapshot and db.scalar(select(ExportJob).where(
+        ExportJob.snapshot_id == formal_snapshot.id,
+        ExportJob.status == "success").order_by(ExportJob.id.desc())))
+
+    if not published:
+        design_state, design_detail = ("current" if has_draft else "current",
+                                       "先确认要求并发布一份正式蓝图")
+    else:
+        design_state, design_detail = "done", "正式蓝图已发布，收集边界已固定"
+    if not published:
+        roster_state = review_state = delivery_state = "blocked"
+    else:
+        roster_state = "done" if roster_done else "current"
+        review_state = ("done" if review_done else
+                        "current" if roster_done or submitted else "upcoming")
+        delivery_state = ("done" if export_ready else
+                          "current" if review_done else "upcoming")
+
+    steps = [
+        {"key": "design", "title": "整理要求", "detail": design_detail,
+         "status": design_state, "href": f"#/design/{task.id}"},
+        {"key": "roster", "title": "发放凭证", "detail": roster_detail,
+         "status": roster_state, "href": f"#/roster/{task.id}"},
+        {"key": "review", "title": "检查并接手", "detail": review_detail,
+         "status": review_state, "href": f"#/workbench/{task.id}"},
+        {"key": "delivery", "title": "固定交付",
+         "detail": ("CSV + ZIP 已从正式快照生成" if export_ready
+                    else "验收完成后固定快照并生成 CSV + ZIP"),
+         "status": delivery_state, "href": f"#/delivery/{task.id}"},
+    ]
+    next_step = next((s for s in steps if s["status"] != "done"), steps[-1])
+    completed = sum(s["status"] == "done" for s in steps)
+    return {"task_id": task.id, "completed": completed, "total": len(steps),
+            "next": {"title": next_step["title"], "href": next_step["href"],
+                     "detail": next_step["detail"]},
+            "steps": steps}

@@ -564,6 +564,8 @@ async function viewTasks() {
     state.tasks = tasks; state.taskFilter = "all";
     checkWorkspaceLLMStatus();
     renderDemoRoute(tasks);
+    const routeTask = demoRouteTask(tasks);
+    if (routeTask) loadDemoRoute(routeTask);
     const n = status => tasks.filter(t => t.status === status).length;
     document.getElementById("task-stats").innerHTML = [["全部任务", tasks.length, "tasks"], ["正在收集", n("collecting"), "workbench"], ["待完善草稿", n("draft"), "design"], ["已经归档", n("archived"), "delivery"]].map(([label, value, ic]) => `<div class="overview-stat"><span>${label}</span><strong>${value.toString().padStart(2,"0")}</strong><i>${icon(ic)}</i></div>`).join("");
     paintTasks();
@@ -576,21 +578,40 @@ function demoRouteTask(tasks = []) {
     || tasks[0]
     || null;
 }
+const DEMO_ROUTE_STATUS = {done: "已完成", current: "现在处理", upcoming: "下一步", blocked: "先完成前置"};
+const DEMO_ROUTE_ICONS = {design: "design", roster: "roster", review: "review", delivery: "delivery"};
 function demoRouteHtml(task) {
   if (!task || task.id == null) return "";
   const id = encodeURIComponent(task.id);
-  const steps = [
-    {number: "01", title: "整理要求", detail: "把一句话变成可核对蓝图", href: `#/design/${id}`, icon: "design", tone: "route-design"},
-    {number: "02", title: "发放凭证", detail: "安排提交对象与访问边界", href: `#/roster/${id}`, icon: "roster", tone: "route-roster"},
-    {number: "03", title: "检查并接手", detail: "看证据，必要时人工判断", href: `#/workbench/${id}`, icon: "review", tone: "route-review"},
-    {number: "04", title: "固定交付", detail: "只导出已验收的正式版本", href: `#/delivery/${id}`, icon: "delivery", tone: "route-delivery"},
+  const fallback = [
+    {key: "design", title: "整理要求", detail: "把一句话变成可核对蓝图", href: `#/design/${id}`, icon: "design", tone: "route-design"},
+    {key: "roster", title: "发放凭证", detail: "安排提交对象与访问边界", href: `#/roster/${id}`, icon: "roster", tone: "route-roster"},
+    {key: "review", title: "检查并接手", detail: "看证据，必要时人工判断", href: `#/workbench/${id}`, icon: "review", tone: "route-review"},
+    {key: "delivery", title: "固定交付", detail: "只导出已验收的正式版本", href: `#/delivery/${id}`, icon: "delivery", tone: "route-delivery"},
   ];
-  return `<section class="demo-route" aria-label="展示路线"><div class="demo-route-head"><div><div class="eyebrow">DEMO ROUTE · 4 STOPS</div><h2>三分钟看懂一次收集</h2><p>按顺序点过四站，就能看到 FormFlow 如何把要求、证据和交付串起来。</p></div><span class="badge brand">${esc(task.name)} · ${esc(TASK_STATUS[task.status] || task.status)}</span></div><div class="demo-route-steps">${steps.map(s => `<a class="demo-route-step ${s.tone}" href="${s.href}"><span class="demo-route-index">${s.number}</span><span class="demo-route-icon">${icon(s.icon)}</span><span class="demo-route-copy"><b>${s.title}</b><span>${s.detail}</span></span><span class="demo-route-arrow">${icon("arrow")}</span></a>`).join("")}</div><div class="demo-route-foot"><span><i class="demo-route-pulse"></i>使用虚构种子数据，所有决定都可回到原文证据</span><a href="#/design/${id}">从需求设计开始 ${icon("arrow")}</a></div></section>`;
+  const route = task.demo_route || task.route;
+  const steps = (route?.steps || fallback).map((s, i) => ({...fallback[i], ...s,
+    icon: s.icon || DEMO_ROUTE_ICONS[s.key] || fallback[i].icon,
+    tone: s.tone || `route-${s.key}`, status: s.status || "upcoming"}));
+  const routeProgress = route ? `${route.completed}/${route.total} 站已完成` : "按顺序查看四站";
+  const next = route?.next || steps.find(s => s.status !== "done") || steps[0];
+  return `<section class="demo-route" aria-label="展示路线"><div class="demo-route-head"><div><div class="eyebrow">DEMO ROUTE · 4 STOPS</div><h2>三分钟看懂一次收集</h2><p>按顺序点过四站，就能看到 FormFlow 如何把要求、证据和交付串起来。</p></div><span class="badge brand">${esc(task.name)} · ${esc(TASK_STATUS[task.status] || task.status)}</span></div><div class="demo-route-progress"><span>${esc(routeProgress)}</span><span>${route && route.completed === route.total ? "闭环已完成" : `下一站：${esc(next.title)}`}</span></div><div class="demo-route-steps">${steps.map((s, i) => `<a class="demo-route-step ${s.tone} ${s.status}" href="${s.href}" aria-label="${esc(s.title)}：${esc(DEMO_ROUTE_STATUS[s.status] || s.status)}"><span class="demo-route-index">${String(i + 1).padStart(2, "0")}</span><span class="demo-route-icon">${s.status === "done" ? icon("check") : icon(s.icon)}</span><span class="demo-route-copy"><b>${esc(s.title)} <em>${esc(DEMO_ROUTE_STATUS[s.status] || s.status)}</em></b><span>${esc(s.detail)}</span></span><span class="demo-route-arrow">${icon("arrow")}</span></a>`).join("")}</div><div class="demo-route-foot"><span><i class="demo-route-pulse"></i>使用虚构种子数据，所有决定都可回到原文证据</span><a href="${next.href}">${esc(route && route.completed === route.total ? "重新查看需求设计" : `进入${next.title}`)} ${icon("arrow")}</a></div></section>`;
 }
 function renderDemoRoute(tasks = state.tasks) {
   const box = document.getElementById("demo-route");
   if (!box) return;
   box.innerHTML = demoRouteHtml(demoRouteTask(tasks));
+}
+async function loadDemoRoute(task) {
+  if (!task || task.id == null) return;
+  try {
+    const route = await api(`/api/tasks/${task.id}/demo-route`);
+    if (document.body.dataset.page !== "tasks") return;
+    task.demo_route = route;
+    if (demoRouteTask(state.tasks)?.id === task.id) renderDemoRoute(state.tasks);
+  } catch (e) {
+    // The static route remains useful when an older server has no projection endpoint.
+  }
 }
 function paintWorkspaceAgentStatus() {
   const mode = document.getElementById("workspace-agent-mode");

@@ -109,6 +109,25 @@ def test_cross_organizer_task_access_denied(client, db_session):
     assert r.status_code == 200
 
 
+def test_demo_route_requires_auth_and_task_ownership(client, db_session):
+    """展示路线复用组织者鉴权与任务归属边界。"""
+    owner = _register(client, "route-owner")
+    other = _register(client, "route-other")
+    task_id = _mk_task(client, owner, "路线任务")
+
+    assert client.get(f"/api/tasks/{task_id}/demo-route").status_code == 401
+    assert client.get(f"/api/tasks/{task_id}/demo-route", headers=other).status_code == 404
+
+    response = client.get(f"/api/tasks/{task_id}/demo-route", headers=owner)
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["task_id"] == task_id
+    assert payload["total"] == 4
+    assert [step["key"] for step in payload["steps"]] == [
+        "design", "roster", "review", "delivery"
+    ]
+
+
 def test_decision_rejects_foreign_subject(client, db_session):
     """决定接口必须校验主体属于该任务，防止跨任务越权。"""
     ha = _register(client, "owner-a")

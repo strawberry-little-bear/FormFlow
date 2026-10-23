@@ -7,6 +7,7 @@ from app.models import Subject
 from app.services import export as export_service
 from app.services.checks import current_summary
 from app.services.demo_seed import seed_demo
+from app.services.progress import demo_route_data
 
 
 def test_seed_demo_state(db_session):
@@ -41,3 +42,18 @@ def test_seed_demo_state(db_session):
     included = [e["name"] for e in manifest["entries"] if e["included"]]
     assert included == ["张三"]
     assert manifest["totals"] == {"subjects": 5, "included": 1, "excluded": 4}
+
+
+def test_demo_route_projection_follows_seed_lifecycle(db_session):
+    summary = seed_demo(db_session)
+    from app.models import Task
+
+    task = db_session.get(Task, summary["task_id"])
+    route = demo_route_data(db_session, task)
+
+    assert route["completed"] == 2
+    assert [step["status"] for step in route["steps"]] == [
+        "done", "done", "current", "upcoming"
+    ]
+    assert route["next"]["title"] == "检查并接手"
+    assert "已验收 1/4" in route["next"]["detail"]

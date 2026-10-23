@@ -3921,6 +3921,15 @@ button.validation-link { border: 0; background: none; color: var(--bad); box-sha
 .demo-route-head h2 { margin:3px 0 4px; font-size:16px; line-height:1.45; }
 .demo-route-head p { margin:0; color:var(--muted); font-size:11px; line-height:1.7; }
 .demo-route-head .badge { flex:none; max-width:38%; overflow:hidden; text-overflow:ellipsis; }
+.demo-route-progress {
+  display:flex;
+  justify-content:space-between;
+  gap:12px;
+  margin-top:12px;
+  color:#858a96;
+  font-size:10px;
+}
+.demo-route-progress span:last-child { color:var(--brand); font-weight:600; }
 .demo-route-steps {
   display:grid;
   grid-template-columns:repeat(4,minmax(0,1fr));
@@ -3941,11 +3950,17 @@ button.validation-link { border: 0; background: none; color: var(--bad); box-sha
   transition:background .15s,border-color .15s,transform .1s;
 }
 .demo-route-step:hover { text-decoration:none; background:#faf9ff; border-color:#cfc6ef; transform:translateY(-1px); }
+.demo-route-step.done { border-color:#cfe3d5; background:#f9fcfa; }
+.demo-route-step.current { border-color:#cfc6ef; background:#fbfaff; box-shadow:0 0 0 2px #f1edfc; }
+.demo-route-step.blocked { opacity:.62; }
 .demo-route-index { color:#a5a9b3; font-size:10px; font-variant-numeric:tabular-nums; }
 .demo-route-icon { display:flex; align-items:center; justify-content:center; width:27px; height:27px; border-radius:7px; color:var(--brand); background:var(--brand-soft); }
 .demo-route-icon svg { width:15px; height:15px; }
 .demo-route-copy { display:flex; flex-direction:column; min-width:0; gap:2px; }
 .demo-route-copy b { font-size:11px; font-weight:600; }
+.demo-route-copy b em { margin-left:4px; color:#8a8f9a; font-size:9px; font-style:normal; font-weight:500; }
+.demo-route-step.done .demo-route-copy b em { color:#4d8a63; }
+.demo-route-step.current .demo-route-copy b em { color:var(--brand); }
 .demo-route-copy span { color:var(--muted); font-size:10px; line-height:1.45; overflow-wrap:anywhere; }
 .demo-route-arrow { display:flex; color:#b3b6be; }
 .demo-route-arrow svg { width:13px; height:13px; }
