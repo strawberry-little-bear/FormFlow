@@ -266,7 +266,8 @@ const agentRunCard = (run, rules, toolTrace = [], taskId = null, subjectId = nul
   const traceHtml = traceItems.length
     ? `<details class="agent-trace"><summary>本次运行记录（${traceSummary}）</summary><div class="agent-trace-filters" role="group" aria-label="运行记录筛选">${traceFilterHtml}</div>${traceRows ? `<ol>${traceRows}</ol>` : '<p class="agent-trace-empty">当前筛选没有匹配的运行步骤。</p>'}<p>记录绑定当前检查运行和版本；这里只展示工具类别与结果摘要，不包含隐藏推理内容。关联编号用于把同一运行的调用串起来。</p>${traceSimulation ? '<div class="agent-simulation-note">演示模式：语义结果由离线脚本按样例生成，没有调用实时模型；真实任务会按当前配置调用模型。</div>' : ''}${traceModeUnknown ? '<div class="agent-simulation-note">这次历史记录没有保存语义检查模式，无法判断是否使用实时模型。</div>' : ''}</details>`
     : `<p class="agent-trace-empty">这次检查没有逐项工具记录（例如升级前的历史运行）；现有检查结论和证据仍可照常查看。</p>`;
-  return `<details class="card agent-run-card">
+  const runOpen = run.status === "success" && traceItems.length ? " open" : "";
+  return `<details class="card agent-run-card"${runOpen}>
     <summary><span><span class="eyebrow">检查是怎么完成的</span><b>按规则分工，不让模型包办</b><small class="agent-run-hint">展开查看程序、Agent 与人工的分工</small></span><span class="badge ${runState}">${esc(status)}</span></summary>
     <p class="agent-run-intro">程序先处理能明确判断的规则，需要理解材料时才调用语义审核。每个判断都回到原文证据，资格和最终验收由人来把关。</p>
     <ol class="agent-run-steps">${stages.map((s, i) => `<li class="${esc(s.tone)}"><span class="agent-step-index">0${i + 1}</span><div><b>${esc(s.label)}</b><span>${esc(s.detail)}</span></div><em>${esc(s.count)}</em></li>`).join("")}</ol>
@@ -438,6 +439,19 @@ function viewLogin() {
       <div class="logo"><span class="mark">齐</span><span style="font-size:17px">收齐啦 FormFlow</span></div>
       <h1>材料收集，<br>终于有条不紊。</h1>
       <p class="tag">从一句收集要求，到最后一份材料。<br>把反复催交和核对，留给更清晰的工作流。</p>
+      <div class="hero-flow" aria-label="FormFlow Agent 工作边界">
+        <div class="hero-flow-head"><span class="eyebrow">CONTROLLED AGENT FLOW</span><span>人始终在回路中</span></div>
+        <div class="hero-flow-steps">
+          <span><b>01</b><strong>原始要求</strong><em>你说清楚要收什么</em></span>
+          <i aria-hidden="true">→</i>
+          <span><b>02</b><strong>受限 Skill</strong><em>按规则调用白名单工具</em></span>
+          <i aria-hidden="true">→</i>
+          <span><b>03</b><strong>原文证据</strong><em>逐条定位，不编造结论</em></span>
+          <i aria-hidden="true">→</i>
+          <span><b>04</b><strong>人工确认</strong><em>资格、补正、验收由你决定</em></span>
+        </div>
+        <p class="hero-flow-note">模型负责整理与取证；发布、资格和最终验收不会自动完成。</p>
+      </div>
       <div class="feat"><div class="ic">${icon("design")}</div><div><b>聊几句就能出表</b>
         <span>告诉助手你想收什么，字段、材料要求与检查规则自动生成</span></div></div>
       <div class="feat"><div class="ic">${icon("search")}</div><div><b>交上来逐条核对</b>
@@ -594,7 +608,7 @@ function agentTourHtml(llmConfigured = state.llmConfigured) {
     ["证据", "回到原文位置", "每条结果保留工具 trace、关联编号和覆盖范围；证据不足就停在待确认。", "evidence"],
     ["接手", "组织者做最终决定", "资格、补正和最终验收由人确认，模型不会自行发布或认定通过。", "human"],
   ];
-  return `<section class="agent-tour" aria-label="Agent 工作导览"><details open><summary><span><span class="eyebrow">现场演示 · AGENT WALKTHROUGH</span><b>一次运行怎样从要求走到可交付证据</b><small>展开查看 skill、harness、工具边界与人工接手点</small></span><span class="agent-tour-summary"><span id="agent-tour-mode" class="runtime-mode ${modeClass}">${esc(mode)}</span><span class="agent-tour-chevron">${icon("arrow")}</span></span></summary><div class="agent-tour-body"><div class="agent-tour-intro"><p id="agent-tour-availability">${esc(availability)}</p><span>每一步都可以在复核页的运行记录中回看</span></div><ol class="agent-tour-flow">${steps.map(([label, title, detail, tone], i) => `<li class="agent-tour-step ${tone}"><span class="agent-tour-index">0${i + 1}</span><div><b>${esc(label)}</b><strong>${esc(title)}</strong><span>${esc(detail)}</span></div></li>`).join("")}</ol><div class="agent-tour-boundary"><div><b>允许使用</b><span><code>review.deterministic_rule</code><code>review.semantic_rule</code></span></div><div><b>明确不做</b><span>当前未连接外部 MCP adapter；模型不能访问网络、文件系统或任意 SQL。</span></div></div></div></details></section>`;
+  return `<section class="agent-tour" aria-label="Agent 工作导览"><details><summary><span><span class="eyebrow">现场演示 · AGENT WALKTHROUGH</span><b>一次运行怎样从要求走到可交付证据</b><small>展开查看 skill、harness、工具边界与人工接手点</small></span><span class="agent-tour-summary"><span id="agent-tour-mode" class="runtime-mode ${modeClass}">${esc(mode)}</span><span class="agent-tour-chevron">${icon("arrow")}</span></span></summary><div class="agent-tour-body"><div class="agent-tour-intro"><p id="agent-tour-availability">${esc(availability)}</p><span>每一步都可以在复核页的运行记录中回看</span></div><ol class="agent-tour-flow">${steps.map(([label, title, detail, tone], i) => `<li class="agent-tour-step ${tone}"><span class="agent-tour-index">0${i + 1}</span><div><b>${esc(label)}</b><strong>${esc(title)}</strong><span>${esc(detail)}</span></div></li>`).join("")}</ol><div class="agent-tour-boundary"><div><b>允许使用</b><span><code>review.deterministic_rule</code><code>review.semantic_rule</code></span></div><div><b>明确不做</b><span>当前未连接外部 MCP adapter；模型不能访问网络、文件系统或任意 SQL。</span></div></div></div></details></section>`;
 }
 const DEMO_ROUTE_STATUS = {done: "已完成", current: "现在处理", upcoming: "下一步", blocked: "先完成前置"};
 const DEMO_ROUTE_ICONS = {design: "design", roster: "roster", review: "review", delivery: "delivery"};

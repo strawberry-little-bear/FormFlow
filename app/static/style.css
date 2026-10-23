@@ -108,6 +108,8 @@ input:focus-visible,select:focus-visible,textarea:focus-visible {
   outline:3px solid #a89bed;
   outline-offset:2px;
 }
+/* Route changes focus headings and panels for screen readers; they are not keyboard controls. */
+[tabindex="-1"]:focus { outline:0 !important; outline-offset:0; }
 input,textarea,select {
   width:100%;
   padding:8px 11px;
@@ -2611,6 +2613,36 @@ dialog p {
   font-size:10px;
   line-height:1.9
 }
+.hero-flow {
+  margin:27px 0 26px;
+  padding:13px 14px 12px;
+  border:1px solid #d7cdea;
+  border-radius:10px;
+  background:#ffffff63;
+  box-shadow:0 7px 18px #5e4a8710;
+}
+.hero-flow-head {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  color:#7c6b96;
+  font-size:9px;
+}
+.hero-flow-head .eyebrow { color:#7866a0; font-size:9px; }
+.hero-flow-steps {
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto minmax(0,1fr) auto minmax(0,1fr) auto minmax(0,1fr);
+  align-items:center;
+  gap:6px;
+  margin-top:11px;
+}
+.hero-flow-steps > span { min-width:0; display:flex; flex-direction:column; gap:2px; }
+.hero-flow-steps b { color:#9887b5; font-size:9px; font-variant-numeric:tabular-nums; }
+.hero-flow-steps strong { color:#5c4b70; font-size:10px; font-weight:650; white-space:nowrap; }
+.hero-flow-steps em { color:#8f819d; font-size:8px; font-style:normal; line-height:1.45; overflow-wrap:anywhere; }
+.hero-flow-steps i { color:#9f8dbd; font-size:13px; font-style:normal; }
+.hero-flow-note { margin:10px 0 0; padding-top:9px; border-top:1px dashed #d8cfe7; color:#756785; font-size:9px; line-height:1.55; }
 .demo-hint {
   margin-top:14px;
   padding:11px 14px;
@@ -3079,6 +3111,12 @@ dialog p {
   .login-hero .tag {
     margin-bottom:0
   }
+  .hero-flow { margin:20px 0 0; }
+  .hero-flow-steps { grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px 8px; }
+  .hero-flow-steps i { display:none; }
+  .hero-flow-steps > span { padding:7px 8px; border:1px solid #e0d7eb; border-radius:7px; background:#ffffff58; }
+  .hero-flow-steps strong { font-size:9px; }
+  .hero-flow-steps em { font-size:8px; }
   .login-hero .feat {
     display:none
   }
@@ -3262,6 +3300,8 @@ a.wb-next-action:hover, button.wb-next-action:hover { background:var(--brand-dee
 .agent-run-card > summary {
   display:flex; justify-content:space-between; align-items:center; gap:12px; cursor:pointer; list-style:none;
 }
+.agent-run-card[open] { border-color:#d8d0f2; box-shadow:0 3px 14px #35247b0a; }
+.agent-run-card[open] > summary { padding-bottom:13px; border-bottom:1px solid var(--line-soft); }
 .agent-run-card > summary::-webkit-details-marker { display:none; }
 .agent-run-card > summary > span:first-child { display:flex; flex-direction:column; gap:2px; }
 .agent-run-card > summary b { font-size:14px; }
