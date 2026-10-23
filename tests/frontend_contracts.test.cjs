@@ -5,6 +5,7 @@ const vm = require('node:vm');
 const path = require('node:path');
 const source = fs.readFileSync(path.join(__dirname, '../app/static/app.js'), 'utf8')
   .replace(/\nroute\(\);\s*$/, '\n');
+const styleSource = fs.readFileSync(path.join(__dirname, '../app/static/style.css'), 'utf8');
 
 function storage() {
   const data = new Map();
@@ -126,6 +127,7 @@ test('presentation view is session-scoped, reversible, and keyboard discoverable
   assert.equal(context.sessionStorage.getItem('ff_tasks_presentation'), null);
   assert.equal(els['presentation-toggle'].attributes['aria-pressed'], 'false');
   assert.match(source, /event\.key === "Escape"/);
+  assert.match(styleSource, /body\.presentation-mode \.workspace-intro \{ display:none; \}/);
 });
 test('agent walkthrough makes the constrained execution path visible', () => {
   const {app} = setup();

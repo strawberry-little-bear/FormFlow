@@ -3947,6 +3947,7 @@ body.presentation-mode .page-heading { margin-bottom:28px; }
 body.presentation-mode .page-heading .eyebrow::after {
   content:"  ·  展示视图"; color:var(--brand); letter-spacing:.08em;
 }
+body.presentation-mode .workspace-intro { display:none; }
 body.presentation-mode .workspace-intro,
 body.presentation-mode .workspace-runtime-strip,
 body.presentation-mode .agent-tour,
