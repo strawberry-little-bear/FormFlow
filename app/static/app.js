@@ -1,7 +1,7 @@
 "use strict";
 /* 收齐啦 FormFlow 前端（P01–P05）。纯静态 SPA，直接调用 /api。 */
 const ORG_KEY = "ff_org_token", SUB_KEY = "ff_sub_token";
-const state = { taskId: null, chat: [], bpId: null, draft: null, requirement: "", answeredDone: false, files: {}, filesMeta: {}, draftVersion: null, me: null, lastJob: null, roster: {}, designEpoch: 0, agentBusy: false, agentRequest: null, agentRequestPollTimer: 0, agentResumeStarted: false, agentRequestDisplayedId: null, draftStatus: "draft", draftVersionId: null, designTab: "preview", tasks: [], llmConfigured: null, designBlocking: [], designAdvisories: [], designVersions: [], designHistory: [], viewingVersion: null, viewingPublished: null, viewingImpact: null, wbRows: [], wbFilter: "all", reviewRule: null, reviewFilter: "all" };
+const state = { taskId: null, chat: [], bpId: null, draft: null, requirement: "", answeredDone: false, files: {}, filesMeta: {}, draftVersion: null, me: null, lastJob: null, roster: {}, designEpoch: 0, agentBusy: false, agentRequest: null, agentRequestPollTimer: 0, agentResumeStarted: false, agentRequestDisplayedId: null, draftStatus: "draft", draftVersionId: null, designTab: "preview", tasks: [], llmConfigured: null, designBlocking: [], designAdvisories: [], designVersions: [], designHistory: [], viewingVersion: null, viewingPublished: null, viewingImpact: null, wbRows: [], wbFilter: "all", reviewRule: null, reviewFilter: "all", reviewTraceFilter: "all" };
 
 const orgToken = () => localStorage.getItem(ORG_KEY) || "";
 const subToken = () => localStorage.getItem(SUB_KEY) || "";
@@ -188,7 +188,7 @@ const coverageCard = (run) => {
     ${gap ? `<p class="kv" style="margin-top:8px">未读页不等于材料缺失；相关结论会停在待确认，补充清晰材料或转人工核对即可。</p>` : ""}
   </div>`;
 };
-const agentRunCard = (run, rules, toolTrace = []) => {
+const agentRunCard = (run, rules, toolTrace = [], taskId = null, subjectId = null) => {
   if (!run) return "";
   const counts = {deterministic: 0, semantic: 0, cross_material: 0, human_only: 0};
   (rules || []).forEach(r => {
@@ -207,7 +207,25 @@ const agentRunCard = (run, rules, toolTrace = []) => {
   ];
   const ruleById = new Map((rules || []).map(r => [r.rule_id, r]));
   const traceStatus = {satisfied: "找到符合依据", issue: "发现需处理", unknown: "待人工确认", failed: "本次检查未完成", not_applicable: "当前不适用"};
-  const traceRows = (toolTrace || []).slice(-64).map(item => {
+  const traceItems = (toolTrace || []).slice(-64);
+  const traceFilter = ["all", "deterministic", "semantic", "human"].includes(state.reviewTraceFilter)
+    ? state.reviewTraceFilter : "all";
+  const traceMatches = item => traceFilter === "all"
+    || traceFilter === "deterministic" && item.tool === "review.deterministic_rule"
+    || traceFilter === "semantic" && item.tool === "review.semantic_rule"
+    || traceFilter === "human" && ["unknown", "failed"].includes(item.status);
+  const visibleTrace = traceItems.filter(traceMatches);
+  const traceFilters = [
+    ["all", "全部", traceItems.length],
+    ["deterministic", "程序规则", traceItems.filter(item => item.tool === "review.deterministic_rule").length],
+    ["semantic", "语义审核", traceItems.filter(item => item.tool === "review.semantic_rule").length],
+    ["human", "需人工", traceItems.filter(item => ["unknown", "failed"].includes(item.status)).length],
+  ];
+  const traceAction = Number.isFinite(taskId) && Number.isFinite(subjectId)
+    ? (filter => `setReviewTraceFilter('${filter}',${taskId},${subjectId})`) : null;
+  const traceFilterHtml = traceFilters.map(([key, label, count]) =>
+    `<button type="button" class="agent-trace-filter ${traceFilter === key ? "active" : ""}" aria-pressed="${traceFilter === key}"${traceAction ? ` onclick="${traceAction(key)}"` : ""}>${label}<span>${count}</span></button>`).join("");
+  const traceRows = visibleTrace.map(item => {
     const rule = ruleById.get(item.rule_id);
     const title = rule?.requirement?.statement || item.rule_id || "核对步骤";
     const toolLabel = item.tool === "review.deterministic_rule" ? "程序规则"
@@ -244,8 +262,9 @@ const agentRunCard = (run, rules, toolTrace = []) => {
     </div>
     <p class="runtime-foot">这个 skill 是单体应用内的受限运行时，不使用外部 MCP Server，不增加网络工具。模型不能自己选工具名、规则 ID、文件路径或授权主体。</p>
   </details>`;
-  const traceHtml = traceRows
-    ? `<details class="agent-trace"><summary>本次运行记录（${Math.min((toolTrace || []).length, 64)} 项）</summary><ol>${traceRows}</ol><p>记录绑定当前检查运行和版本；这里只展示工具类别与结果摘要，不包含隐藏推理内容。关联编号用于把同一运行的调用串起来。</p>${traceSimulation ? '<div class="agent-simulation-note">演示模式：语义结果由离线脚本按样例生成，没有调用实时模型；真实任务会按当前配置调用模型。</div>' : ''}${traceModeUnknown ? '<div class="agent-simulation-note">这次历史记录没有保存语义检查模式，无法判断是否使用实时模型。</div>' : ''}</details>`
+  const traceSummary = traceFilter === "all" ? `${visibleTrace.length} 项` : `${visibleTrace.length}/${traceItems.length} 项`;
+  const traceHtml = traceItems.length
+    ? `<details class="agent-trace"><summary>本次运行记录（${traceSummary}）</summary><div class="agent-trace-filters" role="group" aria-label="运行记录筛选">${traceFilterHtml}</div>${traceRows ? `<ol>${traceRows}</ol>` : '<p class="agent-trace-empty">当前筛选没有匹配的运行步骤。</p>'}<p>记录绑定当前检查运行和版本；这里只展示工具类别与结果摘要，不包含隐藏推理内容。关联编号用于把同一运行的调用串起来。</p>${traceSimulation ? '<div class="agent-simulation-note">演示模式：语义结果由离线脚本按样例生成，没有调用实时模型；真实任务会按当前配置调用模型。</div>' : ''}${traceModeUnknown ? '<div class="agent-simulation-note">这次历史记录没有保存语义检查模式，无法判断是否使用实时模型。</div>' : ''}</details>`
     : `<p class="agent-trace-empty">这次检查没有逐项工具记录（例如升级前的历史运行）；现有检查结论和证据仍可照常查看。</p>`;
   return `<details class="card agent-run-card">
     <summary><span><span class="eyebrow">检查是怎么完成的</span><b>按规则分工，不让模型包办</b><small class="agent-run-hint">展开查看程序、Agent 与人工的分工</small></span><span class="badge ${runState}">${esc(status)}</span></summary>
@@ -346,7 +365,7 @@ function route() {
   state.agentBusy = false;
   clearTimeout(_wbTimer);
   clearTimeout(_resultsTimer);
-  state.reviewData = null; state.reviewRule = null; state.reviewFilter = "all"; state.reviewContext = null;
+  state.reviewData = null; state.reviewRule = null; state.reviewFilter = "all"; state.reviewTraceFilter = "all"; state.reviewContext = null;
   document.querySelectorAll("dialog[open]").forEach(d => d.close());
   const h = (location.hash || "#/login").replace(/^#/, "");
   const parts = h.split("/").filter(Boolean);
@@ -2100,7 +2119,7 @@ function paintReview(taskId, sid) {
   const sameName = (d.same_name_subjects || []).length ? `<section class="card notice-warn"><b>同名主体待核</b><p>${esc(d.same_name_hint || "")}</p>${d.same_name_subjects.map(s => `<p>主体 #${s.id}（${esc(s.name)}）——以主体 ID 为准人工核对，系统不自动合并。</p>`).join("")}</section>` : "";
   const covHtml = coverageCard(run);
 
-  document.getElementById("rv").innerHTML = `${meta}${workflow}${sameName}${agentRunCard(run, rules, d.tool_trace)}
+  document.getElementById("rv").innerHTML = `${meta}${workflow}${sameName}${agentRunCard(run, rules, d.tool_trace, taskId, sid)}
     <div class="review-layout ${rules.length ? '' : 'no-rule-layout'}">${rules.length ? `<div class="review-list-col">${list}</div>` : ''}<div class="review-detail-col">${rules.length ? evidence : `<div class="notice-warn">${d.revision ? '本版本没有材料检查规则。请直接核对独立资格与验收状态。' : '尚无正式提交，现在可以预核资格或处理免交；正式提交后才能验收。'}</div>`}${notesHtml}${decision}${eligibilityPanel}${acceptPanel}${covHtml}</div></div>`;
   document.querySelectorAll("[data-review-rule]").forEach(el => el.addEventListener("click", () =>
     selectReviewRule(el.dataset.reviewRule, taskId, sid)));
@@ -2154,6 +2173,17 @@ function setReviewFilter(filter, taskId, sid) {
     state.reviewRule = state.reviewData.rules[0].rule_id;
   }
   paintReview(taskId, sid);
+}
+function setReviewTraceFilter(filter, taskId, sid) {
+  if (state.deciding) return;
+  state.reviewTraceFilter = ["all", "deterministic", "semantic", "human"].includes(filter) ? filter : "all";
+  paintReview(taskId, sid);
+  const runCard = document.querySelector(".agent-run-card");
+  const trace = document.querySelector(".agent-trace");
+  if (runCard && trace) {
+    runCard.open = true;
+    trace.open = true;
+  }
 }
 function nextPendingReview(taskId, sid) {
   if (state.deciding) return;

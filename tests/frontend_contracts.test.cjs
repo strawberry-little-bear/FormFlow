@@ -31,7 +31,7 @@ function setup(sharedStorage = storage()) {
     window: {addEventListener() {}}, location: {hash:'#/submit'}, Intl, URLSearchParams, FormData,
     setTimeout, clearTimeout, confirm: () => true, console,
     fetch: async () => {throw new Error('Unexpected request');}});
-  vm.runInContext(source + '\nthis.app = {state, useVersionAsBase, loadDesignVersion, cacheDesignInputs, restoreDesignInputs, recoverDesignInput, paintChat, runAgent, runExport, deliveryHistoryHtml, loadDeliveryHistory, inspectSnapshot, paintSnapshot, canPublishDesign, publishDiffHtml, designVersionImpactHtml, publishBp, confirmPublish, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, fmtTimeShort, designReadinessHtml, draftFingerprint, collectDraftFields, cacheSubmissionDraft, setSubMode, refreshSlotConditions, wbMatches, api, submitDecision, saveDraft, doSubmit, uploadSlot, deleteSlotFile, cacheReviewDraft, discardReviewDraft, logout, nextPendingReview, setReviewFilter, selectReviewRule, viewReview, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, chooseWorkbenchNextStep, workbenchNextStepHtml, agentRunCard, submitterGuidance, ruleCard, receiptFilesHtml, submissionIssues, checkAgentRequestNow, resumePendingAgentRequest, savePendingAgentRequest, agentRequestProgressHtml, retryAgent, pollAgentRequest, showSubmissionIssues, initSubChat, demoRouteTask, demoRouteHtml, renderDemoRoute, paintWorkspaceAgentStatus};', context);
+  vm.runInContext(source + '\nthis.app = {state, useVersionAsBase, loadDesignVersion, cacheDesignInputs, restoreDesignInputs, recoverDesignInput, paintChat, runAgent, runExport, deliveryHistoryHtml, loadDeliveryHistory, inspectSnapshot, paintSnapshot, canPublishDesign, publishDiffHtml, designVersionImpactHtml, publishBp, confirmPublish, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, fmtTimeShort, designReadinessHtml, draftFingerprint, collectDraftFields, cacheSubmissionDraft, setSubMode, refreshSlotConditions, wbMatches, api, submitDecision, saveDraft, doSubmit, uploadSlot, deleteSlotFile, cacheReviewDraft, discardReviewDraft, logout, nextPendingReview, setReviewFilter, setReviewTraceFilter, selectReviewRule, viewReview, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, chooseWorkbenchNextStep, workbenchNextStepHtml, agentRunCard, submitterGuidance, ruleCard, receiptFilesHtml, submissionIssues, checkAgentRequestNow, resumePendingAgentRequest, savePendingAgentRequest, agentRequestProgressHtml, retryAgent, pollAgentRequest, showSubmissionIssues, initSubChat, demoRouteTask, demoRouteHtml, renderDemoRoute, paintWorkspaceAgentStatus};', context);
   Object.assign(context.app.state, {routeEpoch: 1, me:{task:{id:1, status:'collecting', timezone:'Asia/Shanghai'},subject:{id:2}},
     draftVersion:1, fileMeta:{}, sub:{mode:'chat',phase:'fields',fIdx:0, fields:[{id:'name'}],slots:[],answers:{}}});
   context.localStorage.setItem('ff_sub_token', 'test-only-credential');
@@ -89,6 +89,26 @@ test('agent trace keeps the run correlation visible without exposing tool payloa
   assert.match(html, /review-run:9/);
   assert.match(html, /关联编号/);
   assert.doesNotMatch(html, /arguments/);
+});
+test('agent trace can be narrowed to tool family or human handoff for live explanation', () => {
+  const {app} = setup();
+  const trace = [
+    {tool:'review.deterministic_rule', rule_id:'D-01', status:'satisfied', duration_ms:4, sequence:1},
+    {tool:'review.semantic_rule', rule_id:'S-01', status:'unknown', duration_ms:800, sequence:2, simulation:true},
+  ];
+  const rules = [
+    {rule_id:'D-01', requirement:{executor:'deterministic', statement:'确定性项'}},
+    {rule_id:'S-01', requirement:{executor:'semantic', statement:'需要人工确认的语义项'}},
+  ];
+  app.state.reviewTraceFilter = 'semantic';
+  const html = app.agentRunCard({status:'success', llm_calls_used:1, coverage:{files:[]}}, rules, trace, 1, 2);
+  assert.match(html, /本次运行记录（1\/2 项）/);
+  assert.match(html, /需要人工确认的语义项/);
+  assert.doesNotMatch(html, /确定性项/);
+  assert.match(html, /程序规则/);
+  assert.match(html, /语义审核/);
+  assert.match(html, /需人工/);
+  assert.match(html, /aria-pressed="true"/);
 });
 test('publish readiness summarizes scope, collection, timing, review, and data boundaries', () => {
   const {app} = setup();
