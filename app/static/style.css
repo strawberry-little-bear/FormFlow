@@ -3788,6 +3788,48 @@ button.validation-link { border: 0; background: none; color: var(--bad); box-sha
   .review-list-actions > button { width:100%; }
 }
 
+/* Review queues stay scannable when a blueprint has many rules. */
+.review-group { margin-bottom:12px; }
+.review-group:last-child { margin-bottom:0; }
+.review-group-head {
+  display:flex; align-items:center; justify-content:space-between; gap:10px;
+  padding:8px 3px 6px; color:var(--muted);
+}
+.review-group-head > div { display:flex; flex-direction:column; gap:2px; min-width:0; }
+.review-group-head b { color:var(--ink); font-size:11px; }
+.review-group-head span { font-size:10px; line-height:1.4; }
+.review-group-head em {
+  display:inline-flex; align-items:center; justify-content:center; min-width:22px; height:22px;
+  border-radius:999px; background:var(--line-soft); color:var(--muted); font-size:10px; font-style:normal;
+}
+.review-group-warn .review-group-head b { color:var(--warn); }
+.review-group-bad .review-group-head b { color:var(--bad); }
+.review-group-info .review-group-head b { color:var(--info); }
+.review-group-ok .review-group-head b { color:var(--ok); }
+.review-group-items { display:flex; flex-direction:column; gap:6px; }
+
+/* The task list is also the first architecture tour for a new organizer. */
+.workspace-runtime-strip {
+  display:grid; grid-template-columns:minmax(250px,.9fr) minmax(0,1.7fr); gap:20px;
+  align-items:center; margin:0 0 16px; padding:17px 20px;
+  border:1px solid #dedbea; border-radius:11px; background:#fff;
+}
+.runtime-strip-lead h2 { margin:3px 0 5px; font-size:16px; line-height:1.45; }
+.runtime-strip-lead p { margin:0; color:var(--muted); font-size:11px; line-height:1.75; }
+.runtime-strip-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:9px; }
+.runtime-strip-grid > div { min-width:0; padding:10px 11px; border-left:2px solid #e4def9; }
+.runtime-strip-grid b { display:block; color:var(--brand-deep); font-size:11px; }
+.runtime-strip-grid span { display:block; margin-top:4px; color:var(--muted); font-size:10px; line-height:1.55; overflow-wrap:anywhere; }
+@media (max-width:900px) {
+  .workspace-runtime-strip { grid-template-columns:1fr; gap:13px; }
+}
+@media (max-width:600px) {
+  .workspace-runtime-strip { padding:15px 16px; }
+  .runtime-strip-grid { grid-template-columns:1fr 1fr; gap:8px; }
+  .runtime-strip-grid > div { padding:8px 9px; }
+  .review-group-head span { max-width:230px; }
+}
+
 /* Publish readiness turns the blueprint into a one-page handoff for a first-time organizer. */
 .design-readiness {
   margin:0 0 16px;

@@ -1058,6 +1058,28 @@ test('review filter narrows the rule queue without changing the loaded evidence 
   assert.equal(env.app.state.reviewFilter,'all');
   assert.match(env.els.rv.innerHTML,/data-review-rule="B"/);
 });
+test('review queue groups pending, problems, incomplete checks and satisfied rules', async () => {
+  const env=setup(),page=reviewPage(reviewScope('a'));
+  page.rules=[
+    {rule_id:'pending',result:'unknown',requirement:{statement:'姓名需要人工核对'}},
+    {rule_id:'problem',result:'issue',requirement:{statement:'报告期次不一致'}},
+    {rule_id:'failed',result:'failed',requirement:{statement:'文件读取未完成'}},
+    {rule_id:'done',result:'satisfied',requirement:{statement:'材料格式符合要求'}},
+    {rule_id:'resolved-issue',result:'issue',decision:{decision:'confirm_pass',resolves:true},requirement:{statement:'人工已处理的问题'}},
+    {rule_id:'resolved-failed',result:'failed',decision:{decision:'correct_false_positive',resolves:true},requirement:{statement:'人工已接手的未完成检查'}},
+  ];
+  await openReview(env,page);
+  const html=env.els.rv.innerHTML;
+  assert.match(html,/待人工/);assert.match(html,/有问题/);assert.match(html,/检查未完成/);assert.match(html,/已满足/);
+  assert.ok(html.indexOf('待人工')<html.indexOf('有问题'));
+  assert.ok(html.indexOf('有问题')<html.indexOf('检查未完成'));
+  assert.ok(html.indexOf('检查未完成')<html.indexOf('已满足'));
+  assert.match(html,/姓名需要人工核对/);assert.match(html,/文件读取未完成/);
+  const doneStart=html.indexOf('aria-label="已满足"');
+  assert.ok(doneStart > -1);
+  assert.ok(html.indexOf('人工已处理的问题',doneStart) > doneStart);
+  assert.ok(html.indexOf('人工已接手的未完成检查',doneStart) > doneStart);
+});
 test('next pending review skips completed and confirmed-issue rules; shortcuts explain the final gate', async () => {
   const env=setup(),page=reviewPage(reviewScope('a'));
   page.rules=[{rule_id:'A',result:'unknown'},{rule_id:'B',result:'issue',decision:{decision:'confirm_issue'}},

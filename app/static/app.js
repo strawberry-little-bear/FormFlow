@@ -464,6 +464,7 @@ async function viewTasks() {
       <button onclick="document.getElementById('create-dialog').showModal()">${icon("plus")} 新建收集任务</button></div>
     <div id="flash" role="status"></div>
     <section class="workspace-intro"><div class="intro-symbol">${icon("design")}</div><div><h2>不用从一张空表单开始</h2><p>告诉小齐要收什么，一起确认字段、材料和规则，再交给提交者。</p></div><span class="intro-note">你确认，才发布 ${icon("arrow")}</span></section>
+    <section class="workspace-runtime-strip" aria-label="FormFlow Agent runtime"><div class="runtime-strip-lead"><div class="eyebrow">FORMFLOW AGENT RUNTIME</div><h2>助手负责整理与取证，关键决定留给人</h2><p>需求 Agent 产出可核对草案，Review skill 逐条找证据；Harness 守住权限、预算和审计边界。</p></div><div class="runtime-strip-grid"><div><b>Skill</b><span>把自然语言整理成字段、材料和规则</span></div><div><b>工具白名单</b><span>只调用已注册的确定性 / 语义核验工具</span></div><div><b>Harness</b><span>scope、预算、幂等和结果上限</span></div><div><b>人来决定</b><span>资格、补正与最终验收不会自动完成</span></div></div></section>
     <div id="task-stats" class="overview-stats"></div>
     <section class="card task-section"><div class="section-toolbar"><div class="task-filters" role="group" aria-label="任务状态筛选">
       <button class="filter active" data-filter="all" onclick="filterTasks('all')">全部任务</button>
@@ -1896,19 +1897,38 @@ function paintReview(taskId, sid) {
   </section>`;
 
   const visibleRules = state.reviewFilter === "pending" ? pending : rules;
+  const reviewGroups = [
+    {key: "pending", label: "待人工", note: "需要组织者核对原文或作出判断", tone: "warn"},
+    {key: "issue", label: "有问题", note: "发现不符合，或已经确认需要补正", tone: "bad"},
+    {key: "failed", label: "检查未完成", note: "本次运行没有形成可靠结论", tone: "info"},
+    {key: "done", label: "已满足", note: "已满足、不适用，或已被人工处理", tone: "ok"},
+  ];
+  const reviewBucket = rule => {
+    if (rule.decision?.resolves || ["satisfied", "not_applicable"].includes(rule.result)) return "done";
+    if (rule.decision?.decision === "confirm_issue" || rule.result === "issue") return "issue";
+    if (rule.result === "failed") return "failed";
+    return "pending";
+  };
+  const ruleButton = r => {
+    const on = r.rule_id === state.reviewRule;
+    return `<button class="review-rule-item ${on ? "on" : ""}" aria-current="${on}" data-review-rule="${esc(r.rule_id)}">
+      <span class="review-rule-text">${esc((r.requirement && r.requirement.statement) || r.explanation || "待核对的一项要求")}</span>
+      <span class="review-rule-side">${r.decision ? `<span class="badge ${r.decision.decision === "confirm_issue" ? "bad" : "info"}">${esc(DECISION_LABEL[r.decision.decision] || "已有人工决定")}</span>` : resultBadge(r.result)}<span class="badge">${esc(severityLabel(r.severity))}</span></span>
+    </button>`;
+  };
+  const groupedRules = reviewGroups.map(group => ({...group, rules: visibleRules.filter(r => reviewBucket(r) === group.key)})).filter(group => group.rules.length);
+  const groupedList = groupedRules.map(group => `<section class="review-group review-group-${group.tone}" aria-label="${group.label}">
+    <div class="review-group-head"><div><b>${group.label}</b><span>${group.note}</span></div><em>${group.rules.length}</em></div>
+    <div class="review-group-items">${group.rules.map(ruleButton).join("")}</div>
+  </section>`).join("");
+  const emptyFilterText = state.reviewFilter === "pending" ? "当前没有待处理规则" : "当前没有可展示的规则";
   const list = rules.length ? `<div class="review-list-actions">
     <div class="review-list-summary"><span>${pending.length} 项待决定 / 共 ${rules.length} 项</span><span class="review-filter" role="group" aria-label="规则筛选">
       <button class="ghost sm ${state.reviewFilter === "all" ? "selected" : ""}" aria-pressed="${state.reviewFilter === "all"}" onclick="setReviewFilter('all',${taskId},${sid})">全部</button>
       <button class="ghost sm ${state.reviewFilter === "pending" ? "selected" : ""}" aria-pressed="${state.reviewFilter === "pending"}" ${pending.length ? "" : "disabled"} onclick="setReviewFilter('pending',${taskId},${sid})">只看待处理</button>
     </span></div>
     <button class="ghost sm" ${pending.length ? '' : 'disabled'} onclick="nextPendingReview(${taskId},${sid})">下一待处理 ↓</button>
-  </div>${visibleRules.length ? `<div class="review-rules" role="group" aria-label="检查规则">${visibleRules.map(r => {
-    const on = r.rule_id === state.reviewRule;
-    return `<button class="review-rule-item ${on ? "on" : ""}" aria-current="${on}" data-review-rule="${esc(r.rule_id)}">
-      <span class="review-rule-text">${esc((r.requirement && r.requirement.statement) || r.explanation || "待核对的一项要求")}</span>
-      <span class="review-rule-side">${r.decision ? `<span class="badge ${r.decision.decision === "confirm_issue" ? "bad" : "info"}">${esc(DECISION_LABEL[r.decision.decision] || "已有人工决定")}</span>` : resultBadge(r.result)}<span class="badge">${esc(severityLabel(r.severity))}</span></span>
-    </button>`;
-  }).join("")}</div>` : `<div class="review-filter-empty"><b>当前没有待处理规则</b><span>已处理的规则仍保留在“全部”中。</span><button class="link" onclick="setReviewFilter('all',${taskId},${sid})">查看全部规则</button></div>`}` : `<div class="empty-state"><div class="empty-icon">${icon("workbench")}</div><h3>${d.revision ? run?.status === 'success' ? "本版本没有材料检查规则" : "暂无规则结果" : "尚无正式提交"}</h3><p>${d.revision ? run?.status === 'success' ? "材料检查已完成，请核对独立资格与验收状态。" : "可能尚未检查。回到工作台发起检查，或稍后刷新。" : "现在可以处理主体免交或预核资格；正式提交后才能检查和验收材料。"}</p><p><a class="ghost sm" href="#/workbench/${taskId}">返回工作台</a></p></div>`;
+  </div>${visibleRules.length ? `<div class="review-rules" role="group" aria-label="检查规则">${groupedList}</div>` : `<div class="review-filter-empty"><b>${emptyFilterText}</b><span>${state.reviewFilter === "pending" ? "已处理的规则仍保留在“全部”中。" : "当前版本还没有可以展示的检查项。"}</span>${state.reviewFilter === "pending" ? `<button class="link" onclick="setReviewFilter('all',${taskId},${sid})">查看全部规则</button>` : ""}</div>`}` : `<div class="empty-state"><div class="empty-icon">${icon("workbench")}</div><h3>${d.revision ? run?.status === 'success' ? "本版本没有材料检查规则" : "暂无规则结果" : "尚无正式提交"}</h3><p>${d.revision ? run?.status === 'success' ? "材料检查已完成，请核对独立资格与验收状态。" : "可能尚未检查。回到工作台发起检查，或稍后刷新。" : "现在可以处理主体免交或预核资格；正式提交后才能检查和验收材料。"}</p><p><a class="ghost sm" href="#/workbench/${taskId}">返回工作台</a></p></div>`;
 
   const evidence = active ? `
     <article class="evidence-detail" id="review-evidence" tabindex="-1">
