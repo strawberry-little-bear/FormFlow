@@ -131,6 +131,30 @@ function setFlash(msg, kind = "err") {
   const el = document.getElementById("flash");
   if (el) el.innerHTML = msg ? `<div class="flash ${kind}">${esc(msg)}</div>` : "";
 }
+function focusPageHeading() {
+  const app = document.getElementById("app");
+  if (!app) return;
+  const heading = app.querySelector?.("h1,h2,[data-page-title]");
+  const target = heading || app;
+  if (!target.hasAttribute?.("tabindex")) target.setAttribute?.("tabindex", "-1");
+  target.focus?.({preventScroll: true});
+}
+function openDialog(id, opener = document.activeElement) {
+  const dialog = document.getElementById(id);
+  if (!dialog) return;
+  if (!dialog.dataset.focusWired) {
+    dialog.addEventListener("close", () => {
+      const previous = dialog.__formflowOpener;
+      dialog.__formflowOpener = null;
+      if (previous && previous.isConnected !== false && typeof previous.focus === "function") previous.focus();
+    });
+    dialog.dataset.focusWired = "true";
+  }
+  dialog.__formflowOpener = opener && opener !== document.body ? opener : null;
+  dialog.showModal();
+  const first = dialog.querySelector?.("[autofocus], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled])");
+  (first || dialog).focus?.({preventScroll: true});
+}
 async function guard(fn, isCurrent = () => true) {
   try { await fn(); } catch (e) { if (isCurrent()) setFlash(e.message || String(e)); }
 }
@@ -196,7 +220,8 @@ const agentRunCard = (run, rules, toolTrace = []) => {
     const tone = ["issue", "failed"].includes(item.status) ? "warn" : item.status === "unknown" ? "info" : "ok";
     const sequence = Number(item.sequence) > 0 ? `第 ${item.sequence} 步` : "运行步骤";
     const version = item.tool_version ? ` · ${item.tool_version}` : "";
-    return `<li class="agent-trace-row"><span class="agent-trace-kind ${tone}">${esc(toolLabel)}</span><div><b>${esc(title)}</b><span class="agent-trace-meta"><strong>${esc(sequence)}</strong><span>${esc(label)} · 用时 ${esc(elapsed)}${esc(version)}</span></span></div></li>`;
+    const correlation = item.correlation_id ? ` · ${item.correlation_id}` : "";
+    return `<li class="agent-trace-row"><span class="agent-trace-kind ${tone}">${esc(toolLabel)}</span><div><b>${esc(title)}</b><span class="agent-trace-meta"><strong>${esc(sequence)}</strong><span>${esc(label)} · 用时 ${esc(elapsed)}${esc(version)}${esc(correlation)}</span></span></div></li>`;
   }).join("");
   const traceSimulation = (toolTrace || []).some(item => item.simulation === true);
   const traceModeUnknown = (toolTrace || []).some(item =>
@@ -220,7 +245,7 @@ const agentRunCard = (run, rules, toolTrace = []) => {
     <p class="runtime-foot">这个 skill 是单体应用内的受限运行时，不使用外部 MCP Server，不增加网络工具。模型不能自己选工具名、规则 ID、文件路径或授权主体。</p>
   </details>`;
   const traceHtml = traceRows
-    ? `<details class="agent-trace"><summary>本次运行记录（${Math.min((toolTrace || []).length, 64)} 项）</summary><ol>${traceRows}</ol><p>记录绑定当前检查运行和版本；这里只展示工具类别与结果摘要，不包含隐藏推理内容。</p>${traceSimulation ? '<div class="agent-simulation-note">演示模式：语义结果由离线脚本按样例生成，没有调用实时模型；真实任务会按当前配置调用模型。</div>' : ''}${traceModeUnknown ? '<div class="agent-simulation-note">这次历史记录没有保存语义检查模式，无法判断是否使用实时模型。</div>' : ''}</details>`
+    ? `<details class="agent-trace"><summary>本次运行记录（${Math.min((toolTrace || []).length, 64)} 项）</summary><ol>${traceRows}</ol><p>记录绑定当前检查运行和版本；这里只展示工具类别与结果摘要，不包含隐藏推理内容。关联编号用于把同一运行的调用串起来。</p>${traceSimulation ? '<div class="agent-simulation-note">演示模式：语义结果由离线脚本按样例生成，没有调用实时模型；真实任务会按当前配置调用模型。</div>' : ''}${traceModeUnknown ? '<div class="agent-simulation-note">这次历史记录没有保存语义检查模式，无法判断是否使用实时模型。</div>' : ''}</details>`
     : `<p class="agent-trace-empty">这次检查没有逐项工具记录（例如升级前的历史运行）；现有检查结论和证据仍可照常查看。</p>`;
   return `<details class="card agent-run-card">
     <summary><span><span class="eyebrow">检查是怎么完成的</span><b>按规则分工，不让模型包办</b><small class="agent-run-hint">展开查看程序、Agent 与人工的分工</small></span><span class="badge ${runState}">${esc(status)}</span></summary>
@@ -332,15 +357,16 @@ function route() {
     location.hash = "#/login"; return;
   }
   const app = document.getElementById("app");
-  if (parts[0] === "login") return viewLogin();
-  if (parts[0] === "tasks") return viewTasks();
-  if (parts[0] === "design") return viewDesign(+parts[1]);
-  if (parts[0] === "workbench") return viewWorkbench(+parts[1]);
-  if (parts[0] === "review") return viewReview(+parts[1], +parts[2]);
-  if (parts[0] === "submit") return viewSubmit();
-  if (parts[0] === "delivery") return viewDelivery(+parts[1]);
-  if (parts[0] === "roster") return viewRoster(+parts[1]);
-  viewLogin();
+  const render = result => { setTimeout(focusPageHeading, 0); return result; };
+  if (parts[0] === "login") return render(viewLogin());
+  if (parts[0] === "tasks") return render(viewTasks());
+  if (parts[0] === "design") return render(viewDesign(+parts[1]));
+  if (parts[0] === "workbench") return render(viewWorkbench(+parts[1]));
+  if (parts[0] === "review") return render(viewReview(+parts[1], +parts[2]));
+  if (parts[0] === "submit") return render(viewSubmit());
+  if (parts[0] === "delivery") return render(viewDelivery(+parts[1]));
+  if (parts[0] === "roster") return render(viewRoster(+parts[1]));
+  return render(viewLogin());
 }
 window.addEventListener("hashchange", route);
 
@@ -490,7 +516,7 @@ const TASK_STATUS = { draft: "草稿", collecting: "收集中", closed: "已关�
 async function viewTasks() {
   document.getElementById("app").innerHTML = `
     <div class="page-heading"><div><div class="eyebrow">WORKSPACE / 任务管理</div><h1>我的任务<span class="heading-dot">.</span></h1><p>从需求到交付，把每一次收集安排妥当。</p></div>
-      <button onclick="document.getElementById('create-dialog').showModal()">${icon("plus")} 新建收集任务</button></div>
+      <button onclick="openDialog('create-dialog', this)">${icon("plus")} 新建收集任务</button></div>
     <div id="flash" role="status"></div>
     <section class="workspace-intro"><div class="intro-symbol">${icon("design")}</div><div><h2>不用从一张空表单开始</h2><p>告诉小齐要收什么，一起确认字段、材料和规则，再交给提交者。</p></div><span class="intro-note">你确认，才发布 ${icon("arrow")}</span></section>
     <section class="workspace-runtime-strip" aria-label="FormFlow Agent runtime"><div class="runtime-strip-lead"><div class="eyebrow">FORMFLOW AGENT RUNTIME</div><h2>助手负责整理与取证，关键决定留给人</h2><p>需求 Agent 产出可核对草案，Review skill 逐条找证据；Harness 守住权限、预算和审计边界。</p></div><div class="runtime-strip-grid"><div><b>Skill</b><span>把自然语言整理成字段、材料和规则</span></div><div><b>工具白名单</b><span>只调用已注册的确定性 / 语义核验工具</span></div><div><b>Harness</b><span>scope、预算、幂等和结果上限</span></div><div><b>人来决定</b><span>资格、补正与最终验收不会自动完成</span></div></div></section>
@@ -554,7 +580,7 @@ function filterTasks(filter) {
 function paintTasks() {
   const q = (document.getElementById("task-search")?.value || "").trim().toLowerCase();
   const tasks = state.tasks.filter(t => t.name.toLowerCase().includes(q) && (state.taskFilter === "all" || (state.taskFilter === "done" ? ["closed","archived","cancelled"].includes(t.status) : t.status === state.taskFilter)));
-  document.getElementById("task-list").innerHTML = tasks.length ? `<div class="task-list-head"><span>收集任务</span><span>状态</span><span>创建日期</span><span>操作</span></div>` + tasks.map(t => `<article class="task-item"><div class="task-name-cell"><div class="task-icon ${t.status === 'draft' ? 'draft' : ''}">${icon(t.status === 'draft' ? 'design' : 'workbench')}</div><div><a class="task-name" href="#/${t.status === 'draft' ? 'design' : 'workbench'}/${t.id}">${esc(t.name)}</a><div class="task-meta">${t.mode === 'roster' ? '固定名册' : '开放报名'}<span>·</span>任务 #${t.id}</div></div></div><div><span class="badge ${t.status === 'collecting' ? 'ok' : t.status === 'draft' ? 'warn' : ''}"><span class="badge-dot"></span>${esc(TASK_STATUS[t.status] || t.status)}</span></div><time>${esc((t.created_at || '').slice(0,10) || '—')}</time><a class="task-enter" href="#/${t.status === 'draft' ? 'design' : 'workbench'}/${t.id}">${t.status === 'draft' ? '继续设计' : '进入任务'} ${icon('arrow')}</a></article>`).join('') : `<div class="empty-state"><div class="empty-icon">${icon('tasks')}</div><h3>${q || state.taskFilter !== 'all' ? '没有符合条件的任务' : '你的第一个收集任务，从这里开始'}</h3><p>${q || state.taskFilter !== 'all' ? '试试其他关键词或状态。' : '创建任务后，小齐会协助你整理材料要求。'}</p>${!state.tasks.length ? '<button onclick="document.getElementById(&quot;create-dialog&quot;).showModal()">新建收集任务</button>' : ''}</div>`;
+  document.getElementById("task-list").innerHTML = tasks.length ? `<div class="task-list-head"><span>收集任务</span><span>状态</span><span>创建日期</span><span>操作</span></div>` + tasks.map(t => `<article class="task-item"><div class="task-name-cell"><div class="task-icon ${t.status === 'draft' ? 'draft' : ''}">${icon(t.status === 'draft' ? 'design' : 'workbench')}</div><div><a class="task-name" href="#/${t.status === 'draft' ? 'design' : 'workbench'}/${t.id}">${esc(t.name)}</a><div class="task-meta">${t.mode === 'roster' ? '固定名册' : '开放报名'}<span>·</span>任务 #${t.id}</div></div></div><div><span class="badge ${t.status === 'collecting' ? 'ok' : t.status === 'draft' ? 'warn' : ''}"><span class="badge-dot"></span>${esc(TASK_STATUS[t.status] || t.status)}</span></div><time>${esc((t.created_at || '').slice(0,10) || '—')}</time><a class="task-enter" href="#/${t.status === 'draft' ? 'design' : 'workbench'}/${t.id}">${t.status === 'draft' ? '继续设计' : '进入任务'} ${icon('arrow')}</a></article>`).join('') : `<div class="empty-state"><div class="empty-icon">${icon('tasks')}</div><h3>${q || state.taskFilter !== 'all' ? '没有符合条件的任务' : '你的第一个收集任务，从这里开始'}</h3><p>${q || state.taskFilter !== 'all' ? '试试其他关键词或状态。' : '创建任务后，小齐会协助你整理材料要求。'}</p>${!state.tasks.length ? '<button onclick="openDialog(&quot;create-dialog&quot;, this)">新建收集任务</button>' : ''}</div>`;
 }
 async function createTask() {
   const btn = document.getElementById("create-submit");
@@ -1255,7 +1281,7 @@ async function publishBp(taskId) {
   </div>`;
   document.getElementById('publish-error').textContent = ''; document.getElementById('publish-consent').checked = false;
   document.getElementById('publish-confirm').disabled=false;
-  document.getElementById('publish-dialog').showModal();
+  openDialog('publish-dialog', document.activeElement);
   document.getElementById('publish-title')?.focus();
   } catch(e) { if(epoch===state.designEpoch)setFlash(e.message); }
   finally { if(epoch===state.designEpoch)setAgentBusy(false); }
@@ -2195,7 +2221,7 @@ function revokeDecision(taskId, sid, did) {
     : "撤销后将重新计算当前状态，原决定保留在历史中。";
   document.getElementById("revoke-reason").value = "";
   document.getElementById("revoke-error").textContent = "";
-  document.getElementById("revoke-dialog").showModal();
+  openDialog("revoke-dialog", document.activeElement);
   document.getElementById("revoke-reason").focus();
 }
 async function confirmRevokeDecision() {

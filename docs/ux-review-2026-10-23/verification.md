@@ -55,3 +55,9 @@
 任务首页新增“DEMO ROUTE · 4 STOPS”导览，自动选取当前最适合展示的任务，依次链接到需求设计、名单与凭证、收集工作台（进入证据复核）和交付归档。每一站说明对应的 AI Agent / 程序 / 人工边界，底部明确使用虚构种子数据；没有新增后端权限或状态逻辑。
 
 验证：新增前端契约 1 项，Node 前端契约共 90 项通过；桌面 1440px 与移动 390px 浏览器走查均显示 4 个可点击站点，移动端 `scrollWidth === clientWidth === 390`，无控制台错误、无 4xx/5xx 请求。组织者原有全流程脚本 `scripts/ux_walkthrough.cjs`、`scripts/ux_review_check.cjs`、`scripts/ux_key_paths.cjs` 继续通过。
+
+## 2026-10-24 追加：键盘焦点与运行关联
+
+路由切换后焦点落到新页面标题；创建任务、发布确认、撤销决定三个弹窗统一记录触发控件，关闭后恢复焦点并聚焦首个可操作控件。复核 Agent 的受限工具调用新增 `correlation_id`，只保存 `review-run:{run_id}` 这类脱敏关联信息；审计事件、Findings API 和页面时间线保持一致，不新增原始参数、材料或隐藏推理。
+
+验证：Python 相关回归 30 项、前端契约 91 项通过；`node --check app/static/app.js` 与 `git diff --check` 通过。现有 390px 走查路径保持无横向溢出；320px/200% 缩放的完整浏览器矩阵仍列在 P2 待执行项中。

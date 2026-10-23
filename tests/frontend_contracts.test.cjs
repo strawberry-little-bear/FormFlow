@@ -65,6 +65,16 @@ test('demo route explains the full workflow and points to the selected task', ()
   assert.match(html, /#\/workbench\/7/);
   assert.match(html, /#\/delivery\/7/);
 });
+test('agent trace keeps the run correlation visible without exposing tool payloads', () => {
+  const {app} = setup();
+  const html = app.agentRunCard({status:'success', pages_read:1, llm_calls_used:1, coverage:{files:[]}}, [
+    {rule_id:'S-01', requirement:{statement:'原文依据'}, executor:'semantic'},
+  ], [{tool:'review.semantic_rule', tool_version:'v1', sequence:1, rule_id:'S-01',
+    status:'satisfied', simulation:true, duration_ms:12, correlation_id:'review-run:9'}]);
+  assert.match(html, /review-run:9/);
+  assert.match(html, /关联编号/);
+  assert.doesNotMatch(html, /arguments/);
+});
 test('publish readiness summarizes scope, collection, timing, review, and data boundaries', () => {
   const {app} = setup();
   const html = app.designReadinessHtml({

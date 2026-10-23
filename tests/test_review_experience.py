@@ -145,6 +145,7 @@ def test_findings_exposes_only_the_active_runs_audited_tool_trace(review, stub_l
     assert trace['simulation'] is True
     assert trace['sequence'] == 1
     assert trace['tool_version'] == 'v1'
+    assert trace['correlation_id'] == f'review-run:{first_run.id}'
     assert 'arguments' not in trace and 'result' not in trace
     event = db.scalar(select(AuditEvent).where(
         AuditEvent.task_id == task.id, AuditEvent.action == 'agent.tool.invoked'))

@@ -104,6 +104,7 @@ def build_review_skill(ctx: CheckContext, *, client: LLMClient,
         task_id=task_id,
         subject_id=subject_id,
         run_id=run_id,
+        correlation_id=f"review-run:{run_id}",
         simulation=bool(getattr(client, "is_simulation", False)),
         allowed_scopes=frozenset({"review:deterministic", "review:semantic"}),
     )

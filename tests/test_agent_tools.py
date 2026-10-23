@@ -92,6 +92,18 @@ def test_idempotent_retry_replays_result_without_duplicate_side_effect_and_audit
     assert "safe" not in events[0].payload_json  # no raw arguments/results in audit
 
 
+def test_invocation_keeps_a_safe_correlation_id_for_trace_and_audit(db_session):
+    harness, context, _ = _fixture(db_session)
+    context = context.__class__(**{**context.__dict__, "correlation_id": "review-run:12"})
+    invocation = harness.invoke("demo.echo", {"value": "trace"}, context=context,
+                                db=db_session, idempotency_key="trace-key")
+    assert invocation.correlation_id == "review-run:12"
+    event = db_session.scalar(select(AuditEvent).where(
+        AuditEvent.action == "agent.tool.invoked"))
+    assert json.loads(event.payload_json)["correlation_id"] == "review-run:12"
+    assert "trace" not in event.payload_json
+
+
 def test_idempotent_replay_still_checks_current_authorization(db_session):
     harness, context, calls = _fixture(db_session)
     harness.invoke("demo.echo", {"value": "authorized"}, context=context,
