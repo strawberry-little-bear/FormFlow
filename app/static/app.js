@@ -304,7 +304,7 @@ const agentRunCard = (run, rules, toolTrace = [], taskId = null, subjectId = nul
   const traceAction = Number.isFinite(taskId) && Number.isFinite(subjectId)
     ? (filter => `setReviewTraceFilter('${filter}',${taskId},${subjectId})`) : null;
   const traceFilterHtml = traceFilters.map(([key, label, count]) =>
-    `<button type="button" class="agent-trace-filter ${traceFilter === key ? "active" : ""}" aria-pressed="${traceFilter === key}"${traceAction ? ` onclick="${traceAction(key)}"` : ""}>${label}<span>${count}</span></button>`).join("");
+    `<button type="button" class="agent-trace-filter ${traceFilter === key ? "active" : ""}" data-trace-filter="${key}" aria-pressed="${traceFilter === key}"${traceAction ? ` onclick="${traceAction(key)}"` : ""}>${label}<span>${count}</span></button>`).join("");
   const traceRows = visibleTrace.map(item => {
     const rule = ruleById.get(item.rule_id);
     const title = rule?.requirement?.statement || item.rule_id || "核对步骤";
@@ -2144,6 +2144,7 @@ async function retryCheck(taskId, sid, back) {
 const RUN_LABEL = {queued: "排队中", running: "检查中", retry_wait: "等待重试", success: "检查完成", failed: "检查失败"};
 const DECISION_LABEL = {confirm_issue: "确认问题（需补正）", confirm_pass: "人工核对通过", correct_false_positive: "纠正误报",
   approve_exception: "批准例外", eligibility: "资格复核", exempt: "免交", accept_current: "验收本版本", revoke: "撤销决定"};
+const RESULT_LABEL = {satisfied: "满足", issue: "问题", unknown: "待确认", not_applicable: "不适用", failed: "失败", manual_pending: "人工核对"};
 const ELIGIBILITY_LABEL = {not_assessed: "未评估", pending: "待核实", eligible: "符合", ineligible: "不符合"};
 const eligibilityBadge = q => q ? `<span class="badge ${q.status === 'eligible' ? 'ok' : q.status === 'ineligible' ? 'bad' : 'warn'}">资格：${esc(ELIGIBILITY_LABEL[q.status] || '待核实')}</span>` : '';
 const severityLabel = value => ({blocking: "阻塞验收", advisory: "提醒项"}[value] || value || "未标级别");
@@ -2351,7 +2352,8 @@ function paintReview(taskId, sid) {
   };
   const ruleButton = r => {
     const on = r.rule_id === state.reviewRule;
-    return `<button class="review-rule-item ${on ? "on" : ""}" aria-current="${on}" data-review-rule="${esc(r.rule_id)}">
+    const status = r.decision ? (DECISION_LABEL[r.decision.decision] || "已有人工决定") : (RESULT_LABEL[r.result] || "待核对");
+    return `<button class="review-rule-item ${on ? "on" : ""}" aria-current="${on}" aria-label="${esc((r.requirement && r.requirement.statement) || r.explanation || "待核对的一项要求")}；${esc(status)}；${esc(severityLabel(r.severity))}" data-review-rule="${esc(r.rule_id)}">
       <span class="review-rule-text">${esc((r.requirement && r.requirement.statement) || r.explanation || "待核对的一项要求")}</span>
       <span class="review-rule-side">${r.decision ? `<span class="badge ${r.decision.decision === "confirm_issue" ? "bad" : "info"}">${esc(DECISION_LABEL[r.decision.decision] || "已有人工决定")}</span>` : resultBadge(r.result)}<span class="badge">${esc(severityLabel(r.severity))}</span></span>
     </button>`;
@@ -2363,9 +2365,9 @@ function paintReview(taskId, sid) {
   </section>`).join("");
   const emptyFilterText = state.reviewFilter === "pending" ? "当前没有待处理规则" : "当前没有可展示的规则";
   const list = rules.length ? `<div class="review-list-actions">
-    <div class="review-list-summary"><span>${pending.length} 项待决定 / 共 ${rules.length} 项</span><span class="review-filter" role="group" aria-label="规则筛选">
-      <button class="ghost sm ${state.reviewFilter === "all" ? "selected" : ""}" aria-pressed="${state.reviewFilter === "all"}" onclick="setReviewFilter('all',${taskId},${sid})">全部</button>
-      <button class="ghost sm ${state.reviewFilter === "pending" ? "selected" : ""}" aria-pressed="${state.reviewFilter === "pending"}" ${pending.length ? "" : "disabled"} onclick="setReviewFilter('pending',${taskId},${sid})">只看待处理</button>
+    <div class="review-list-summary"><span id="review-queue-status" role="status" aria-live="polite">${state.reviewFilter === "pending" ? `当前显示 ${pending.length} 项待处理规则` : `当前显示全部 ${rules.length} 项规则`}${active ? `，已选中${esc(active.requirement?.statement || "当前规则")}` : ""}</span><span class="review-filter" role="group" aria-label="规则筛选">
+      <button class="ghost sm ${state.reviewFilter === "all" ? "selected" : ""}" data-review-filter="all" aria-pressed="${state.reviewFilter === "all"}" onclick="setReviewFilter('all',${taskId},${sid})">全部</button>
+      <button class="ghost sm ${state.reviewFilter === "pending" ? "selected" : ""}" data-review-filter="pending" aria-pressed="${state.reviewFilter === "pending"}" ${pending.length ? "" : "disabled"} onclick="setReviewFilter('pending',${taskId},${sid})">只看待处理</button>
     </span></div>
     <button class="ghost sm" ${pending.length ? '' : 'disabled'} onclick="nextPendingReview(${taskId},${sid})">下一待处理 ↓</button>
   </div>${visibleRules.length ? `<div class="review-rules" role="group" aria-label="检查规则">${groupedList}</div>` : `<div class="review-filter-empty"><b>${emptyFilterText}</b><span>${state.reviewFilter === "pending" ? "已处理的规则仍保留在“全部”中。" : "当前版本还没有可以展示的检查项。"}</span>${state.reviewFilter === "pending" ? `<button class="link" onclick="setReviewFilter('all',${taskId},${sid})">查看全部规则</button>` : ""}</div>`}` : `<div class="empty-state"><div class="empty-icon">${icon("workbench")}</div><h3>${d.revision ? run?.status === 'success' ? "本版本没有材料检查规则" : "暂无规则结果" : "尚无正式提交"}</h3><p>${d.revision ? run?.status === 'success' ? "材料检查已完成，请核对独立资格与验收状态。" : "可能尚未检查。回到工作台发起检查，或稍后刷新。" : "现在可以处理主体免交或预核资格；正式提交后才能检查和验收材料。"}</p><p><a class="ghost sm" href="#/workbench/${taskId}">返回工作台</a></p></div>`;
@@ -2483,11 +2485,13 @@ function setReviewFilter(filter, taskId, sid) {
     state.reviewRule = state.reviewData.rules[0].rule_id;
   }
   paintReview(taskId, sid);
+  document.querySelector(`[data-review-filter="${state.reviewFilter}"]`)?.focus();
 }
 function setReviewTraceFilter(filter, taskId, sid) {
   if (state.deciding) return;
   state.reviewTraceFilter = ["all", "deterministic", "semantic", "human"].includes(filter) ? filter : "all";
   paintReview(taskId, sid);
+  document.querySelector(`[data-trace-filter="${state.reviewTraceFilter}"]`)?.focus();
   const runCard = document.querySelector(".agent-run-card");
   const trace = document.querySelector(".agent-trace");
   if (runCard && trace) {

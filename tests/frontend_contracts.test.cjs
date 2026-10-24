@@ -1516,6 +1516,20 @@ test('review filter narrows the rule queue without changing the loaded evidence 
   assert.equal(env.app.state.reviewFilter,'all');
   assert.match(env.els.rv.innerHTML,/data-review-rule="B"/);
 });
+test('review queue announces the selected rule and restores filter focus after repaint', async () => {
+  const env=setup(),page=reviewPage(reviewScope('a'));
+  page.rules=[{rule_id:'A',result:'unknown',severity:'blocking',requirement:{statement:'姓名需要人工核对'}},{rule_id:'B',result:'satisfied',severity:'advisory',requirement:{statement:'材料格式符合要求'}}];
+  let focused=null;
+  env.context.document.querySelector = selector => ({focus: () => {focused=selector;}});
+  await openReview(env,page);
+  assert.match(env.els.rv.innerHTML,/id="review-queue-status" role="status" aria-live="polite"/);
+  assert.match(env.els.rv.innerHTML,/aria-label="姓名需要人工核对；待确认；阻塞验收"/);
+  env.app.setReviewFilter('pending',1,2);
+  assert.equal(focused,'[data-review-filter="pending"]');
+  assert.match(env.els.rv.innerHTML,/当前显示 1 项待处理规则/);
+  assert.match(source,/data-trace-filter="\$\{key\}"/);
+  assert.match(source,/document\.querySelector\(`\[data-trace-filter=/);
+});
 test('review queue groups pending, problems, incomplete checks and satisfied rules', async () => {
   const env=setup(),page=reviewPage(reviewScope('a'));
   page.rules=[
