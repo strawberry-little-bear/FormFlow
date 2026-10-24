@@ -649,6 +649,13 @@ function agentTourHtml(llmConfigured = state.llmConfigured) {
 const DEMO_ROUTE_STATUS = {done: "已完成", current: "现在处理", upcoming: "下一步", blocked: "先完成前置"};
 const DEMO_ROUTE_ICONS = {design: "design", roster: "roster", review: "review", delivery: "delivery"};
 const REVIEW_RUN_STATUS = {queued: "排队中", running: "检查中", retry_wait: "等待重试", success: "检查完成", failed: "运行失败", superseded: "已被新运行取代"};
+const REVIEW_RUN_SOURCE = {
+  simulation: {label: "离线演示结果", detail: "本次语义结论由演示脚本生成，没有调用实时模型。", tone: "offline"},
+  live: {label: "实时模型结果", detail: "本次语义结论来自实时模型，并受当前工具白名单、预算和证据校验约束。", tone: "online"},
+  mixed: {label: "混合来源", detail: "本次运行同时包含离线演示与实时语义结果，按每步运行记录分别查看。", tone: "info"},
+  deterministic: {label: "仅程序规则", detail: "本次运行没有语义模型步骤，结论来自确定性程序核验。", tone: "info"},
+  unknown: {label: "来源待确认", detail: "当前运行没有足够的模式记录，不能据配置状态推断结果来源。", tone: "warn"},
+};
 function demoRouteSignalHtml(signal) {
   if (!signal) return "";
   const status = REVIEW_RUN_STATUS[signal.status] || signal.status || "状态未知";
@@ -657,11 +664,12 @@ function demoRouteSignalHtml(signal) {
     ? "材料覆盖完整"
     : `${signal.coverage_gaps || 0} 页未读或失败，结论会停在待确认`;
   const run = signal.run_id ? `运行 #${signal.run_id}` : "检查已排队";
+  const source = REVIEW_RUN_SOURCE[signal.run_source] || REVIEW_RUN_SOURCE.unknown;
   const focus = signal.focus_rule;
   const focusHtml = focus
     ? `<div class="demo-route-signal-focus"><span class="eyebrow">建议先处理</span><strong>${esc(focus.statement || focus.rule_id || "待处理规则")}</strong><span>${esc(focus.status || "待确认")}${focus.executor ? ` · ${esc(EXECUTOR_LABEL[focus.executor] || focus.executor)}` : ""}</span></div>`
     : "";
-  return `<div class="demo-route-signal" aria-label="真实复核运行摘要"><div class="demo-route-signal-head"><div><span class="eyebrow">真实复核运行</span><strong>${esc(run)} · ${esc(signal.subject_name || "当前主体")}</strong></div><span class="runtime-mode ${tone}">${esc(status)}</span></div><div class="demo-route-signal-stages"><span><b>读取材料</b><em>${signal.pages_read || 0} 页</em></span><span><b>受限工具</b><em>程序 ${signal.deterministic_rules || 0} · 语义 ${signal.semantic_rules || 0}</em></span><span><b>人工接手</b><em>${signal.pending_rules || 0} 项待处理 · ${signal.human_rules || 0} 项人工规则</em></span></div><p>${esc(coverage)}${signal.llm_calls_used ? ` · 语义调用 ${signal.llm_calls_used} 次` : ""}</p>${focusHtml}</div>`;
+  return `<div class="demo-route-signal" aria-label="真实复核运行摘要"><div class="demo-route-signal-head"><div><span class="eyebrow">真实复核运行</span><strong>${esc(run)} · ${esc(signal.subject_name || "当前主体")}</strong></div><span class="runtime-mode ${tone}">${esc(status)}</span></div><div class="demo-route-signal-provenance"><span class="eyebrow">本次运行来源</span><strong class="runtime-mode ${esc(source.tone)}">${esc(source.label)}</strong><span>${esc(source.detail)}</span></div><div class="demo-route-signal-stages"><span><b>读取材料</b><em>${signal.pages_read || 0} 页</em></span><span><b>受限工具</b><em>程序 ${signal.deterministic_rules || 0} · 语义 ${signal.semantic_rules || 0}</em></span><span><b>人工接手</b><em>${signal.pending_rules || 0} 项待处理 · ${signal.human_rules || 0} 项人工规则</em></span></div><p>${esc(coverage)}${signal.llm_calls_used ? ` · 语义调用 ${signal.llm_calls_used} 次` : ""}</p>${focusHtml}</div>`;
 }
 function demoRouteHtml(task) {
   if (!task || task.id == null) return "";
@@ -723,8 +731,8 @@ function paintWorkspaceAgentStatus() {
   if (state.llmConfigured === true) {
     mode.classList.toggle("online", true);
     mode.textContent = "模型已接入";
-    status.textContent = "语义核验按当前规则和调用预算运行；证据不足或失败时交给组织者处理。";
-    paintTour("模型已接入", "当前已配置模型密钥；语义审核仍受工具白名单、预算和证据约束。", "online");
+    status.textContent = "模型已接入；当前任务的复核来源以运行摘要为准，配置状态不代表这次结果一定调用实时模型。";
+    paintTour("模型已接入", "当前已配置模型密钥；每次复核是否调用实时模型，以运行记录中的来源标记为准。", "online");
     return;
   }
   mode.textContent = "读取状态…";

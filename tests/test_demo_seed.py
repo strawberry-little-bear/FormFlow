@@ -1,13 +1,15 @@
 """演示种子数据回归测试：固化方案第 13 节「初始虚构状态」的计数。"""
 from __future__ import annotations
 
+import json
+
 from sqlalchemy import select
 
-from app.models import Subject
+from app.models import AuditEvent, CheckRun, Subject
 from app.services import export as export_service
 from app.services.checks import current_summary
 from app.services.demo_seed import seed_demo
-from app.services.progress import demo_route_data
+from app.services.progress import _review_run_source, demo_route_data
 
 
 def test_seed_demo_state(db_session):
@@ -73,3 +75,27 @@ def test_demo_route_projection_follows_seed_lifecycle(db_session):
     assert signal["focus_rule"]["statement"]
     assert signal["focus_rule"]["status"] in {"有问题", "待确认", "检查未完成", "人工判断"}
     assert signal["focus_rule"]["executor"] in {"deterministic", "semantic", "cross_material", "human_only"}
+    assert signal["run_source"] == "simulation"
+
+
+def test_review_run_source_distinguishes_live_and_missing_modes(db_session):
+    summary = seed_demo(db_session)
+    from app.models import Task
+
+    task = db_session.get(Task, summary["task_id"])
+    route = demo_route_data(db_session, task)
+    run = db_session.get(CheckRun, route["review_signal"]["run_id"])
+    events = db_session.scalars(select(AuditEvent).where(
+        AuditEvent.task_id == task.id,
+        AuditEvent.action == "agent.tool.invoked")).all()
+    matched = [event for event in events
+               if json.loads(event.payload_json or "{}").get("run_id") == run.id]
+    assert matched
+    for event in matched:
+        payload = json.loads(event.payload_json)
+        if payload.get("tool") == "review.semantic_rule":
+            payload["simulation"] = False
+            event.payload_json = json.dumps(payload, ensure_ascii=False)
+    db_session.flush()
+    assert _review_run_source(db_session, task, run) == "live"
+    assert _review_run_source(db_session, task, CheckRun(id=run.id + 1000000)) == "unknown"

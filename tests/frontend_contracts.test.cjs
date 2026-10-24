@@ -92,6 +92,7 @@ test('demo route renders server lifecycle progress and the next stop', () => {
     review_signal:{subject_name:'李四', run_id:12, status:'success', pages_read:2,
       deterministic_rules:1, semantic_rules:2, human_rules:1, pending_rules:2,
       coverage_complete:true, coverage_gaps:0, llm_calls_used:1,
+      run_source:'simulation',
       focus_rule:{rule_id:'r_term_match', statement:'报告期次须为 2026 秋季第 1 期', status:'待确认', executor:'semantic'}},
   }});
   assert.match(html, /2\/4 站已完成/);
@@ -106,6 +107,9 @@ test('demo route renders server lifecycle progress and the next stop', () => {
   assert.doesNotMatch(html, /下一站：检查并接手/);
   assert.match(html, /真实复核运行/);
   assert.match(html, /运行 #12 · 李四/);
+  assert.match(html, /本次运行来源/);
+  assert.match(html, /离线演示结果/);
+  assert.match(html, /没有调用实时模型/);
   assert.match(html, /程序 1 · 语义 2/);
   assert.match(html, /2 项待处理/);
   assert.match(html, /建议先处理/);
@@ -140,7 +144,21 @@ test('task workspace explains offline mode without hiding the available workflow
   app.state.llmConfigured = true;
   app.paintWorkspaceAgentStatus();
   assert.equal(els['workspace-agent-mode'].textContent, '模型已接入');
-  assert.match(els['workspace-agent-status'].textContent, /调用预算/);
+  assert.match(els['workspace-agent-status'].textContent, /运行摘要/);
+  assert.match(els['workspace-agent-status'].textContent, /不代表这次结果一定调用实时模型/);
+});
+test('showcase run source stays separate from model configuration', () => {
+  const {app} = setup();
+  const base = {id:7, name:'演示任务', status:'collecting', demo_route:{completed:2, total:4,
+    next:{title:'检查并接手', href:'#/review/7/2', detail:'已验收 1/4 个主体'},
+    steps:[{key:'design',title:'整理要求',status:'done',href:'#/design/7'},
+      {key:'roster',title:'发放凭证',status:'done',href:'#/roster/7'},
+      {key:'review',title:'检查并接手',status:'current',href:'#/review/7/2'},
+      {key:'delivery',title:'固定交付',status:'upcoming',href:'#/delivery/7'}]}};
+  assert.match(app.demoRouteHtml({...base, demo_route:{...base.demo_route,
+    review_signal:{status:'success', run_id:1, subject_name:'李四', run_source:'live'}}}), /实时模型结果/);
+  assert.match(app.demoRouteHtml({...base, demo_route:{...base.demo_route,
+    review_signal:{status:'success', run_id:1, subject_name:'李四'}}}), /来源待确认/);
 });
 test('presentation view is session-scoped, reversible, and keyboard discoverable', () => {
   const {app, context, els} = setup();

@@ -1,7 +1,9 @@
 """Roster denominators and subject state are separate from check/acceptance state."""
+import json
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from ..models import (CheckRun, DeliverySnapshot, Exemption, ExportJob,
+from ..models import (AuditEvent, CheckRun, DeliverySnapshot, Exemption, ExportJob,
                       ManualDecision, BlueprintVersion, Revision, RosterEntry,
                       Submission, Subject, Task, RUN_SUPERSEDED)
 from ..security import utcnow
@@ -61,6 +63,35 @@ def workbench_data(db: Session, task: Task) -> dict:
     return {"rows": rows, "counts": counts}
 
 
+def _review_run_source(db: Session, task: Task, run: CheckRun) -> str:
+    """Classify the current run from its compact, non-content audit trail."""
+    saw_trace = False
+    semantic_modes: list[bool | None] = []
+    events = db.scalars(select(AuditEvent.payload_json).where(
+        AuditEvent.task_id == task.id,
+        AuditEvent.action == "agent.tool.invoked").order_by(AuditEvent.id.desc()).limit(512)).all()
+    for payload in events:
+        try:
+            entry = json.loads(payload or "{}")
+        except (TypeError, ValueError):
+            continue
+        if str(entry.get("run_id")) != str(run.id):
+            continue
+        saw_trace = True
+        if entry.get("tool") == "review.semantic_rule":
+            mode = entry.get("simulation")
+            semantic_modes.append(mode if isinstance(mode, bool) else None)
+    if not semantic_modes:
+        return "deterministic" if saw_trace else "unknown"
+    if any(mode is None for mode in semantic_modes):
+        return "unknown"
+    if all(semantic_modes):
+        return "simulation"
+    if not any(semantic_modes):
+        return "live"
+    return "mixed"
+
+
 def _review_signal(db: Session, task: Task, subject_id: int | None) -> dict | None:
     """Expose a small, honest summary for the first-entry showcase route.
 
@@ -82,7 +113,7 @@ def _review_signal(db: Session, task: Task, subject_id: int | None) -> dict | No
                 "llm_calls_used": 0, "rules_total": 0, "deterministic_rules": 0,
                 "semantic_rules": 0, "human_rules": 0,
                 "pending_rules": 0, "coverage_complete": True,
-                "coverage_gaps": 0}
+                "coverage_gaps": 0, "run_source": "unknown"}
     subject = db.get(Subject, subject_id)
     rules = review_rule_details(db, run, task, subject_id,
                                 submission.current_revision_id)
@@ -120,6 +151,7 @@ def _review_signal(db: Session, task: Task, subject_id: int | None) -> dict | No
     coverage = run_coverage(run)
     return {"subject_id": subject_id, "subject_name": subject.display_name if subject else "",
             "run_id": run.id, "status": run.status,
+            "run_source": _review_run_source(db, task, run),
             "pages_read": run.pages_read or 0,
             "llm_calls_used": run.llm_calls_used or 0,
             "rules_total": len(rules), "deterministic_rules": deterministic,
