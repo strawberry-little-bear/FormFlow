@@ -23,6 +23,7 @@ from ..config import settings
 from ..timeutils import iso_utc
 from ..services.review_context import review_context
 from ..services.progress import demo_route_data, workbench_data, exempt_subject_ids
+from ..services.agent_runtime import agent_runtime_manifest
 from ..models import (
     EXEMPTION_ACTIVE,
     AccessGrant,
@@ -454,6 +455,13 @@ def get_demo_route(task_id: int, db: Session = Depends(get_db),
                    acct: Account = Depends(current_account)):
     """First-entry tour progress, derived from the same state as each workspace."""
     return demo_route_data(db, _owned_task(db, acct, task_id))
+
+
+@router.get("/tasks/{task_id}/agent-runtime")
+def get_agent_runtime(task_id: int, db: Session = Depends(get_db),
+                      acct: Account = Depends(current_account)):
+    """Expose the task-scoped Agent boundary used by the organizer showcase."""
+    return agent_runtime_manifest(db, _owned_task(db, acct, task_id))
 
 @router.get("/tasks/{task_id}/blueprint")
 def get_blueprint(task_id: int, db: Session = Depends(get_db), acct: Account = Depends(current_account)):

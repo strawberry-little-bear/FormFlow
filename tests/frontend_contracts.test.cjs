@@ -438,7 +438,7 @@ test('presentation view is session-scoped, reversible, and keyboard discoverable
   assert.match(styleSource, /body\.presentation-mode #task-stats/);
   assert.match(styleSource, /body\.presentation-mode \.task-section/);
   const routeIndex = source.indexOf('<div id="demo-route"');
-  const runtimeIndex = source.indexOf('class="workspace-runtime-strip"');
+  const runtimeIndex = source.indexOf('${taskRuntimeHtml()}');
   assert.ok(routeIndex >= 0 && runtimeIndex > routeIndex, 'showcase route should lead the agent explanation');
   assert.equal((source.match(/id="demo-route"/g) || []).length, 1, 'task page should mount one demo route container');
 });

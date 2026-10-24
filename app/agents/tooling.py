@@ -41,6 +41,33 @@ RULE_REVIEW_SKILL = SkillSpec(
 )
 
 
+def review_tool_manifest() -> list[dict[str, object]]:
+    """Expose the review tool contract without constructing a live runner."""
+    semantic_timeout = max(30.0, settings.llm_timeout_seconds * (settings.llm_max_retries + 1) + 10.0)
+    return [
+        {
+            "name": "review.deterministic_rule",
+            "description": "Run one allowlisted deterministic check from the current published blueprint.",
+            "required_scope": "review:deterministic",
+            "timeout_seconds": 5.0,
+            "budget_cost": 1,
+            "max_argument_bytes": 8_192,
+            "max_result_bytes": 16_384,
+            "idempotent": True,
+        },
+        {
+            "name": "review.semantic_rule",
+            "description": "Investigate one allowlisted semantic rule and verify quoted evidence against current parsed materials.",
+            "required_scope": "review:semantic",
+            "timeout_seconds": semantic_timeout,
+            "budget_cost": 1,
+            "max_argument_bytes": 8_192,
+            "max_result_bytes": 16_384,
+            "idempotent": True,
+        },
+    ]
+
+
 def _tool_result(result: RuleResultOut) -> ToolResult:
     return ToolResult(status=result.result, summary=result.explanation[:500],
                       data={"rule_result": result.model_dump(mode="json")},

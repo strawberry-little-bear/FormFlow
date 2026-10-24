@@ -1,7 +1,7 @@
 "use strict";
 /* 收齐啦 FormFlow 前端（P01–P05）。纯静态 SPA，直接调用 /api。 */
 const ORG_KEY = "ff_org_token", SUB_KEY = "ff_sub_token", PRESENTATION_KEY = "ff_tasks_presentation", DEMO_ENTRY_KEY = "ff_demo_entry";
-const state = { taskId: null, chat: [], bpId: null, draft: null, requirement: "", answeredDone: false, files: {}, filesMeta: {}, draftVersion: null, me: null, lastJob: null, roster: {}, designEpoch: 0, agentBusy: false, agentRequest: null, agentRequestPollTimer: 0, agentResumeStarted: false, agentRequestDisplayedId: null, draftStatus: "draft", draftVersionId: null, designTab: "preview", tasks: [], llmConfigured: null, designBlocking: [], designAdvisories: [], designVersions: [], designHistory: [], viewingVersion: null, viewingPublished: null, viewingImpact: null, wbRows: [], wbFilter: "all", reviewRule: null, reviewFilter: "all", reviewTraceFilter: "all", presentationMode: false, presentationStartAligned: false };
+const state = { taskId: null, chat: [], bpId: null, draft: null, requirement: "", answeredDone: false, files: {}, filesMeta: {}, draftVersion: null, me: null, lastJob: null, roster: {}, designEpoch: 0, agentBusy: false, agentRequest: null, agentRequestPollTimer: 0, agentResumeStarted: false, agentRequestDisplayedId: null, draftStatus: "draft", draftVersionId: null, designTab: "preview", tasks: [], llmConfigured: null, agentRuntime: null, designBlocking: [], designAdvisories: [], designVersions: [], designHistory: [], viewingVersion: null, viewingPublished: null, viewingImpact: null, wbRows: [], wbFilter: "all", reviewRule: null, reviewFilter: "all", reviewTraceFilter: "all", presentationMode: false, presentationStartAligned: false };
 
 const orgToken = () => localStorage.getItem(ORG_KEY) || "";
 const subToken = () => localStorage.getItem(SUB_KEY) || "";
@@ -749,6 +749,43 @@ async function doSubLogin() {
 
 /* ---------------------------------------------------------------- 任务列表 */
 const TASK_STATUS = { draft: "草稿", collecting: "收集中", closed: "已关闭", archived: "已归档", cancelled: "已取消" };
+function runtimeToolNames(runtime) {
+  return (runtime?.tools || []).map(tool => `<code>${esc(tool.name)}</code>`).join(" ") || '<span class="muted">等待任务范围</span>';
+}
+function runtimeReviewSkill(runtime) {
+  return (runtime?.skills || []).find(skill => skill.name === "review_one_submission") || {};
+}
+function taskRuntimeHtml(runtime = null) {
+  const skill = runtimeReviewSkill(runtime);
+  const mode = runtime?.model?.label || "读取任务边界…";
+  const scope = runtime?.scope || {};
+  const tools = runtimeToolNames(runtime);
+  const mcp = runtime?.mcp?.boundary || "正在读取外部工具边界。";
+  const budget = runtime?.harness ? `${runtime.harness.max_invocations} 次调用 · ${runtime.harness.result_limit_bytes} B 结果上限` : "按当前蓝图计算";
+  return `<section id="workspace-agent-runtime" class="workspace-runtime-strip" aria-label="FormFlow Agent runtime"><div class="runtime-strip-lead"><div class="runtime-strip-head"><div class="eyebrow">FORMFLOW AGENT RUNTIME</div><span id="workspace-agent-mode" class="runtime-mode">${esc(mode)}</span></div><h2>助手负责整理与取证，关键决定留给人</h2><p id="workspace-agent-status" role="status" aria-live="polite">${runtime ? `当前任务 ${scope.published_blueprint ? "已发布蓝图" : "尚未发布蓝图"}；运行时边界由服务端清单提供。` : "正在读取当前任务的运行时边界；已有任务和程序流程仍可查看。"}</p></div><div class="runtime-strip-grid"><div class="runtime-skill"><span class="runtime-strip-icon">${icon("sparkle")}</span><b>Skill</b><span><code>${esc(skill.name || "review_one_submission")}</code> 按当前规则逐条取证</span></div><div class="runtime-tools"><span class="runtime-strip-icon">${icon("tasks")}</span><b>工具白名单</b><span>${tools}</span></div><div class="runtime-harness"><span class="runtime-strip-icon">${icon("review")}</span><b>Harness</b><span>scope、预算、幂等键、结果上限与审计 · ${esc(budget)}</span></div><div class="runtime-mcp"><span class="runtime-strip-icon">${icon("expand")}</span><b>MCP 边界</b><span>${esc(mcp)}</span></div><div class="runtime-human"><span class="runtime-strip-icon">${icon("workbench")}</span><b>人来决定</b><span>${esc((runtime?.human_control || ["不确定、失败与最终验收交给组织者"])[0])}</span></div></div></section>`;
+}
+function designRuntimeHtml(runtime = null) {
+  const mode = runtime?.model?.label || "受限运行时";
+  const skill = (runtime?.skills || []).find(item => item.name === "requirements_draft") || {};
+  const tools = runtimeToolNames(runtime);
+  const mcp = runtime?.mcp?.boundary || "没有外部 adapter；模型不能访问网络、文件系统或任意 SQL";
+  return `<section id="design-agent-runtime" class="agent-runtime-card" aria-label="智能协作边界"><div class="runtime-card-head"><div><div class="eyebrow">AGENT RUNTIME</div><h3>小齐的协作边界</h3></div><span class="runtime-mode" id="agent-runtime-mode">${esc(mode)}</span></div><div class="runtime-card-grid"><div class="runtime-card-item runtime-skill"><span class="runtime-card-icon">${icon("sparkle")}</span><div><b>Skill · 需求整理</b><span><code>${esc(skill.name || "requirements_draft")}</code> ${esc(skill.description || "把原始要求整理成待确认草案")}</span></div></div><div class="runtime-card-item runtime-tools"><span class="runtime-card-icon">${icon("tasks")}</span><div><b>工具白名单</b><span>${tools || "当前设计由应用服务受限处理"}</span></div></div><div class="runtime-card-item runtime-harness"><span class="runtime-card-icon">${icon("review")}</span><div><b>Harness · 受限执行</b><span>预算、幂等键、结果上限与审计在边界内检查</span></div></div><div class="runtime-card-item runtime-mcp"><span class="runtime-card-icon">${icon("expand")}</span><div><b>MCP 边界</b><span>${esc(mcp)}</span></div></div><div class="runtime-card-item runtime-human"><span class="runtime-card-icon">${icon("workbench")}</span><div><b>人工确认</b><span>${esc((runtime?.human_control || ["不确定内容、材料门槛和最终发布由组织者决定"])[2] || "发布前必须由组织者确认")}</span></div></div></div><p class="runtime-card-foot" id="agent-runtime-status">${runtime ? "这份边界来自当前任务的服务端运行时清单。" : "正在读取当前任务的服务端运行时清单。"}</p></section>`;
+}
+async function loadAgentRuntime(taskId) {
+  if (!Number.isFinite(Number(taskId))) return;
+  try {
+    const runtime = await api(`/api/tasks/${taskId}/agent-runtime`);
+    state.agentRuntime = runtime;
+    const taskStrip = document.getElementById("workspace-agent-runtime");
+    if (taskStrip) taskStrip.outerHTML = taskRuntimeHtml(runtime);
+    const designCard = document.getElementById("design-agent-runtime");
+    if (designCard) designCard.outerHTML = designRuntimeHtml(runtime);
+    paintWorkspaceAgentStatus();
+    paintAgentRuntime();
+  } catch (e) {
+    // The existing static fallback remains usable if the read-only manifest is unavailable.
+  }
+}
 async function viewTasks() {
   document.getElementById("app").innerHTML = `
     <div class="page-heading"><div><div class="eyebrow">WORKSPACE / 任务管理</div><h1>我的任务<span class="heading-dot">.</span></h1><p>从需求到交付，把每一次收集安排妥当。</p></div>
@@ -756,7 +793,7 @@ async function viewTasks() {
     <div id="flash" role="status"></div>
     <div id="demo-route" aria-live="polite"></div>
     <section class="workspace-intro"><div class="intro-symbol">${icon("design")}</div><div><h2>不用从一张空表单开始</h2><p>告诉小齐要收什么，一起确认字段、材料和规则，再交给提交者。</p></div><span class="intro-note">你确认，才发布 ${icon("arrow")}</span></section>
-    <section class="workspace-runtime-strip" aria-label="FormFlow Agent runtime"><div class="runtime-strip-lead"><div class="runtime-strip-head"><div class="eyebrow">FORMFLOW AGENT RUNTIME</div><span id="workspace-agent-mode" class="runtime-mode">读取状态…</span></div><h2>助手负责整理与取证，关键决定留给人</h2><p id="workspace-agent-status" role="status" aria-live="polite">正在读取当前模型配置；已有任务和程序流程仍可查看。</p></div><div class="runtime-strip-grid"><div class="runtime-skill"><span class="runtime-strip-icon">${icon("sparkle")}</span><b>Skill</b><span><code>review_one_submission</code> 按当前规则逐条取证</span></div><div class="runtime-tools"><span class="runtime-strip-icon">${icon("tasks")}</span><b>工具白名单</b><span><code>review.deterministic_rule</code> / <code>review.semantic_rule</code></span></div><div class="runtime-harness"><span class="runtime-strip-icon">${icon("review")}</span><b>Harness</b><span>scope、预算、幂等键、结果上限与审计</span></div><div class="runtime-mcp"><span class="runtime-strip-icon">${icon("expand")}</span><b>MCP 边界</b><span>当前没有外部 adapter，不把网络或文件工具交给模型</span></div><div class="runtime-human"><span class="runtime-strip-icon">${icon("workbench")}</span><b>人来决定</b><span>资格、补正与最终验收不会自动完成</span></div></div></section>
+    ${taskRuntimeHtml()}
     ${agentTourHtml()}
     <div id="task-stats" class="overview-stats"></div>
     <section class="card task-section"><div class="section-toolbar"><div class="task-filters" role="group" aria-label="任务状态筛选">
@@ -785,6 +822,7 @@ async function viewTasks() {
     renderDemoRoute(tasks);
     const routeTask = demoRouteTask(tasks);
     if (routeTask) loadDemoRoute(routeTask);
+    if (routeTask) loadAgentRuntime(routeTask.id);
     const n = status => tasks.filter(t => t.status === status).length;
     document.getElementById("task-stats").innerHTML = [["全部任务", tasks.length, "tasks"], ["正在收集", n("collecting"), "workbench"], ["待完善草稿", n("draft"), "design"], ["已经归档", n("archived"), "delivery"]].map(([label, value, ic]) => `<div class="overview-stat"><span>${label}</span><strong>${value.toString().padStart(2,"0")}</strong><i>${icon(ic)}</i></div>`).join("");
     paintTasks();
@@ -1097,7 +1135,7 @@ async function viewDesign(taskId) {
     <div id="design-recovery"></div><div class="grid-chat"><section class="card agent-panel"><div class="agent-heading"><span class="agent-mark">${icon("sparkle")}</span><div><h2>小齐 <span>需求设计助手</span></h2><p id="agent-status">正在准备…</p></div><span class="agent-live"></span></div>
       <div class="chat"><div class="chat-scroll" id="chat-scroll" role="log" aria-label="需求对话" aria-live="polite"></div><div class="composer"><div class="chips" id="chat-chips"></div>
       <label class="sr-only" for="chat-in">告诉小齐你的收集要求</label><textarea id="chat-in" oninput="cacheDesignInputs()" placeholder="例如：收一份团课 PDF 报告，登记姓名和班级…" onkeydown="if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing){event.preventDefault();chatSend()}"></textarea>
-       <div class="composer-foot"><span>Enter 发送 · Shift + Enter 换行</span><button id="chat-send" onclick="chatSend()" aria-label="发送需求">发送 ${icon('arrow')}</button></div><p class="field-help" id="design-input-hint" role="status"></p></div></div><section class="agent-runtime-card" aria-label="智能协作边界"><div class="runtime-card-head"><div><div class="eyebrow">AGENT RUNTIME</div><h3>小齐的协作边界</h3></div><span class="runtime-mode" id="agent-runtime-mode">受限运行时</span></div><div class="runtime-card-grid"><div class="runtime-card-item runtime-skill"><span class="runtime-card-icon">${icon("sparkle")}</span><div><b>Skill · 需求整理</b><span><code>requirements_draft</code> 把原始要求整理成可核对草案</span></div></div><div class="runtime-card-item runtime-tools"><span class="runtime-card-icon">${icon("tasks")}</span><div><b>工具白名单</b><span>模板、字段和规则校验只在当前任务 scope 内运行</span></div></div><div class="runtime-card-item runtime-harness"><span class="runtime-card-icon">${icon("review")}</span><div><b>Harness · 受限执行</b><span>预算、幂等键、结果上限与审计在边界内检查</span></div></div><div class="runtime-card-item runtime-mcp"><span class="runtime-card-icon">${icon("expand")}</span><div><b>MCP 边界</b><span>没有外部 adapter；模型不能访问网络、文件系统或任意 SQL</span></div></div><div class="runtime-card-item runtime-human"><span class="runtime-card-icon">${icon("workbench")}</span><div><b>人工确认</b><span>不确定内容、材料门槛和最终发布由组织者决定</span></div></div></div><p class="runtime-card-foot" id="agent-runtime-status">运行状态会随模型配置和当前请求更新。</p></section>
+      <div class="composer-foot"><span>Enter 发送 · Shift + Enter 换行</span><button id="chat-send" onclick="chatSend()" aria-label="发送需求">发送 ${icon('arrow')}</button></div><p class="field-help" id="design-input-hint" role="status"></p></div></div>${designRuntimeHtml()}
     </section><section id="draft-panel" aria-label="实时收集表预览"></section></div>
     <dialog id="publish-dialog" aria-labelledby="publish-title"><form onsubmit="event.preventDefault();confirmPublish()"><div class="eyebrow">REVIEW & PUBLISH</div><h2 id="publish-title" tabindex="-1">确认这份收集要求</h2><p>发布后，这个版本的字段、材料和规则会被冻结。后续修改将产生新版本。</p><div id="publish-summary"></div><label class="check-label"><input type="checkbox" id="publish-consent" required>我已核对材料要求、规则依据、截止时间和数据用途</label><div class="dialog-actions"><button type="button" class="ghost" onclick="this.closest('dialog').close()">返回核对</button><button type="submit" id="publish-confirm">确认并发布</button></div><div id="publish-error" role="alert" class="inline-error"></div></form></dialog>`;
   setAgentBusy(true, "正在加载"); renderDraftPanel();
@@ -1136,6 +1174,7 @@ async function viewDesign(taskId) {
     if (epoch === state.designEpoch && token === orgToken()) {
       setAgentBusy(false); renderChips(); renderDraftPanel(); restoreDesignInputs();
       resumePendingAgentRequest(epoch, token);
+      loadAgentRuntime(taskId);
       checkLLMStatus();
     }
   }
