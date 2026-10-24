@@ -335,6 +335,8 @@ test('task workspace explains offline mode without hiding the available workflow
   assert.match(styleSource, /\.runtime-strip-icon svg/);
   assert.match(styleSource, /\.runtime-strip-grid \.runtime-tools/);
   assert.match(styleSource, /\.runtime-strip-grid \.runtime-human/);
+  assert.match(styleSource, /@media \(max-width:900px\) \{[\s\S]*\.runtime-strip-grid \{ grid-template-columns:repeat\(3,minmax\(0,1fr\)\); \}/);
+  assert.match(styleSource, /@media \(max-width:900px\) \{[\s\S]*body\.presentation-mode \.workspace-runtime-strip \{ grid-template-columns:1fr; \}/);
   assert.match(styleSource, /@media \(max-width:340px\)[\s\S]*\.runtime-strip-grid \{ grid-template-columns:1fr; \}/);
 });
 test('showcase run source stays separate from model configuration', () => {

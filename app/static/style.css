@@ -3936,6 +3936,7 @@ button.validation-link { border: 0; background: none; color: var(--bad); box-sha
 .runtime-strip-grid .runtime-human { --runtime-accent:#b07a27; --runtime-ink:#85611f; --runtime-soft:#fff7e8; --runtime-line:#efdfbb; }
 @media (max-width:900px) {
   .workspace-runtime-strip { grid-template-columns:1fr; gap:13px; }
+  .runtime-strip-grid { grid-template-columns:repeat(3,minmax(0,1fr)); }
 }
 @media (max-width:600px) {
   .workspace-runtime-strip { padding:15px 16px; }
@@ -4033,6 +4034,7 @@ body.presentation-mode .agent-tour details > summary { padding:16px 20px; }
   body.presentation-mode .demo-route { padding:17px; }
 }
 @media (max-width:900px) {
+  body.presentation-mode .workspace-runtime-strip { grid-template-columns:1fr; }
   .agent-tour-flow { grid-template-columns:repeat(3,minmax(0,1fr)); }
   .agent-tour-step:nth-child(3)::after { display:none; }
 }
