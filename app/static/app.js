@@ -59,12 +59,29 @@ function applyPresentationMode(focus = false) {
   const active = !!state.presentationMode && document.body?.dataset?.page === "tasks";
   document.body?.classList?.toggle("presentation-mode", active);
   const button = document.getElementById("presentation-toggle");
+  const details = document.querySelector?.(".agent-tour details");
+  const summary = details?.querySelector?.("summary");
+  if (details) {
+    if (active) details.open = true;
+    summary?.setAttribute?.("aria-expanded", String(!!details.open));
+    if (!details.dataset?.presentationBound && details.addEventListener) {
+      details.addEventListener("toggle", () => summary?.setAttribute?.("aria-expanded", String(!!details.open)));
+      if (details.dataset) details.dataset.presentationBound = "1";
+    }
+  }
   if (!button) return;
   button.setAttribute("aria-pressed", String(active));
   button.setAttribute("aria-label", active ? "退出展示视图" : "进入展示视图");
   button.title = active ? "退出展示视图（Esc）" : "进入展示视图";
   button.innerHTML = `${icon(active ? "collapse" : "expand")} ${active ? "退出展示视图" : "进入展示视图"}`;
-  if (focus) button.focus();
+  if (focus) {
+    const target = active
+      ? document.querySelector?.(".demo-route-focus .button-link")
+        || document.querySelector?.(".demo-route-step.current")
+        || button
+      : button;
+    target?.focus?.();
+  }
 }
 function setPresentationMode(on, persist = true) {
   state.presentationMode = !!on;
@@ -644,7 +661,7 @@ function agentTourHtml(llmConfigured = state.llmConfigured) {
     ["证据", "回到原文位置", "每条结果保留工具 trace、关联编号和覆盖范围；证据不足就停在待确认。", "evidence"],
     ["接手", "组织者做最终决定", "资格、补正和最终验收由人确认，模型不会自行发布或认定通过。", "human"],
   ];
-  return `<section class="agent-tour" aria-label="Agent 工作导览"><details><summary><span><span class="eyebrow">现场演示 · AGENT WALKTHROUGH</span><b>一次运行怎样从要求走到可交付证据</b><small>展开查看 skill、harness、工具边界与人工接手点</small></span><span class="agent-tour-summary"><span id="agent-tour-mode" class="runtime-mode ${modeClass}">${esc(mode)}</span><span class="agent-tour-chevron">${icon("arrow")}</span></span></summary><div class="agent-tour-body"><div class="agent-tour-intro"><p id="agent-tour-availability">${esc(availability)}</p><span>每一步都可以在复核页的运行记录中回看</span></div><ol class="agent-tour-flow">${steps.map(([label, title, detail, tone], i) => `<li class="agent-tour-step ${tone}"><span class="agent-tour-index">0${i + 1}</span><div><b>${esc(label)}</b><strong>${esc(title)}</strong><span>${esc(detail)}</span></div></li>`).join("")}</ol><div class="agent-tour-boundary"><div><b>允许使用</b><span><code>review.deterministic_rule</code><code>review.semantic_rule</code></span></div><div><b>明确不做</b><span>当前未连接外部 MCP adapter；模型不能访问网络、文件系统或任意 SQL。</span></div></div></div></details></section>`;
+  return `<section class="agent-tour" aria-label="Agent 工作导览"><details><summary aria-expanded="false"><span><span class="eyebrow">现场演示 · AGENT WALKTHROUGH</span><b>一次运行怎样从要求走到可交付证据</b><small>展开查看 skill、harness、工具边界与人工接手点</small></span><span class="agent-tour-summary"><span id="agent-tour-mode" class="runtime-mode ${modeClass}">${esc(mode)}</span><span class="agent-tour-chevron">${icon("arrow")}</span></span></summary><div class="agent-tour-body"><div class="agent-tour-intro"><p id="agent-tour-availability">${esc(availability)}</p><span>每一步都可以在复核页的运行记录中回看</span></div><ol class="agent-tour-flow">${steps.map(([label, title, detail, tone], i) => `<li class="agent-tour-step ${tone}"><span class="agent-tour-index">0${i + 1}</span><div><b>${esc(label)}</b><strong>${esc(title)}</strong><span>${esc(detail)}</span></div></li>`).join("")}</ol><div class="agent-tour-boundary"><div><b>允许使用</b><span><code>review.deterministic_rule</code><code>review.semantic_rule</code></span></div><div><b>明确不做</b><span>当前未连接外部 MCP adapter；模型不能访问网络、文件系统或任意 SQL。</span></div></div></div></details></section>`;
 }
 const DEMO_ROUTE_STATUS = {done: "已完成", current: "现在处理", upcoming: "下一步", blocked: "先完成前置"};
 const DEMO_ROUTE_ICONS = {design: "design", roster: "roster", review: "review", delivery: "delivery"};

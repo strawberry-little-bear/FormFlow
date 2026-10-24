@@ -205,11 +205,32 @@ test('presentation view is session-scoped, reversible, and keyboard discoverable
   assert.ok(routeIndex >= 0 && runtimeIndex > routeIndex, 'showcase route should lead the agent explanation');
   assert.equal((source.match(/id="demo-route"/g) || []).length, 1, 'task page should mount one demo route container');
 });
+test('presentation entry opens the agent tour and focuses the current stop', () => {
+  const {app, context, els} = setup();
+  const details = element();
+  const summary = element();
+  const currentStop = element();
+  details.open = false;
+  details.querySelector = selector => selector === 'summary' ? summary : null;
+  context.document.querySelector = selector => {
+    if (selector === '.agent-tour details') return details;
+    if (selector === '.demo-route-focus .button-link') return currentStop;
+    return null;
+  };
+  app.setPresentationMode(true);
+  assert.equal(details.open, true);
+  assert.equal(summary.attributes['aria-expanded'], 'true');
+  assert.equal(currentStop.focused, true);
+  app.setPresentationMode(false);
+  assert.equal(els['presentation-toggle'].focused, true);
+  assert.match(source, /details\.addEventListener\("toggle"/);
+});
 test('agent walkthrough makes the constrained execution path visible', () => {
   const {app} = setup();
   const offline = app.agentTourHtml(false);
   assert.match(offline, /AGENT WALKTHROUGH/);
   assert.match(offline, /<details>/);
+  assert.match(offline, /<summary aria-expanded="false">/);
   assert.doesNotMatch(offline, /<details open>/);
   assert.match(offline, /review_one_submission/);
   assert.match(offline, /AgentToolHarness|受限工具运行时/);
