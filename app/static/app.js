@@ -55,20 +55,28 @@ function navigate(hash) {
 function readPresentationMode() {
   try { return sessionStorage.getItem(PRESENTATION_KEY) === "1"; } catch (e) { return false; }
 }
+function syncPresentationDetails(details, active) {
+  if (!details) return;
+  const summary = details.querySelector?.("summary");
+  if (active && !details.open) {
+    details.open = true;
+    if (details.dataset) details.dataset.presentationOpened = "1";
+  } else if (!active && details.dataset?.presentationOpened === "1") {
+    details.open = false;
+    if (details.dataset) delete details.dataset.presentationOpened;
+  }
+  summary?.setAttribute?.("aria-expanded", String(!!details.open));
+  if (!details.dataset?.presentationBound && details.addEventListener) {
+    details.addEventListener("toggle", () => summary?.setAttribute?.("aria-expanded", String(!!details.open)));
+    if (details.dataset) details.dataset.presentationBound = "1";
+  }
+}
 function applyPresentationMode(focus = false) {
   const active = !!state.presentationMode && document.body?.dataset?.page === "tasks";
   document.body?.classList?.toggle("presentation-mode", active);
   const button = document.getElementById("presentation-toggle");
-  const details = document.querySelector?.(".agent-tour details");
-  const summary = details?.querySelector?.("summary");
-  if (details) {
-    if (active) details.open = true;
-    summary?.setAttribute?.("aria-expanded", String(!!details.open));
-    if (!details.dataset?.presentationBound && details.addEventListener) {
-      details.addEventListener("toggle", () => summary?.setAttribute?.("aria-expanded", String(!!details.open)));
-      if (details.dataset) details.dataset.presentationBound = "1";
-    }
-  }
+  [".agent-tour details", ".demo-route-signal", ".demo-route-trace"]
+    .forEach(selector => syncPresentationDetails(document.querySelector?.(selector), active));
   if (!button) return;
   button.setAttribute("aria-pressed", String(active));
   button.setAttribute("aria-label", active ? "退出展示视图" : "进入展示视图");
@@ -828,6 +836,7 @@ function renderDemoRoute(tasks = state.tasks) {
   const box = document.getElementById("demo-route");
   if (!box) return;
   box.innerHTML = demoRouteHtml(demoRouteTask(tasks));
+  applyPresentationMode();
 }
 async function loadDemoRoute(task) {
   if (!task || task.id == null) return;
