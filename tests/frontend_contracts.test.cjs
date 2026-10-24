@@ -33,7 +33,7 @@ function setup(sharedStorage = storage()) {
     window: {addEventListener() {}}, location: {hash:'#/submit'}, Intl, URLSearchParams, FormData,
     setTimeout, clearTimeout, confirm: () => true, console,
     fetch: async () => {throw new Error('Unexpected request');}});
-  vm.runInContext(source + '\nthis.app = {state, useVersionAsBase, loadDesignVersion, cacheDesignInputs, restoreDesignInputs, recoverDesignInput, paintChat, runAgent, runExport, deliveryHistoryHtml, loadDeliveryHistory, inspectSnapshot, paintSnapshot, canPublishDesign, publishDiffHtml, designVersionImpactHtml, publishBp, confirmPublish, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, fmtTimeShort, designReadinessHtml, draftFingerprint, collectDraftFields, cacheSubmissionDraft, setSubMode, refreshSlotConditions, wbMatches, api, submitDecision, saveDraft, doSubmit, uploadSlot, deleteSlotFile, cacheReviewDraft, discardReviewDraft, logout, nextPendingReview, setReviewFilter, setReviewTraceFilter, selectReviewRule, viewReview, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, chooseWorkbenchNextStep, workbenchNextStepHtml, agentRunCard, agentTourHtml, submitterGuidance, ruleCard, receiptFilesHtml, submissionIssues, checkAgentRequestNow, resumePendingAgentRequest, savePendingAgentRequest, agentRequestProgressHtml, retryAgent, pollAgentRequest, showSubmissionIssues, initSubChat, demoRouteTask, demoRouteHtml, renderDemoRoute, paintWorkspaceAgentStatus, viewLogin, readPresentationMode, applyPresentationMode, setPresentationMode, togglePresentationMode};', context);
+  vm.runInContext(source + '\nthis.app = {state, useVersionAsBase, loadDesignVersion, cacheDesignInputs, restoreDesignInputs, recoverDesignInput, paintChat, runAgent, runExport, deliveryHistoryHtml, loadDeliveryHistory, inspectSnapshot, paintSnapshot, canPublishDesign, publishDiffHtml, designVersionImpactHtml, publishBp, confirmPublish, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, fmtTimeShort, designReadinessHtml, draftFingerprint, collectDraftFields, cacheSubmissionDraft, setSubMode, refreshSlotConditions, wbMatches, api, submitDecision, saveDraft, doSubmit, uploadSlot, deleteSlotFile, cacheReviewDraft, discardReviewDraft, logout, nextPendingReview, setReviewFilter, setReviewTraceFilter, selectReviewRule, viewReview, reviewRevisionHistoryHtml, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, chooseWorkbenchNextStep, workbenchNextStepHtml, agentRunCard, agentTourHtml, submitterGuidance, ruleCard, receiptFilesHtml, submissionIssues, checkAgentRequestNow, resumePendingAgentRequest, savePendingAgentRequest, agentRequestProgressHtml, retryAgent, pollAgentRequest, showSubmissionIssues, initSubChat, demoRouteTask, demoRouteHtml, renderDemoRoute, paintWorkspaceAgentStatus, viewLogin, readPresentationMode, applyPresentationMode, setPresentationMode, togglePresentationMode};', context);
   Object.assign(context.app.state, {routeEpoch: 1, me:{task:{id:1, status:'collecting', timezone:'Asia/Shanghai'},subject:{id:2}},
     draftVersion:1, fileMeta:{}, sub:{mode:'chat',phase:'fields',fIdx:0, fields:[{id:'name'}],slots:[],answers:{}}});
   context.localStorage.setItem('ff_sub_token', 'test-only-credential');
@@ -111,6 +111,21 @@ test('demo route renders server lifecycle progress and the next stop', () => {
   assert.match(html, /建议先处理/);
   assert.match(html, /报告期次须为 2026 秋季第 1 期/);
   assert.match(html, /待确认 · 语义审核/);
+});
+test('review revision history keeps old versions as comparison only', () => {
+  const {app} = setup();
+  const html = app.reviewRevisionHistoryHtml([
+    {id: 1, version: 1, receipt: 'R1', submitted_at: '2026-10-22T10:00:00Z', current: false,
+      field_count: 1, file_count: 1, summary: '首次正式提交', field_changes: [], added_files: [], removed_files: []},
+    {id: 2, version: 2, receipt: 'R2', submitted_at: '2026-10-23T10:00:00Z', current: true,
+      field_count: 1, file_count: 1, summary: '字段 1 项变化；新增材料 1 份；移除材料 1 份',
+      field_changes: [{id: 'term', kind: 'changed'}], added_files: [{name: '修订稿.txt'}], removed_files: [{name: '初稿.txt'}]},
+  ], {id: 2, version: 2});
+  assert.match(html, /正式版本对照/);
+  assert.match(html, /当前复核版本/);
+  assert.match(html, /Agent 只读取这一版/);
+  assert.match(html, /仅供对照，不能套用本次结论/);
+  assert.match(html, /修订稿\.txt/);
 });
 test('task workspace explains offline mode without hiding the available workflow', () => {
   const {app, els} = setup();

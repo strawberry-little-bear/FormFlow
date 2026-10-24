@@ -2109,6 +2109,32 @@ async function viewReview(taskId, sid) {
   }
 }
 
+function reviewRevisionHistoryHtml(history, currentRevision) {
+  if (!history?.length) return '';
+  const rows = history.slice().reverse().map(item => {
+    const current = item.current || item.id === currentRevision?.id;
+    const fieldChanges = (item.field_changes || []).map(change => {
+      const label = change.kind === 'added' ? '新增字段' : change.kind === 'removed' ? '移除字段' : '字段变更';
+      return `<span class="review-version-change">${esc(label)} · ${esc(change.id)}</span>`;
+    }).join('');
+    const fileChanges = [
+      ...(item.added_files || []).map(file => `<span class="review-version-change">新增材料 · ${esc(file.name)}</span>`),
+      ...(item.removed_files || []).map(file => `<span class="review-version-change">移除材料 · ${esc(file.name)}</span>`),
+    ].join('');
+    return `<li class="review-version-row ${current ? 'current' : ''}">
+      <div class="review-version-head"><div><b>正式 v${esc(item.version)}</b>${current ? '<span class="badge ok">当前复核版本</span>' : '<span class="badge">历史版本</span>'}</div><time>${esc(fmtTimeShort(item.submitted_at))}</time></div>
+      <div class="review-version-meta"><span>${esc(item.summary)}</span><span>${item.field_count} 个字段 · ${item.file_count} 份材料</span></div>
+      ${fieldChanges || fileChanges ? `<div class="review-version-changes">${fieldChanges}${fileChanges}</div>` : ''}
+      <p class="review-version-receipt">回执 ${esc(item.receipt)}${current ? ' · Agent 只读取这一版' : ' · 仅供对照，不能套用本次结论'}</p>
+    </li>`;
+  }).join('');
+  return `<section class="card review-version-history" aria-label="正式版本对照">
+    <div class="section-heading"><div><div class="eyebrow">VERSION SCOPE</div><h2>正式版本对照</h2></div><span class="muted">共 ${history.length} 个正式版本</span></div>
+    <p class="review-version-intro">当前运行、证据和人工决定都绑定当前正式版本；历史版本只帮助你看清这次补交改了什么。</p>
+    <ol class="review-version-list">${rows}</ol>
+  </section>`;
+}
+
 function paintReview(taskId, sid) {
   const d = state.reviewData; if (!d) return;
   const rules = [...(d.rules || [])].sort((a, b) => {
@@ -2237,8 +2263,9 @@ function paintReview(taskId, sid) {
 
   const sameName = (d.same_name_subjects || []).length ? `<section class="card notice-warn"><b>同名主体待核</b><p>${esc(d.same_name_hint || "")}</p>${d.same_name_subjects.map(s => `<p>主体 #${s.id}（${esc(s.name)}）——以主体 ID 为准人工核对，系统不自动合并。</p>`).join("")}</section>` : "";
   const covHtml = coverageCard(run);
+  const versionHistory = reviewRevisionHistoryHtml(d.revision_history, d.revision);
 
-  document.getElementById("rv").innerHTML = `${meta}${workflow}${sameName}${agentRunCard(run, rules, d.tool_trace, taskId, sid)}
+  document.getElementById("rv").innerHTML = `${meta}${versionHistory}${workflow}${sameName}${agentRunCard(run, rules, d.tool_trace, taskId, sid)}
     <div class="review-layout ${rules.length ? '' : 'no-rule-layout'}">${rules.length ? `<div class="review-list-col">${list}</div>` : ''}<div class="review-detail-col">${rules.length ? evidence : `<div class="notice-warn">${d.revision ? '本版本没有材料检查规则。请直接核对独立资格与验收状态。' : '尚无正式提交，现在可以预核资格或处理免交；正式提交后才能验收。'}</div>`}${notesHtml}${decision}${eligibilityPanel}${acceptPanel}${covHtml}</div></div>`;
   document.querySelectorAll("[data-review-rule]").forEach(el => el.addEventListener("click", () =>
     selectReviewRule(el.dataset.reviewRule, taskId, sid)));

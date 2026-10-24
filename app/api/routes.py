@@ -904,6 +904,85 @@ def mark_notification_copied(intent_id: int, db: Session = Depends(get_db),
     db.commit()
     return {"intent_id": intent_id, "status": "copied"}
 
+
+def _review_revision_history(db: Session, submission: Submission,
+                             current_revision_id: int | None) -> list[dict]:
+    """Return a safe, organizer-facing comparison of immutable formal revisions.
+
+    The review page only runs against the current revision. Older revisions are
+    deliberately reduced to change metadata so they cannot be mistaken for the
+    evidence scope of the active run.
+    """
+    revisions = db.scalars(select(Revision).where(
+        Revision.submission_id == submission.id).order_by(Revision.version)).all()
+    files = {row.file_id: row for row in db.scalars(select(FileObject).where(
+        FileObject.submission_id == submission.id)).all()}
+    previous_fields: dict = {}
+    previous_files: set[str] = set()
+    history: list[dict] = []
+    for rev in revisions:
+        try:
+            fields = json.loads(rev.fields_json or "{}")
+        except (TypeError, ValueError):
+            fields = {}
+        fields = fields if isinstance(fields, dict) else {}
+        try:
+            manifest = json.loads(rev.slot_file_ids_json or "{}")
+        except (TypeError, ValueError):
+            manifest = {}
+        manifest = manifest if isinstance(manifest, dict) else {}
+        file_slots = {
+            fid: slot for slot, ids in manifest.items() if isinstance(ids, list)
+            for fid in ids if isinstance(fid, str)
+        }
+        current_files = set(file_slots)
+        field_changes = []
+        for field_id in sorted(set(previous_fields) | set(fields)):
+            before, after = previous_fields.get(field_id), fields.get(field_id)
+            if before != after:
+                field_changes.append({
+                    "id": str(field_id),
+                    "kind": "added" if field_id not in previous_fields else
+                            "removed" if field_id not in fields else "changed",
+                })
+        added_files = [
+            {"file_id": fid, "name": files[fid].original_name if fid in files else "未命名文件",
+             "slot": file_slots.get(fid, "")}
+            for fid in sorted(current_files - previous_files)
+        ]
+        removed_files = [
+            {"file_id": fid, "name": files[fid].original_name if fid in files else "历史材料",
+             "slot": ""}
+            for fid in sorted(previous_files - current_files)
+        ]
+        if not history:
+            summary = "首次正式提交"
+        else:
+            parts = []
+            if field_changes:
+                parts.append(f"字段 {len(field_changes)} 项变化")
+            if added_files:
+                parts.append(f"新增材料 {len(added_files)} 份")
+            if removed_files:
+                parts.append(f"移除材料 {len(removed_files)} 份")
+            summary = "；".join(parts) if parts else "内容未变化"
+        history.append({
+            "id": rev.id,
+            "version": rev.version,
+            "receipt": rev.receipt,
+            "submitted_at": _iso(rev.formal_submitted_at),
+            "current": rev.id == current_revision_id,
+            "field_count": len(fields),
+            "file_count": len(current_files),
+            "summary": summary,
+            "field_changes": field_changes,
+            "added_files": added_files,
+            "removed_files": removed_files,
+        })
+        previous_fields = fields
+        previous_files = current_files
+    return history
+
 @router.get("/tasks/{task_id}/subjects/{subject_id}/findings")
 def findings(task_id: int, subject_id: int, db: Session = Depends(get_db),
              acct: Account = Depends(current_account)):
@@ -932,7 +1011,7 @@ def findings(task_id: int, subject_id: int, db: Session = Depends(get_db),
     if submission is None or submission.current_revision_id is None:
         return {"review_context": context, "eligibility": qualification, "subject": {"id": subject.id, "name": subject.display_name},
                 "revision": None, "run": None, "rules": [], "tool_trace": [], "decisions": decisions,
-                "files": [],
+                "files": [], "revision_history": [],
                 "acceptance": {"ready": False, "accepted": False,
                                "blockers": ["没有正式提交版本"]},
                 "same_name_subjects": same_name, "same_name_hint": same_name_hint}
@@ -1013,6 +1092,7 @@ def findings(task_id: int, subject_id: int, db: Session = Depends(get_db),
     return {"review_context": context, "eligibility": eligibility_view(db, task, subject, rev.id, run.blueprint_version_id if run else None),
             "subject": {"id": subject.id, "name": subject.display_name},
             "revision": {"id": rev.id, "version": rev.version, "receipt": rev.receipt},
+            "revision_history": _review_revision_history(db, submission, rev.id),
             "run": ({"id": run.id, "status": run.status,
                      "pages_read": run.pages_read,
                      "llm_calls_used": run.llm_calls_used,

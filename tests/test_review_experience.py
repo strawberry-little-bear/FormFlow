@@ -56,6 +56,39 @@ def test_no_formal_revision_is_not_ready(review):
     assert page['tool_trace'] == []
     assert page['acceptance'] == dict(ready=False, accepted=False, blockers=['没有正式提交版本'])
     assert page['files'] == []
+    assert page['revision_history'] == []
+
+
+def test_review_exposes_current_scope_and_historical_revision_changes(review):
+    db, client, h, task, subject, path = review
+    blueprint = Blueprint(slots=[SlotDef(id='report', label='报告', formats=['txt'], max_count=2)])
+    version = BlueprintVersion(task_id=task.id, version=2, status='published',
+                               blueprint_json=blueprint.model_dump_json())
+    db.add(version)
+    db.flush()
+    task.current_blueprint_id = version.id
+    submission = get_or_create_draft(db, task, subject.id)
+    first_file = attach_file(db, submission, slot='report', original_name='初稿.txt',
+                             content=b'first', sha256='', mime='text/plain')
+    first = formal_submit(db, task, submission, fields={'name': '初稿主体', 'term': '春季'},
+                          slot_file_ids={'report': [first_file.file_id]}, idempotency_key='history-v1')
+    second_file = attach_file(db, submission, slot='report', original_name='修订稿.txt',
+                              content=b'second', sha256='', mime='text/plain')
+    second = formal_submit(db, task, submission, fields={'name': '修订主体', 'term': '春季'},
+                           slot_file_ids={'report': [second_file.file_id]}, idempotency_key='history-v2')
+    db.commit()
+
+    page = findings(client, h, path)
+    assert page['revision']['id'] == second.id
+    assert [item['version'] for item in page['revision_history']] == [1, 2]
+    assert page['revision_history'][0]['current'] is False
+    assert page['revision_history'][0]['summary'] == '首次正式提交'
+    current = page['revision_history'][1]
+    assert current['current'] is True
+    assert current['summary'] == '字段 1 项变化；新增材料 1 份；移除材料 1 份'
+    assert {item['id'] for item in current['field_changes']} == {'name'}
+    assert current['added_files'][0]['name'] == '修订稿.txt'
+    assert current['removed_files'][0]['name'] == '初稿.txt'
 
 
 def test_review_exposes_only_current_formal_files_and_serves_original(review):
