@@ -3902,12 +3902,21 @@ button.validation-link { border: 0; background: none; color: var(--bad); box-sha
 .runtime-strip-lead h2 { margin:3px 0 5px; font-size:16px; line-height:1.45; }
 .runtime-strip-lead p { margin:0; color:var(--muted); font-size:11px; line-height:1.75; }
 .runtime-strip-grid { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:9px; }
-.runtime-strip-grid > div { min-width:0; padding:10px 11px; border-left:2px solid #e4def9; }
-.runtime-strip-grid b { display:block; color:var(--brand-deep); font-size:11px; }
+.runtime-strip-grid > div {
+  --runtime-accent:#7259c7; --runtime-ink:#5e46ad; --runtime-soft:#f4f1ff; --runtime-line:#e1daf8;
+  min-width:0; padding:10px 11px; border:1px solid var(--runtime-line); border-top:3px solid var(--runtime-accent);
+  border-radius:8px; background:#fff;
+}
+.runtime-strip-grid b { display:block; color:var(--runtime-ink); font-size:11px; }
 .runtime-strip-grid > div > span:last-child { display:block; margin-top:4px; color:var(--muted); font-size:10px; line-height:1.55; overflow-wrap:anywhere; }
-.runtime-strip-icon { display:flex; align-items:center; justify-content:center; width:24px; height:24px; margin-bottom:7px; border:1px solid #e5e0f5; border-radius:7px; color:var(--brand); background:#faf9ff; }
+.runtime-strip-icon { display:flex; align-items:center; justify-content:center; width:24px; height:24px; margin-bottom:7px; border:1px solid var(--runtime-line); border-radius:7px; color:var(--runtime-ink); background:var(--runtime-soft); }
 .runtime-strip-icon svg { width:13px; height:13px; }
 .runtime-strip-grid code { font-size:9px; padding:1px 3px; word-break:normal; overflow-wrap:anywhere; }
+.runtime-strip-grid .runtime-skill { --runtime-accent:#7259c7; --runtime-ink:#5e46ad; --runtime-soft:#f4f1ff; --runtime-line:#e1daf8; }
+.runtime-strip-grid .runtime-tools { --runtime-accent:#4f73b7; --runtime-ink:#3e5e99; --runtime-soft:#eef3fb; --runtime-line:#d9e2f4; }
+.runtime-strip-grid .runtime-harness { --runtime-accent:#3d966f; --runtime-ink:#287454; --runtime-soft:#edf8f1; --runtime-line:#d4eadc; }
+.runtime-strip-grid .runtime-mcp { --runtime-accent:#788596; --runtime-ink:#5d6877; --runtime-soft:#f1f3f5; --runtime-line:#dfe3e8; }
+.runtime-strip-grid .runtime-human { --runtime-accent:#b07a27; --runtime-ink:#85611f; --runtime-soft:#fff7e8; --runtime-line:#efdfbb; }
 @media (max-width:900px) {
   .workspace-runtime-strip { grid-template-columns:1fr; gap:13px; }
 }
@@ -3916,6 +3925,9 @@ button.validation-link { border: 0; background: none; color: var(--bad); box-sha
   .runtime-strip-grid { grid-template-columns:1fr 1fr; gap:8px; }
   .runtime-strip-grid > div { padding:8px 9px; }
   .review-group-head span { max-width:230px; }
+}
+@media (max-width:340px) {
+  .runtime-strip-grid { grid-template-columns:1fr; }
 }
 
 /* The runtime strip states the boundary; this compact tour shows the execution path. */

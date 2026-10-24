@@ -214,7 +214,12 @@ test('task workspace explains offline mode without hiding the available workflow
   assert.match(els['workspace-agent-status'].textContent, /运行摘要/);
   assert.match(els['workspace-agent-status'].textContent, /不代表这次结果一定调用实时模型/);
   assert.match(source, /class="runtime-strip-icon"/);
+  for (const tone of ['runtime-skill', 'runtime-tools', 'runtime-harness', 'runtime-mcp', 'runtime-human'])
+    assert.match(source, new RegExp(`class="${tone}"`));
   assert.match(styleSource, /\.runtime-strip-icon svg/);
+  assert.match(styleSource, /\.runtime-strip-grid \.runtime-tools/);
+  assert.match(styleSource, /\.runtime-strip-grid \.runtime-human/);
+  assert.match(styleSource, /@media \(max-width:340px\)[\s\S]*\.runtime-strip-grid \{ grid-template-columns:1fr; \}/);
 });
 test('showcase run source stays separate from model configuration', () => {
   const {app} = setup();
