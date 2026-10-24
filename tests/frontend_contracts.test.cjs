@@ -286,6 +286,13 @@ test('demo route makes stale fallback state and long task names explicit', () =>
   assert.match(styleSource, /\.demo-route-notice \.link/);
   assert.match(styleSource, /\.demo-route-notice \{ align-items:flex-start; flex-direction:column;/);
 });
+test('long task and file content stays readable in presentation surfaces', () => {
+  assert.match(source, /class=\"task-name\" title=\"\$\{esc\(t\.name\)\}\"/);
+  assert.match(styleSource, /Long content and zoom-safe presentation surfaces/);
+  assert.match(styleSource, /\.file-chip-name \{ min-width:0; max-width:min\(210px, 100%\)/);
+  assert.match(styleSource, /body\.presentation-mode \{ background:#f1f3f7; \}/);
+  assert.doesNotMatch(styleSource, /letter-spacing\s*:\s*-/);
+});
 test('review revision history keeps old versions as comparison only', () => {
   const {app} = setup();
   const html = app.reviewRevisionHistoryHtml([

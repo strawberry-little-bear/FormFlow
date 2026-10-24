@@ -31,7 +31,7 @@ body {
   color:var(--ink);
 }
 h1,h2,h3,p { overflow-wrap:anywhere; }
-h1,h2,h3 { letter-spacing:-.03em; }
+h1,h2,h3 { letter-spacing:0; }
 h2 { font-size:18px; margin:0 0 10px; }
 h3 { font-size:15px; margin:0 0 10px; }
 a { color:var(--brand); text-decoration:none; }
@@ -990,7 +990,7 @@ dialog.wide { width:min(720px,calc(100vw - 32px)); }
   background:#fff;
 }
 .overview-stat>span { display:block; color:#9498a4; font-size:11px; }
-.overview-stat strong { display:block; margin-top:7px; font-size:25px; font-weight:650; letter-spacing:-.04em; }
+.overview-stat strong { display:block; margin-top:7px; font-size:25px; font-weight:650; letter-spacing:0; }
 .overview-stat i { position:absolute; right:17px; top:17px; color:#c5c1d6; }
 .overview-stat:nth-child(2) i { color:#9dbbae; }
 .overview-stat:nth-child(3) i { color:#b9a9d8; }
@@ -1109,7 +1109,7 @@ dialog.wide { width:min(720px,calc(100vw - 32px)); }
   color:#554868;
 }
 .login-hero .logo { margin:0; font-size:16px; }
-.login-hero h1 { margin:37px 0 12px; font-size:38px; font-weight:600; line-height:1.5; letter-spacing:-1px; }
+.login-hero h1 { margin:37px 0 12px; font-size:38px; font-weight:600; line-height:1.5; letter-spacing:0; }
 .login-hero .tag { margin-bottom:27px; color:#9b8eac; font-size:12px; line-height:1.9; }
 .login-hero .feat { display:flex; align-items:flex-start; gap:12px; margin:13px 0; font-size:12px; }
 .login-hero .feat .ic {
@@ -1267,7 +1267,7 @@ h1,h2,h3,p {
   overflow-wrap:anywhere
 }
 h1,h2,h3 {
-  letter-spacing:-.03em
+  letter-spacing:0
 }
 button,input,textarea,select {
   font:inherit
@@ -1671,7 +1671,7 @@ main {
   font-size:30px;
   line-height:1.4;
   font-weight:550;
-  letter-spacing:-1px;
+  letter-spacing:0;
   margin-top:5px
 }
 .overview-stat i {
@@ -2551,7 +2551,7 @@ dialog p {
 .login-hero h1 {
   font-size:38px;
   line-height:1.5;
-  letter-spacing:-1px;
+  letter-spacing:0;
   margin:37px 0 12px;
   font-weight:600
 }
@@ -3263,7 +3263,7 @@ dialog p {
 .notice-warn b { display:block; margin-bottom:2px; }
 .check-list { margin:8px 0 0; padding-left:18px; font-size:12px; color:#565b68; line-height:1.9; }
 .check-list b { color:var(--ink); font-weight:600; }
-.stat-text { font-size:16px !important; letter-spacing:-.02em; }
+.stat-text { font-size:16px !important; letter-spacing:0; }
 
 /* ---------------------------------------------------------------- P02 工作台 */
 .wb-next-step {
@@ -4366,3 +4366,27 @@ body.presentation-mode .agent-tour details > summary { padding:16px 20px; }
 .icon-only { gap:0; }
 .icon-only svg { width:16px; height:16px; flex:none; }
 .file-chip-x.icon-only svg { width:12px; height:12px; }
+
+
+/* Long content and zoom-safe presentation surfaces. */
+.task-item > *, .task-list-head > *, .task-name-cell > div,
+.demo-route-head > div, .demo-route-focus > *, .runtime-strip-grid > *,
+.agent-tour-step > div, .agent-tour-boundary > div { min-width:0; }
+.task-name, .task-meta, .task-item time, .task-enter,
+.roster-person b, .roster-person span { overflow-wrap:anywhere; word-break:break-word; }
+.task-meta { flex-wrap:wrap; }
+.task-enter { white-space:normal; }
+.file-chip { min-width:0; }
+.file-chip-name { min-width:0; max-width:min(210px, 100%); overflow-wrap:anywhere; word-break:break-word; }
+body.presentation-mode { background:#f1f3f7; }
+body.presentation-mode main { padding-inline:clamp(16px, 5vw, 58px); }
+body.presentation-mode .page-heading h1 { max-width:30ch; }
+body.presentation-mode .demo-route,
+body.presentation-mode .workspace-runtime-strip,
+body.presentation-mode .agent-tour { border-color:#dfe2eb; }
+
+@media (max-width:700px) {
+  .task-enter { justify-content:flex-start; }
+  .file-chip-name { max-width:calc(100vw - 118px); }
+  body.presentation-mode .page-heading h1 { max-width:none; }
+}
