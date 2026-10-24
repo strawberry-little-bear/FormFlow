@@ -4280,6 +4280,30 @@ body.presentation-mode .agent-tour details > summary { padding:16px 20px; }
 .demo-route-step.route-roster .demo-route-icon { color:#6f8c7c; background:#edf6f0; }
 .demo-route-step.route-review .demo-route-icon { color:#94732f; background:#fbf5e8; }
 .demo-route-step.route-delivery .demo-route-icon { color:#5572a4; background:#eef2fa; }
+.demo-route-audience {
+  margin-top:15px;
+  padding-top:13px;
+  border-top:1px solid var(--line-soft);
+}
+.demo-route-audience-head { display:flex; align-items:baseline; flex-wrap:wrap; gap:6px 10px; }
+.demo-route-audience-head .eyebrow { color:var(--brand); font-size:9px; }
+.demo-route-audience-head strong { font-size:11px; }
+.demo-route-audience-head > span:last-child { color:var(--muted); font-size:10px; line-height:1.45; }
+.demo-route-lanes { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin-top:9px; }
+.demo-route-lane { display:flex; flex-direction:column; align-items:flex-start; min-width:0; padding:10px 11px; border:1px solid var(--line-soft); border-radius:7px; background:#fff; }
+.demo-route-lane.organizer { border-top:2px solid #8f83c9; }
+.demo-route-lane.submitter { border-top:2px solid #78a58b; }
+.demo-route-lane-top { display:flex; align-items:center; gap:6px; }
+.demo-route-lane-icon { display:flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:6px; color:var(--brand-deep); background:var(--brand-soft); }
+.demo-route-lane.submitter .demo-route-lane-icon { color:#4d8062; background:#edf7f0; }
+.demo-route-lane-icon svg { width:13px; height:13px; }
+.demo-route-lane-kicker { color:#747985; font-size:9px; font-weight:650; letter-spacing:.08em; }
+.demo-route-lane > strong { margin-top:6px; font-size:11px; line-height:1.4; }
+.demo-route-lane > p { margin:3px 0 6px; color:var(--muted); font-size:10px; line-height:1.5; overflow-wrap:anywhere; }
+.demo-route-lane-flow { color:#6c7080; font-size:9px; line-height:1.4; }
+.demo-route-lane > a { display:inline-flex; align-items:center; gap:4px; margin-top:8px; color:var(--brand-deep); font-size:10px; font-weight:600; }
+.demo-route-lane.submitter > a { color:#397154; }
+.demo-route-lane > a svg { width:12px; height:12px; }
 .demo-route-foot {
   display:flex;
   align-items:center;
@@ -4322,6 +4346,8 @@ body.presentation-mode .agent-tour details > summary { padding:16px 20px; }
   .demo-route-signal-body { padding:0 10px 9px; }
   .demo-route-steps { grid-template-columns:1fr; margin-top:13px; }
   .demo-route-step { padding:11px 10px; }
+  .demo-route-lanes { grid-template-columns:1fr; }
+  .demo-route-audience-head { align-items:flex-start; flex-direction:column; gap:3px; }
   .demo-route-trace > summary { align-items:flex-start; flex-direction:column; gap:3px; }
   .demo-route-trace ol { grid-template-columns:1fr; }
   .demo-route-foot { align-items:flex-start; flex-direction:column; gap:8px; }

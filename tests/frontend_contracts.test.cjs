@@ -151,6 +151,19 @@ test('demo route explains the full workflow and points to the selected task', ()
   assert.match(html, /#\/workbench\/7/);
   assert.match(html, /#\/delivery\/7/);
 });
+test('demo route exposes organizer and submitter lanes for a complete showcase', () => {
+  const {app} = setup();
+  const html = app.demoRouteHtml({id: 7, name: '演示任务', status: 'collecting'});
+  assert.match(html, /双角色体验/);
+  assert.match(html, /组织者/);
+  assert.match(html, /设计 → 凭证 → 复核 → 交付/);
+  assert.match(html, /#\/workbench\/7/);
+  assert.match(html, /提交者/);
+  assert.match(html, /登录 → 填写 → 提交 → 核对/);
+  assert.match(html, /#\/login\?role=sub/);
+  assert.match(styleSource, /\.demo-route-lanes \{ display:grid;/);
+  assert.match(styleSource, /\.demo-route-lane\.submitter/);
+});
 test('demo route renders server lifecycle progress and the next stop', () => {
   const {app} = setup();
   const html = app.demoRouteHtml({id:7, name:'演示任务', status:'collecting', demo_route:{
