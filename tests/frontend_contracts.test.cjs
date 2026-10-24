@@ -353,6 +353,15 @@ test('task workspace explains offline mode without hiding the available workflow
   assert.match(styleSource, /@media \(max-width:900px\) \{[\s\S]*body\.presentation-mode \.workspace-runtime-strip \{ grid-template-columns:1fr; \}/);
   assert.match(styleSource, /@media \(max-width:340px\)[\s\S]*\.runtime-strip-grid \{ grid-template-columns:1fr; \}/);
 });
+test('runtime presentation follows skill allowlists and distinguishes agent budgets', () => {
+  assert.match(source, /function runtimeToolNames\(runtime, skill = null\)/);
+  assert.match(source, /allowed\.includes\(tool\.name\)/);
+  assert.match(source, /semantic_model_calls_per_run/);
+  assert.match(source, /parsed_pages_per_run/);
+  assert.match(source, /持久请求队列/);
+  assert.match(source, /版本冲突拒绝/);
+  assert.match(source, /当前 Skill 不直接调用工具/);
+});
 test('design workspace exposes the same constrained agent boundary', () => {
   const {app, els} = setup();
   assert.match(source, /class="runtime-card-item runtime-skill"/);

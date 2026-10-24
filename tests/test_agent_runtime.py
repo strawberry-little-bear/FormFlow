@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
+from app.config import settings
 from app.main import app
 
 
@@ -33,12 +34,19 @@ def test_agent_runtime_manifest_is_owner_scoped_and_descriptive(db_session):
         assert payload["mcp"]["adapters"] == []
         assert payload["harness"]["idempotency"] == "required"
         assert payload["harness"]["result_limit_bytes"] == 16384
+        assert payload["harness"]["semantic_model_calls_per_run"] == settings.max_llm_calls_per_run
+        assert payload["harness"]["parsed_pages_per_run"] == settings.max_pages_per_run
         assert {tool["name"] for tool in payload["tools"]} == {
             "review.deterministic_rule", "review.semantic_rule"
         }
         review = next(skill for skill in payload["skills"] if skill["name"] == "review_one_submission")
         assert set(review["allowed_tools"]) == {tool["name"] for tool in payload["tools"]}
-        assert any(skill["name"] == "requirements_draft" for skill in payload["skills"])
+        requirements = next(skill for skill in payload["skills"] if skill["name"] == "requirements_draft")
+        assert requirements["allowed_tools"] == []
+        assert requirements["execution"] == "application_service"
+        assert requirements["request_idempotency"] == "task_account_request_id"
+        assert requirements["version_conflict"] == "fail_closed"
+        assert requirements["human_gate"]
 
 
 def test_agent_runtime_manifest_reports_published_rule_scope(db_session):

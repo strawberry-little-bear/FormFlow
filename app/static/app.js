@@ -749,8 +749,10 @@ async function doSubLogin() {
 
 /* ---------------------------------------------------------------- 任务列表 */
 const TASK_STATUS = { draft: "草稿", collecting: "收集中", closed: "已关闭", archived: "已归档", cancelled: "已取消" };
-function runtimeToolNames(runtime) {
-  return (runtime?.tools || []).map(tool => `<code>${esc(tool.name)}</code>`).join(" ") || '<span class="muted">等待任务范围</span>';
+function runtimeToolNames(runtime, skill = null) {
+  const allowed = skill?.allowed_tools;
+  return (runtime?.tools || []).filter(tool => !Array.isArray(allowed) || allowed.includes(tool.name))
+    .map(tool => `<code>${esc(tool.name)}</code>`).join(" ") || '<span class="muted">当前 Skill 不直接调用工具</span>';
 }
 function runtimeReviewSkill(runtime) {
   return (runtime?.skills || []).find(skill => skill.name === "review_one_submission") || {};
@@ -759,17 +761,20 @@ function taskRuntimeHtml(runtime = null) {
   const skill = runtimeReviewSkill(runtime);
   const mode = runtime?.model?.label || "读取任务边界…";
   const scope = runtime?.scope || {};
-  const tools = runtimeToolNames(runtime);
+  const tools = runtimeToolNames(runtime, skill);
   const mcp = runtime?.mcp?.boundary || "正在读取外部工具边界。";
-  const budget = runtime?.harness ? `${runtime.harness.max_invocations} 次调用 · ${runtime.harness.result_limit_bytes} B 结果上限` : "按当前蓝图计算";
+  const budget = runtime?.harness ? `工具 ${runtime.harness.max_invocations} 次 · 语义模型 ${runtime.harness.semantic_model_calls_per_run} 次 · 材料 ${runtime.harness.parsed_pages_per_run} 页 · 单结果 ≤${runtime.harness.result_limit_bytes} B` : "按当前蓝图和运行配置计算";
   return `<section id="workspace-agent-runtime" class="workspace-runtime-strip" aria-label="FormFlow Agent runtime"><div class="runtime-strip-lead"><div class="runtime-strip-head"><div class="eyebrow">FORMFLOW AGENT RUNTIME</div><span id="workspace-agent-mode" class="runtime-mode">${esc(mode)}</span></div><h2>助手负责整理与取证，关键决定留给人</h2><p id="workspace-agent-status" role="status" aria-live="polite">${runtime ? `当前任务 ${scope.published_blueprint ? "已发布蓝图" : "尚未发布蓝图"}；运行时边界由服务端清单提供。` : "正在读取当前任务的运行时边界；已有任务和程序流程仍可查看。"}</p></div><div class="runtime-strip-grid"><div class="runtime-skill"><span class="runtime-strip-icon">${icon("sparkle")}</span><b>Skill</b><span><code>${esc(skill.name || "review_one_submission")}</code> 按当前规则逐条取证</span></div><div class="runtime-tools"><span class="runtime-strip-icon">${icon("tasks")}</span><b>工具白名单</b><span>${tools}</span></div><div class="runtime-harness"><span class="runtime-strip-icon">${icon("review")}</span><b>Harness</b><span>scope、预算、幂等键、结果上限与审计 · ${esc(budget)}</span></div><div class="runtime-mcp"><span class="runtime-strip-icon">${icon("expand")}</span><b>MCP 边界</b><span>${esc(mcp)}</span></div><div class="runtime-human"><span class="runtime-strip-icon">${icon("workbench")}</span><b>人来决定</b><span>${esc((runtime?.human_control || ["不确定、失败与最终验收交给组织者"])[0])}</span></div></div></section>`;
 }
 function designRuntimeHtml(runtime = null) {
   const mode = runtime?.model?.label || "受限运行时";
   const skill = (runtime?.skills || []).find(item => item.name === "requirements_draft") || {};
-  const tools = runtimeToolNames(runtime);
+  const tools = runtimeToolNames(runtime, skill);
   const mcp = runtime?.mcp?.boundary || "没有外部 adapter；模型不能访问网络、文件系统或任意 SQL";
-  return `<section id="design-agent-runtime" class="agent-runtime-card" aria-label="智能协作边界"><div class="runtime-card-head"><div><div class="eyebrow">AGENT RUNTIME</div><h3>小齐的协作边界</h3></div><span class="runtime-mode" id="agent-runtime-mode">${esc(mode)}</span></div><div class="runtime-card-grid"><div class="runtime-card-item runtime-skill"><span class="runtime-card-icon">${icon("sparkle")}</span><div><b>Skill · 需求整理</b><span><code>${esc(skill.name || "requirements_draft")}</code> ${esc(skill.description || "把原始要求整理成待确认草案")}</span></div></div><div class="runtime-card-item runtime-tools"><span class="runtime-card-icon">${icon("tasks")}</span><div><b>工具白名单</b><span>${tools || "当前设计由应用服务受限处理"}</span></div></div><div class="runtime-card-item runtime-harness"><span class="runtime-card-icon">${icon("review")}</span><div><b>Harness · 受限执行</b><span>预算、幂等键、结果上限与审计在边界内检查</span></div></div><div class="runtime-card-item runtime-mcp"><span class="runtime-card-icon">${icon("expand")}</span><div><b>MCP 边界</b><span>${esc(mcp)}</span></div></div><div class="runtime-card-item runtime-human"><span class="runtime-card-icon">${icon("workbench")}</span><div><b>人工确认</b><span>${esc((runtime?.human_control || ["不确定内容、材料门槛和最终发布由组织者决定"])[2] || "发布前必须由组织者确认")}</span></div></div></div><p class="runtime-card-foot" id="agent-runtime-status">${runtime ? "这份边界来自当前任务的服务端运行时清单。" : "正在读取当前任务的服务端运行时清单。"}</p></section>`;
+  const execution = skill.request_idempotency
+    ? "持久请求队列 · 同请求幂等恢复 · 版本冲突拒绝"
+    : "scope、预算、幂等键、结果上限与审计在边界内检查";
+  return `<section id="design-agent-runtime" class="agent-runtime-card" aria-label="智能协作边界"><div class="runtime-card-head"><div><div class="eyebrow">AGENT RUNTIME</div><h3>小齐的协作边界</h3></div><span class="runtime-mode" id="agent-runtime-mode">${esc(mode)}</span></div><div class="runtime-card-grid"><div class="runtime-card-item runtime-skill"><span class="runtime-card-icon">${icon("sparkle")}</span><div><b>Skill · 需求整理</b><span><code>${esc(skill.name || "requirements_draft")}</code> ${esc(skill.description || "把原始要求整理成待确认草案")}</span></div></div><div class="runtime-card-item runtime-tools"><span class="runtime-card-icon">${icon("tasks")}</span><div><b>工具边界</b><span>${tools}</span></div></div><div class="runtime-card-item runtime-harness"><span class="runtime-card-icon">${icon("review")}</span><div><b>执行与恢复</b><span>${execution} · 发布需组织者确认</span></div></div><div class="runtime-card-item runtime-mcp"><span class="runtime-card-icon">${icon("expand")}</span><div><b>MCP 边界</b><span>${esc(mcp)}</span></div></div><div class="runtime-card-item runtime-human"><span class="runtime-card-icon">${icon("workbench")}</span><div><b>人工确认</b><span>${esc((runtime?.human_control || ["不确定内容、材料门槛和最终发布由组织者决定"])[2] || "发布前必须由组织者确认")}</span></div></div></div><p class="runtime-card-foot" id="agent-runtime-status">${runtime ? "这份边界来自当前任务的服务端运行时清单。" : "正在读取当前任务的服务端运行时清单。"}</p></section>`;
 }
 async function loadAgentRuntime(taskId) {
   if (!Number.isFinite(Number(taskId))) return;
