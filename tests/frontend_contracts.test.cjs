@@ -35,7 +35,7 @@ function setup(sharedStorage = storage()) {
     window: {addEventListener() {}}, location: {hash:'#/submit'}, Intl, URLSearchParams, FormData,
     setTimeout, clearTimeout, confirm: () => true, console,
     fetch: async () => {throw new Error('Unexpected request');}});
-  vm.runInContext(source + '\nthis.app = {state, route, useVersionAsBase, loadDesignVersion, cacheDesignInputs, restoreDesignInputs, recoverDesignInput, paintChat, runAgent, runExport, deliveryHistoryHtml, loadDeliveryHistory, inspectSnapshot, paintSnapshot, canPublishDesign, publishDiffHtml, designVersionImpactHtml, publishBp, confirmPublish, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, fmtTimeShort, designReadinessHtml, draftFingerprint, collectDraftFields, cacheSubmissionDraft, paintSubmitterNextStep, submitterNextStepHtml, setSubMode, moveSubmitModeTab, refreshSlotConditions, wbMatches, api, apiError, submitDecision, saveDraft, doSubmit, uploadSlot, deleteSlotFile, cacheReviewDraft, discardReviewDraft, logout, nextPendingReview, setReviewFilter, setReviewTraceFilter, selectReviewRule, viewReview, reviewRevisionHistoryHtml, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, chooseWorkbenchNextStep, workbenchNextStepHtml, agentRunCard, agentTourHtml, submitterGuidance, ruleCard, receiptFilesHtml, submissionIssues, checkAgentRequestNow, resumePendingAgentRequest, savePendingAgentRequest, agentRequestProgressHtml, retryAgent, pollAgentRequest, showSubmissionIssues, initSubChat, demoRouteTask, demoRouteHtml, renderDemoRoute, paintWorkspaceAgentStatus, viewLogin, viewSubmit, switchLoginTab, moveLoginTab, setFlash, openDialog, readPresentationMode, applyPresentationMode, setPresentationMode, togglePresentationMode};', context);
+  vm.runInContext(source + '\nthis.app = {state, route, useVersionAsBase, loadDesignVersion, cacheDesignInputs, restoreDesignInputs, recoverDesignInput, paintChat, runAgent, runExport, deliveryHistoryHtml, loadDeliveryHistory, inspectSnapshot, paintSnapshot, canPublishDesign, publishDiffHtml, designVersionImpactHtml, publishBp, confirmPublish, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, fmtTimeShort, designReadinessHtml, draftFingerprint, collectDraftFields, cacheSubmissionDraft, paintSubmitterNextStep, submitterNextStepHtml, setSubMode, moveSubmitModeTab, refreshSlotConditions, wbMatches, api, apiError, submitDecision, saveDraft, doSubmit, uploadSlot, deleteSlotFile, cacheReviewDraft, discardReviewDraft, logout, nextPendingReview, setReviewFilter, setReviewTraceFilter, selectReviewRule, viewReview, reviewRevisionHistoryHtml, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, chooseWorkbenchNextStep, workbenchNextStepHtml, agentRunCard, agentTourHtml, submitterGuidance, ruleCard, receiptFilesHtml, submissionIssues, checkAgentRequestNow, resumePendingAgentRequest, savePendingAgentRequest, agentRequestProgressHtml, retryAgent, pollAgentRequest, showSubmissionIssues, initSubChat, demoRouteTask, demoRouteHtml, renderDemoRoute, paintWorkspaceAgentStatus, viewLogin, viewSubmit, switchLoginTab, moveLoginTab, setFlash, openDialog, readPresentationMode, applyPresentationMode, setPresentationMode, togglePresentationMode, fillDemoCred, doLogin};', context);
   Object.assign(context.app.state, {routeEpoch: 1, me:{task:{id:1, status:'collecting', timezone:'Asia/Shanghai'},subject:{id:2}},
     draftVersion:1, fileMeta:{}, sub:{mode:'chat',phase:'fields',fIdx:0, fields:[{id:'name'}],slots:[],answers:{}}});
   context.localStorage.setItem('ff_sub_token', 'test-only-credential');
@@ -386,6 +386,21 @@ test('presentation view is session-scoped, reversible, and keyboard discoverable
   const runtimeIndex = source.indexOf('class="workspace-runtime-strip"');
   assert.ok(routeIndex >= 0 && runtimeIndex > routeIndex, 'showcase route should lead the agent explanation');
   assert.equal((source.match(/id="demo-route"/g) || []).length, 1, 'task page should mount one demo route container');
+});
+test('demo login enters showcase view and logout clears the temporary entry state', async () => {
+  const {app, context, els} = setup();
+  const loginUser = element(), loginPass = element();
+  context.document.getElementById = id => ({...els, 'lg-user': loginUser, 'lg-pass': loginPass}[id] || null);
+  context.fetch = async () => response({token: 'demo-token'});
+  await app.fillDemoCred();
+  assert.equal(loginUser.value, 'demo');
+  assert.equal(loginPass.value, 'demo1234');
+  assert.equal(context.location.hash, '#/tasks');
+  assert.equal(context.sessionStorage.getItem('ff_demo_entry'), null);
+  assert.equal(context.sessionStorage.getItem('ff_tasks_presentation'), '1');
+  app.logout();
+  assert.equal(context.sessionStorage.getItem('ff_tasks_presentation'), null);
+  assert.equal(context.sessionStorage.getItem('ff_demo_entry'), null);
 });
 test('presentation entry opens the agent tour and focuses the current stop', () => {
   const {app, context, els} = setup();
