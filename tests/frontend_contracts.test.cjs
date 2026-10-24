@@ -113,6 +113,13 @@ test('demo route renders server lifecycle progress and the next stop', () => {
   assert.match(html, /本次运行来源/);
   assert.match(html, /离线演示结果/);
   assert.match(html, /没有调用实时模型/);
+  assert.match(html, /aria-label="复核执行链"/);
+  assert.match(html, /读取材料/);
+  assert.match(html, /程序核验/);
+  assert.match(html, /语义审核/);
+  assert.match(html, /人工接手/);
+  assert.match(html, /摘要来自当前正式提交的检查运行/);
+  assert.match(html, /demo-route-chain-icon/);
   assert.match(html, /程序 1 · 语义 2/);
   assert.match(html, /2 项待处理/);
   assert.match(html, /运行回放/);
@@ -197,6 +204,18 @@ test('showcase run replay only exposes compact tool metadata', () => {
   assert.match(html, /程序规则/);
   assert.match(html, /离线语义/);
   assert.doesNotMatch(html, /隐藏推理|原始材料/);
+});
+test('showcase execution chain survives queued runs without trace data', () => {
+  const {app} = setup();
+  const html = app.demoRouteHtml({id:7, name:'演示任务', status:'collecting', demo_route:{completed:1, total:4,
+    review_signal:{status:'queued', subject_name:'李四', run_source:'unknown'}}});
+  assert.match(html, /检查已排队/);
+  assert.match(html, /aria-label="复核执行链"/);
+  assert.match(html, /读取材料/);
+  assert.match(html, /程序核验/);
+  assert.match(html, /语义审核/);
+  assert.match(html, /人工接手/);
+  assert.match(html, /来源待确认/);
 });
 test('presentation view is session-scoped, reversible, and keyboard discoverable', () => {
   const {app, context, els} = setup();
