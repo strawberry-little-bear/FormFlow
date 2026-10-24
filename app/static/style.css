@@ -4143,6 +4143,21 @@ body.presentation-mode .agent-tour details > summary { padding:16px 20px; }
 .demo-route-signal-stages b { color:#626a72; font-size:9px; font-weight:600; }
 .demo-route-signal-stages em { color:var(--ink); font-size:10px; font-style:normal; line-height:1.4; overflow-wrap:anywhere; }
 .demo-route-signal p { margin:8px 0 0; color:var(--muted); font-size:10px; line-height:1.5; }
+.demo-route-trace { margin-top:9px; border-top:1px solid #e6e9ed; padding-top:8px; }
+.demo-route-trace > summary { display:flex; align-items:center; justify-content:space-between; gap:10px; cursor:pointer; color:var(--brand-deep); list-style:none; }
+.demo-route-trace > summary::-webkit-details-marker { display:none; }
+.demo-route-trace > summary > span:first-child { display:flex; align-items:baseline; flex-wrap:wrap; gap:7px; min-width:0; }
+.demo-route-trace > summary b { font-size:10px; }
+.demo-route-trace > summary small,.demo-route-trace > summary > span:last-child { color:var(--muted); font-size:9px; font-weight:400; }
+.demo-route-trace > summary > span:last-child { flex:none; }
+.demo-route-trace ol { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; margin:8px 0 0; padding:0; list-style:none; }
+.demo-route-trace-row { display:grid; grid-template-columns:auto minmax(0,1fr); gap:4px 6px; min-width:0; padding:7px 8px; border:1px solid #e6e9ed; border-radius:6px; background:#fff; }
+.demo-route-trace-index { color:#a1a6af; font-size:9px; font-variant-numeric:tabular-nums; }
+.demo-route-trace-kind { min-width:0; overflow-wrap:anywhere; color:#287454; font-size:9px; font-weight:650; }
+.demo-route-trace-kind.info { color:var(--brand-deep); }
+.demo-route-trace-kind.warn { color:#89641f; }
+.demo-route-trace-status { grid-column:2; color:var(--muted); font-size:9px; line-height:1.35; }
+.demo-route-trace p { margin:7px 0 0; font-size:9px; }
 .demo-route-signal-focus { display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:baseline; gap:7px; margin-top:9px; padding-top:8px; border-top:1px solid #e6e9ed; }
 .demo-route-signal-focus .eyebrow { color:#896b2d; font-size:9px; }
 .demo-route-signal-focus strong { min-width:0; overflow-wrap:anywhere; color:var(--ink); font-size:10px; line-height:1.45; }
@@ -4219,9 +4234,12 @@ body.presentation-mode .agent-tour details > summary { padding:16px 20px; }
   .demo-route-signal-provenance { grid-template-columns:auto minmax(0,1fr); gap:3px 7px; }
   .demo-route-signal-provenance span:last-child { grid-column:1 / -1; }
   .demo-route-signal-stages { grid-template-columns:1fr; }
+  .demo-route-trace ol { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .demo-route-signal-focus { grid-template-columns:1fr; gap:2px; }
   .demo-route-signal-focus span:last-child { text-align:left; }
   .demo-route-steps { grid-template-columns:1fr; margin-top:13px; }
   .demo-route-step { padding:11px 10px; }
+  .demo-route-trace > summary { align-items:flex-start; flex-direction:column; gap:3px; }
+  .demo-route-trace ol { grid-template-columns:1fr; }
   .demo-route-foot { align-items:flex-start; flex-direction:column; gap:8px; }
 }

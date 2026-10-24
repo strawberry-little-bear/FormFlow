@@ -93,6 +93,9 @@ test('demo route renders server lifecycle progress and the next stop', () => {
       deterministic_rules:1, semantic_rules:2, human_rules:1, pending_rules:2,
       coverage_complete:true, coverage_gaps:0, llm_calls_used:1,
       run_source:'simulation',
+       trace:[{tool:'review.deterministic_rule', sequence:1, status:'satisfied', simulation:true, duration_ms:3},
+         {tool:'review.semantic_rule', sequence:2, status:'unknown', simulation:true, duration_ms:18},
+         {tool:'review.semantic_rule', sequence:3, status:'issue', simulation:true, duration_ms:21}],
       focus_rule:{rule_id:'r_term_match', statement:'报告期次须为 2026 秋季第 1 期', status:'待确认', executor:'semantic'}},
   }});
   assert.match(html, /2\/4 站已完成/);
@@ -112,6 +115,10 @@ test('demo route renders server lifecycle progress and the next stop', () => {
   assert.match(html, /没有调用实时模型/);
   assert.match(html, /程序 1 · 语义 2/);
   assert.match(html, /2 项待处理/);
+  assert.match(html, /运行回放/);
+  assert.match(html, /skill \/ harness 已记录 3 步/);
+  assert.match(html, /离线语义/);
+  assert.match(html, /原文、参数与结果仍只在授权的复核页查看/);
   assert.match(html, /建议先处理/);
   assert.match(html, /报告期次须为 2026 秋季第 1 期/);
   assert.match(html, /待确认 · 语义审核/);
@@ -159,6 +166,23 @@ test('showcase run source stays separate from model configuration', () => {
     review_signal:{status:'success', run_id:1, subject_name:'李四', run_source:'live'}}}), /实时模型结果/);
   assert.match(app.demoRouteHtml({...base, demo_route:{...base.demo_route,
     review_signal:{status:'success', run_id:1, subject_name:'李四'}}}), /来源待确认/);
+});
+test('showcase run replay only exposes compact tool metadata', () => {
+  const {app} = setup();
+  const html = app.demoRouteHtml({id:7, name:'演示任务', status:'collecting', demo_route:{completed:2, total:4,
+    next:{title:'检查并接手', href:'#/review/7/2', detail:'已验收 1/4 个主体'},
+    steps:[{key:'design',title:'整理要求',status:'done',href:'#/design/7'},
+      {key:'roster',title:'发放凭证',status:'done',href:'#/roster/7'},
+      {key:'review',title:'检查并接手',status:'current',href:'#/review/7/2'},
+      {key:'delivery',title:'固定交付',status:'upcoming',href:'#/delivery/7'}],
+    review_signal:{status:'success', run_id:2, subject_name:'李四', run_source:'simulation',
+      trace:[{tool:'review.deterministic_rule', sequence:1, status:'satisfied', simulation:true, duration_ms:3},
+        {tool:'review.semantic_rule', sequence:2, status:'unknown', simulation:true, duration_ms:18}]}}});
+  assert.match(html, /运行回放/);
+  assert.match(html, /skill \/ harness 已记录 2 步/);
+  assert.match(html, /程序规则/);
+  assert.match(html, /离线语义/);
+  assert.doesNotMatch(html, /隐藏推理|原始材料/);
 });
 test('presentation view is session-scoped, reversible, and keyboard discoverable', () => {
   const {app, context, els} = setup();

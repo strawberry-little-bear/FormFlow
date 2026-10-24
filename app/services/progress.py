@@ -92,6 +92,41 @@ def _review_run_source(db: Session, task: Task, run: CheckRun) -> str:
     return "mixed"
 
 
+def _review_run_trace(db: Session, task: Task, run: CheckRun) -> list[dict]:
+    """Project a compact, non-content trace for the first-entry showcase."""
+    events = db.scalars(select(AuditEvent.payload_json).where(
+        AuditEvent.task_id == task.id,
+        AuditEvent.action == "agent.tool.invoked").order_by(AuditEvent.id)).all()
+    trace = []
+    for payload in events:
+        try:
+            entry = json.loads(payload or "{}")
+        except (TypeError, ValueError):
+            continue
+        if str(entry.get("run_id")) != str(run.id):
+            continue
+        tool = str(entry.get("tool") or "")[:64]
+        if tool not in {"review.deterministic_rule", "review.semantic_rule"}:
+            continue
+        try:
+            sequence = max(0, min(512, int(entry.get("sequence") or 0)))
+        except (TypeError, ValueError):
+            sequence = 0
+        try:
+            duration_ms = max(0, min(600_000, int(entry.get("duration_ms") or 0)))
+        except (TypeError, ValueError):
+            duration_ms = 0
+        trace.append({
+            "tool": tool,
+            "sequence": sequence,
+            "status": str(entry.get("status") or "")[:32],
+            "simulation": (entry.get("simulation") if isinstance(entry.get("simulation"), bool) else None),
+            "duration_ms": duration_ms,
+        })
+    trace.sort(key=lambda item: (item["sequence"] or 10_000, item["tool"]))
+    return trace[-12:]
+
+
 def _review_signal(db: Session, task: Task, subject_id: int | None) -> dict | None:
     """Expose a small, honest summary for the first-entry showcase route.
 
@@ -113,7 +148,7 @@ def _review_signal(db: Session, task: Task, subject_id: int | None) -> dict | No
                 "llm_calls_used": 0, "rules_total": 0, "deterministic_rules": 0,
                 "semantic_rules": 0, "human_rules": 0,
                 "pending_rules": 0, "coverage_complete": True,
-                "coverage_gaps": 0, "run_source": "unknown"}
+                "coverage_gaps": 0, "run_source": "unknown", "trace": []}
     subject = db.get(Subject, subject_id)
     rules = review_rule_details(db, run, task, subject_id,
                                 submission.current_revision_id)
@@ -149,6 +184,7 @@ def _review_signal(db: Session, task: Task, subject_id: int | None) -> dict | No
         }
         break
     coverage = run_coverage(run)
+    trace = _review_run_trace(db, task, run)
     return {"subject_id": subject_id, "subject_name": subject.display_name if subject else "",
             "run_id": run.id, "status": run.status,
             "run_source": _review_run_source(db, task, run),
@@ -158,7 +194,7 @@ def _review_signal(db: Session, task: Task, subject_id: int | None) -> dict | No
             "semantic_rules": semantic, "human_rules": human,
             "pending_rules": pending, "coverage_complete": coverage["complete"],
             "coverage_gaps": coverage["unread_pages"] + coverage["failed_pages"],
-            "focus_rule": focus_rule}
+             "focus_rule": focus_rule, "trace": trace, "trace_total": len(trace)}
 
 
 def demo_route_data(db: Session, task: Task) -> dict:

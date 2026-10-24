@@ -9,7 +9,7 @@ from app.models import AuditEvent, CheckRun, Subject
 from app.services import export as export_service
 from app.services.checks import current_summary
 from app.services.demo_seed import seed_demo
-from app.services.progress import _review_run_source, demo_route_data
+from app.services.progress import _review_run_source, _review_run_trace, demo_route_data
 
 
 def test_seed_demo_state(db_session):
@@ -76,6 +76,10 @@ def test_demo_route_projection_follows_seed_lifecycle(db_session):
     assert signal["focus_rule"]["status"] in {"有问题", "待确认", "检查未完成", "人工判断"}
     assert signal["focus_rule"]["executor"] in {"deterministic", "semantic", "cross_material", "human_only"}
     assert signal["run_source"] == "simulation"
+    assert len(signal["trace"]) == signal["trace_total"]
+    assert {item["tool"] for item in signal["trace"]} == {
+        "review.deterministic_rule", "review.semantic_rule"}
+    assert all("summary" not in item and "rule_id" not in item for item in signal["trace"])
 
 
 def test_review_run_source_distinguishes_live_and_missing_modes(db_session):
@@ -99,3 +103,17 @@ def test_review_run_source_distinguishes_live_and_missing_modes(db_session):
     db_session.flush()
     assert _review_run_source(db_session, task, run) == "live"
     assert _review_run_source(db_session, task, CheckRun(id=run.id + 1000000)) == "unknown"
+
+
+def test_review_run_trace_is_compact_and_ordered(db_session):
+    summary = seed_demo(db_session)
+    from app.models import Task
+
+    task = db_session.get(Task, summary["task_id"])
+    route = demo_route_data(db_session, task)
+    run = db_session.get(CheckRun, route["review_signal"]["run_id"])
+    trace = _review_run_trace(db_session, task, run)
+    assert trace
+    assert [item["sequence"] for item in trace] == sorted(item["sequence"] for item in trace)
+    assert all(set(item) == {"tool", "sequence", "status", "simulation", "duration_ms"}
+               for item in trace)
