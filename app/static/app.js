@@ -2920,15 +2920,15 @@ async function viewSubmit() {
         <div id="submit-next-step">${submitterNextStepHtml({formal: !!receipt.formal, readOnly: ro, issues: []})}</div>
         <div class="submit-layout">
           <section class="card submit-form-card">
-            <div class="submit-card-head"><div><div class="eyebrow">FORM</div><h2>填写与上传</h2></div>
-              <div class="tabs" role="tablist" aria-label="填写方式"><button role="tab" id="submode-form" onclick="setSubMode('form')">完整表单</button><button role="tab" id="submode-chat" onclick="setSubMode('chat')" ${ro ? "disabled" : ""}>需要帮助？逐步填写</button></div></div>
-            <div class="card" id="sub-chat-card">
+              <div class="submit-card-head"><div><div class="eyebrow">FORM</div><h2>填写与上传</h2></div>
+              <div class="tabs" role="tablist" aria-label="填写方式"><button role="tab" id="submode-form" aria-selected="true" aria-controls="sub-fields-card" tabindex="0" onkeydown="moveSubmitModeTab(event)" onclick="setSubMode('form')">完整表单</button><button role="tab" id="submode-chat" aria-selected="false" aria-controls="sub-chat-card" tabindex="-1" onkeydown="moveSubmitModeTab(event)" onclick="setSubMode('chat')" ${ro ? "disabled" : ""}>需要帮助？逐步填写</button></div></div>
+            <div class="card" id="sub-chat-card" role="tabpanel" aria-labelledby="submode-chat" hidden>
               <div class="step-flow"><span class="st on" id="sub-st-1"><span class="dot">1</span>登记信息</span><span class="arw"></span><span class="st" id="sub-st-2"><span class="dot">2</span>上传材料</span><span class="arw"></span><span class="st" id="sub-st-3"><span class="dot">3</span>核对提交</span></div>
               <div class="chat"><div class="chat-scroll" id="sub-chat-scroll"></div></div>
               <p class="field-help">逐步填写与下方表单是同一份草稿，答案实时同步；向导不调用模型，也不代替材料检查。</p>
             </div>
             <div id="submission-errors" class="submission-errors" role="alert" tabindex="-1" hidden></div>
-            <div id="sub-fields-card" hidden>
+            <div id="sub-fields-card" role="tabpanel" aria-labelledby="submode-form">
               <h3>登记信息</h3>
               ${fields.map(f => `<div class="submit-field"><label for="field-${esc(f.id)}">${esc(f.label)}${f.required ? " <em>*</em>" : ' <small>选填</small>'}</label>
                 ${f.type === "enum"
@@ -3283,8 +3283,16 @@ function setSubMode(m) {
   cacheSubmissionDraft();
   state.sub.mode = m;
   const bc = document.getElementById("submode-chat"), bf = document.getElementById("submode-form");
-  if (bc) { bc.classList.toggle("on", m === "chat"); bc.setAttribute("aria-selected", String(m === "chat")); }
-  if (bf) { bf.classList.toggle("on", m === "form"); bf.setAttribute("aria-selected", String(m === "form")); }
+  if (bc) {
+    bc.classList.toggle("on", m === "chat");
+    bc.setAttribute("aria-selected", String(m === "chat"));
+    bc.setAttribute("tabindex", m === "chat" ? "0" : "-1");
+  }
+  if (bf) {
+    bf.classList.toggle("on", m === "form");
+    bf.setAttribute("aria-selected", String(m === "form"));
+    bf.setAttribute("tabindex", m === "form" ? "0" : "-1");
+  }
   const cc = document.getElementById("sub-chat-card"), fc = document.getElementById("sub-fields-card");
   if (cc) cc.hidden = m !== "chat";
   if (fc) fc.hidden = m !== "form";
@@ -3294,6 +3302,18 @@ function setSubMode(m) {
     if (firstEmpty >= 0) { state.sub.phase = "fields"; state.sub.fIdx = firstEmpty; }
     renderSubStep();
   }
+}
+function moveSubmitModeTab(event) {
+  if (!event || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+  const tabs = [document.getElementById("submode-form"), document.getElementById("submode-chat")]
+    .filter(tab => tab && !tab.disabled);
+  const current = tabs.indexOf(event.currentTarget);
+  if (current < 0 || !tabs.length) return;
+  const next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1
+    : (current + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+  event.preventDefault();
+  tabs[next].focus?.();
+  tabs[next].click?.();
 }
 function syncSubAnswersFromForm() {
   document.querySelectorAll("[data-field]").forEach(el => {

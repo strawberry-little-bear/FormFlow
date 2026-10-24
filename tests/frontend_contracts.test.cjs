@@ -35,7 +35,7 @@ function setup(sharedStorage = storage()) {
     window: {addEventListener() {}}, location: {hash:'#/submit'}, Intl, URLSearchParams, FormData,
     setTimeout, clearTimeout, confirm: () => true, console,
     fetch: async () => {throw new Error('Unexpected request');}});
-  vm.runInContext(source + '\nthis.app = {state, route, useVersionAsBase, loadDesignVersion, cacheDesignInputs, restoreDesignInputs, recoverDesignInput, paintChat, runAgent, runExport, deliveryHistoryHtml, loadDeliveryHistory, inspectSnapshot, paintSnapshot, canPublishDesign, publishDiffHtml, designVersionImpactHtml, publishBp, confirmPublish, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, fmtTimeShort, designReadinessHtml, draftFingerprint, collectDraftFields, cacheSubmissionDraft, paintSubmitterNextStep, submitterNextStepHtml, setSubMode, refreshSlotConditions, wbMatches, api, apiError, submitDecision, saveDraft, doSubmit, uploadSlot, deleteSlotFile, cacheReviewDraft, discardReviewDraft, logout, nextPendingReview, setReviewFilter, setReviewTraceFilter, selectReviewRule, viewReview, reviewRevisionHistoryHtml, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, chooseWorkbenchNextStep, workbenchNextStepHtml, agentRunCard, agentTourHtml, submitterGuidance, ruleCard, receiptFilesHtml, submissionIssues, checkAgentRequestNow, resumePendingAgentRequest, savePendingAgentRequest, agentRequestProgressHtml, retryAgent, pollAgentRequest, showSubmissionIssues, initSubChat, demoRouteTask, demoRouteHtml, renderDemoRoute, paintWorkspaceAgentStatus, viewLogin, viewSubmit, switchLoginTab, moveLoginTab, setFlash, openDialog, readPresentationMode, applyPresentationMode, setPresentationMode, togglePresentationMode};', context);
+  vm.runInContext(source + '\nthis.app = {state, route, useVersionAsBase, loadDesignVersion, cacheDesignInputs, restoreDesignInputs, recoverDesignInput, paintChat, runAgent, runExport, deliveryHistoryHtml, loadDeliveryHistory, inspectSnapshot, paintSnapshot, canPublishDesign, publishDiffHtml, designVersionImpactHtml, publishBp, confirmPublish, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, fmtTimeShort, designReadinessHtml, draftFingerprint, collectDraftFields, cacheSubmissionDraft, paintSubmitterNextStep, submitterNextStepHtml, setSubMode, moveSubmitModeTab, refreshSlotConditions, wbMatches, api, apiError, submitDecision, saveDraft, doSubmit, uploadSlot, deleteSlotFile, cacheReviewDraft, discardReviewDraft, logout, nextPendingReview, setReviewFilter, setReviewTraceFilter, selectReviewRule, viewReview, reviewRevisionHistoryHtml, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, chooseWorkbenchNextStep, workbenchNextStepHtml, agentRunCard, agentTourHtml, submitterGuidance, ruleCard, receiptFilesHtml, submissionIssues, checkAgentRequestNow, resumePendingAgentRequest, savePendingAgentRequest, agentRequestProgressHtml, retryAgent, pollAgentRequest, showSubmissionIssues, initSubChat, demoRouteTask, demoRouteHtml, renderDemoRoute, paintWorkspaceAgentStatus, viewLogin, viewSubmit, switchLoginTab, moveLoginTab, setFlash, openDialog, readPresentationMode, applyPresentationMode, setPresentationMode, togglePresentationMode};', context);
   Object.assign(context.app.state, {routeEpoch: 1, me:{task:{id:1, status:'collecting', timezone:'Asia/Shanghai'},subject:{id:2}},
     draftVersion:1, fileMeta:{}, sub:{mode:'chat',phase:'fields',fIdx:0, fields:[{id:'name'}],slots:[],answers:{}}});
   context.localStorage.setItem('ff_sub_token', 'test-only-credential');
@@ -104,6 +104,36 @@ test('login route can open directly on the submitter tab', () => {
   assert.match(els.app.innerHTML, /id="tab-sub" class="on"[^>]*aria-selected="true"/);
   assert.match(els.app.innerHTML, /id="pane-org"[^>]* hidden/);
   assert.match(els.app.innerHTML, /id="pane-sub"[^>]*aria-labelledby="tab-sub"(?! hidden)/);
+});
+test('submitter input modes expose tab and panel relationships', () => {
+  setup();
+  assert.match(source, /role="tablist" aria-label="填写方式"/);
+  assert.match(source, /role="tab" id="submode-form"[^>]*aria-selected="true"[^>]*aria-controls="sub-fields-card"[^>]*tabindex="0"[^>]*onkeydown="moveSubmitModeTab\(event\)"/);
+  assert.match(source, /role="tab" id="submode-chat"[^>]*aria-selected="false"[^>]*aria-controls="sub-chat-card"[^>]*tabindex="-1"[^>]*onkeydown="moveSubmitModeTab\(event\)"/);
+  assert.match(source, /id="sub-chat-card" role="tabpanel" aria-labelledby="submode-chat" hidden/);
+  assert.match(source, /id="sub-fields-card" role="tabpanel" aria-labelledby="submode-form"/);
+});
+test('submitter input modes support roving focus with arrow and Home/End keys', () => {
+  const {app, els} = setup();
+  els['submode-form'] = Object.assign(element(), {id: 'submode-form'});
+  els['submode-chat'] = Object.assign(element(), {id: 'submode-chat'});
+  els['sub-chat-card'] = Object.assign(element(), {hidden: true});
+  els['sub-fields-card'] = Object.assign(element(), {hidden: false});
+  let prevented = false;
+  app.moveSubmitModeTab({key: 'ArrowRight', currentTarget: els['submode-form'], preventDefault: () => {prevented = true;}});
+  assert.equal(prevented, true);
+  assert.equal(els['submode-chat'].focused, true);
+  assert.equal(els['submode-chat'].clicked, true);
+  app.setSubMode('chat');
+  assert.equal(els['submode-chat'].attributes['aria-selected'], 'true');
+  assert.equal(els['submode-chat'].attributes.tabindex, '0');
+  assert.equal(els['submode-form'].attributes.tabindex, '-1');
+  assert.equal(els['sub-chat-card'].hidden, false);
+  assert.equal(els['sub-fields-card'].hidden, true);
+  app.moveSubmitModeTab({key: 'Home', currentTarget: els['submode-chat'], preventDefault() {}});
+  assert.equal(els['submode-form'].focused, true);
+  app.moveSubmitModeTab({key: 'End', currentTarget: els['submode-form'], preventDefault() {}});
+  assert.equal(els['submode-chat'].focused, true);
 });
 test('apiError preserves HTTP status for callers that need an auth fallback', () => {
   const {app} = setup();
