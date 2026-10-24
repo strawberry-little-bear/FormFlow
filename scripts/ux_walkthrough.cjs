@@ -44,6 +44,11 @@ async function shot(page, name, full = true) {
     await shot(page, 'tasks');
     console.log('  当前 URL:', page.url());
     console.log('  任务页文本:', (await page.innerText('body')).replace(/\s+/g, ' ').substring(0, 300));
+    const presentationToggle = page.locator('#presentation-toggle');
+    if (await presentationToggle.isVisible().catch(() => false) && await presentationToggle.getAttribute('aria-pressed') === 'true') {
+      await presentationToggle.click();
+      await page.waitForTimeout(300);
+    }
   } else {
     console.log('  ! 未找到演示按钮');
   }

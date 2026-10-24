@@ -19,6 +19,11 @@ fs.mkdirSync(OUT, { recursive: true });
   await page.goto(BASE, { waitUntil: 'networkidle' });
   await page.locator('button.demo-btn').click();
   await page.waitForTimeout(2500);
+  const presentationToggle = page.locator('#presentation-toggle');
+  if (await presentationToggle.isVisible().catch(() => false) && await presentationToggle.getAttribute('aria-pressed') === 'true') {
+    await presentationToggle.click();
+    await page.waitForTimeout(300);
+  }
 
   // 1. 新建任务弹窗
   console.log('[1] 新建任务弹窗');

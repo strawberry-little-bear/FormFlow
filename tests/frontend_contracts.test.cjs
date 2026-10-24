@@ -1649,6 +1649,14 @@ test('narrow review queues keep every rule group inside the single-column viewpo
   assert.match(styleSource, /\.review-group \{ width:100%; min-width:0; \}/);
   assert.match(styleSource, /\.review-rule-item \{ width:100%; min-width:0; flex:none; \}/);
 });
+test('high zoom organizer controls can shrink instead of widening the page', () => {
+  assert.match(styleSource, /@media\(max-width:420px\) \{[\s\S]*\.grid-chat > \*, \.wb-layout > \* \{ min-width:0; \}/);
+  assert.match(styleSource, /\.draft-toolbar > div button \{ flex:1 1 0; min-width:0;/);
+  assert.match(styleSource, /\.version-picker select \{ flex:1 1 auto; width:0; min-width:0; \}/);
+  assert.match(styleSource, /\.task-filters \{ width:100%; min-width:0;/);
+  assert.match(styleSource, /\.search-box input \{ flex:1 1 auto; width:0; min-width:0; \}/);
+  assert.match(styleSource, /\.demo-route-signal-provenance \{ grid-template-columns:1fr; \}/);
+});
 test('next pending review skips completed and confirmed-issue rules; shortcuts explain the final gate', async () => {
   const env=setup(),page=reviewPage(reviewScope('a'));
   page.rules=[{rule_id:'A',result:'unknown'},{rule_id:'B',result:'issue',decision:{decision:'confirm_issue'}},

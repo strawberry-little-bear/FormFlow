@@ -3826,6 +3826,21 @@ a.wb-next-action:hover, button.wb-next-action:hover { background:var(--brand-dee
   .draft-panel, .grid-chat { min-width:0; }
 }
 
+/* At high zoom, grid/flex children must give up their intrinsic content width. */
+@media(max-width:420px) {
+  .grid-chat > *, .wb-layout > * { min-width:0; }
+  .draft-toolbar { align-items:stretch; flex-direction:column; }
+  .draft-toolbar > div { width:100%; min-width:0; }
+  .draft-toolbar > div button { flex:1 1 0; min-width:0; padding-inline:8px; }
+  .version-picker { width:100%; min-width:0; }
+  .version-picker select { flex:1 1 auto; width:0; min-width:0; }
+  .wb-panel .section-toolbar { min-width:0; }
+  .task-filters { width:100%; min-width:0; justify-content:flex-start; }
+  .filter { flex:1 1 auto; min-width:0; padding-inline:6px; }
+  .search-box { width:100%; min-width:0; }
+  .search-box input { flex:1 1 auto; width:0; min-width:0; }
+}
+
 /* Formal-submit validation stays next to the editable form, not just a toast. */
 .submission-errors { padding: 16px; margin: 16px 0; border: 1px solid var(--bad); border-radius: 12px; background: var(--bad-bg); overflow-wrap: anywhere; }
 .submission-errors h3 { margin-top: 0; }
@@ -4435,4 +4450,11 @@ body.presentation-mode .agent-tour { border-color:#dfe2eb; }
   .task-enter { justify-content:flex-start; }
   .file-chip-name { max-width:calc(100vw - 118px); }
   body.presentation-mode .page-heading h1 { max-width:none; }
+}
+
+/* Keep the provenance row readable and inside the viewport at extreme zoom. */
+@media (max-width:420px) {
+  .demo-route-signal-provenance { grid-template-columns:1fr; }
+  .demo-route-signal-provenance > * { min-width:0; }
+  .demo-route-signal-provenance strong { white-space:normal; overflow-wrap:anywhere; }
 }
