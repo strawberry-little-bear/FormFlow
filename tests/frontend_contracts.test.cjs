@@ -15,10 +15,12 @@ function element(value = '') {
   return {value, innerHTML: '', textContent: '', dataset: {}, disabled: false, isConnected: true,
     classList: {toggle() {}}, attributes: {}, listeners: {},
     toggleAttribute(k, on) {this.attributes[k]=on;this.disabled=!!on;}, remove() {},
-    setAttribute(k, v) {this.attributes[k] = v;}, addEventListener(k, fn) {this.listeners[k] = fn;},
+    setAttribute(k, v) {this.attributes[k] = v;}, getAttribute(k) {return this.attributes[k] ?? null;},
+    addEventListener(k, fn) {this.listeners[k] = fn;}, querySelector() {return null;},
     querySelectorAll() {return [];}, scrollIntoView() {this.scrolled = true;},
     insertAdjacentHTML(_, html) {this.innerHTML = html + this.innerHTML;},
-    focus() {this.focused = true;}, setSelectionRange(start, end) {this.selectionStart = start; this.selectionEnd = end;}};
+    focus() {this.focused = true;}, showModal() {this.open = true;}, close() {this.open = false; this.listeners.close?.();},
+    setSelectionRange(start, end) {this.selectionStart = start; this.selectionEnd = end;}};
 }
 function setup(sharedStorage = storage()) {
   const els = Object.fromEntries(['sub', 'draft-hint', 'flash', 'receipt-out', 'decision-submit', 'presentation-toggle',
@@ -33,7 +35,7 @@ function setup(sharedStorage = storage()) {
     window: {addEventListener() {}}, location: {hash:'#/submit'}, Intl, URLSearchParams, FormData,
     setTimeout, clearTimeout, confirm: () => true, console,
     fetch: async () => {throw new Error('Unexpected request');}});
-  vm.runInContext(source + '\nthis.app = {state, useVersionAsBase, loadDesignVersion, cacheDesignInputs, restoreDesignInputs, recoverDesignInput, paintChat, runAgent, runExport, deliveryHistoryHtml, loadDeliveryHistory, inspectSnapshot, paintSnapshot, canPublishDesign, publishDiffHtml, designVersionImpactHtml, publishBp, confirmPublish, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, fmtTimeShort, designReadinessHtml, draftFingerprint, collectDraftFields, cacheSubmissionDraft, paintSubmitterNextStep, submitterNextStepHtml, setSubMode, refreshSlotConditions, wbMatches, api, submitDecision, saveDraft, doSubmit, uploadSlot, deleteSlotFile, cacheReviewDraft, discardReviewDraft, logout, nextPendingReview, setReviewFilter, setReviewTraceFilter, selectReviewRule, viewReview, reviewRevisionHistoryHtml, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, chooseWorkbenchNextStep, workbenchNextStepHtml, agentRunCard, agentTourHtml, submitterGuidance, ruleCard, receiptFilesHtml, submissionIssues, checkAgentRequestNow, resumePendingAgentRequest, savePendingAgentRequest, agentRequestProgressHtml, retryAgent, pollAgentRequest, showSubmissionIssues, initSubChat, demoRouteTask, demoRouteHtml, renderDemoRoute, paintWorkspaceAgentStatus, viewLogin, readPresentationMode, applyPresentationMode, setPresentationMode, togglePresentationMode};', context);
+  vm.runInContext(source + '\nthis.app = {state, useVersionAsBase, loadDesignVersion, cacheDesignInputs, restoreDesignInputs, recoverDesignInput, paintChat, runAgent, runExport, deliveryHistoryHtml, loadDeliveryHistory, inspectSnapshot, paintSnapshot, canPublishDesign, publishDiffHtml, designVersionImpactHtml, publishBp, confirmPublish, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, fmtTimeShort, designReadinessHtml, draftFingerprint, collectDraftFields, cacheSubmissionDraft, paintSubmitterNextStep, submitterNextStepHtml, setSubMode, refreshSlotConditions, wbMatches, api, submitDecision, saveDraft, doSubmit, uploadSlot, deleteSlotFile, cacheReviewDraft, discardReviewDraft, logout, nextPendingReview, setReviewFilter, setReviewTraceFilter, selectReviewRule, viewReview, reviewRevisionHistoryHtml, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, chooseWorkbenchNextStep, workbenchNextStepHtml, agentRunCard, agentTourHtml, submitterGuidance, ruleCard, receiptFilesHtml, submissionIssues, checkAgentRequestNow, resumePendingAgentRequest, savePendingAgentRequest, agentRequestProgressHtml, retryAgent, pollAgentRequest, showSubmissionIssues, initSubChat, demoRouteTask, demoRouteHtml, renderDemoRoute, paintWorkspaceAgentStatus, viewLogin, switchLoginTab, setFlash, openDialog, readPresentationMode, applyPresentationMode, setPresentationMode, togglePresentationMode};', context);
   Object.assign(context.app.state, {routeEpoch: 1, me:{task:{id:1, status:'collecting', timezone:'Asia/Shanghai'},subject:{id:2}},
     draftVersion:1, fileMeta:{}, sub:{mode:'chat',phase:'fields',fIdx:0, fields:[{id:'name'}],slots:[],answers:{}}});
   context.localStorage.setItem('ff_sub_token', 'test-only-credential');
@@ -62,6 +64,43 @@ test('login explains the constrained agent boundary before authentication', () =
   assert.match(html, /原文证据/);
   assert.match(html, /人工确认/);
   assert.match(html, /不会自动完成/);
+});
+test('login tabs and fields expose their relationships to assistive technology', () => {
+  const {app} = setup();
+  app.viewLogin();
+  assert.match(source, /role="tablist" aria-label="登录身份"/);
+  assert.match(source, /id="tab-org"[^>]*role="tab"[^>]*aria-selected="true"[^>]*aria-controls="pane-org"/);
+  assert.match(source, /id="pane-sub" role="tabpanel" aria-labelledby="tab-sub" hidden/);
+  assert.match(source, /<label for="lg-user">用户名<\/label>/);
+  assert.match(source, /<label for="lg-pass">密码<\/label>/);
+});
+test('flash messages announce errors urgently and successes politely', () => {
+  const {app, els} = setup();
+  app.setFlash('操作失败', 'err');
+  assert.equal(els.flash.attributes.role, 'alert');
+  assert.equal(els.flash.attributes['aria-live'], 'assertive');
+  app.setFlash('已完成', 'ok');
+  assert.equal(els.flash.attributes.role, 'status');
+  assert.equal(els.flash.attributes['aria-live'], 'polite');
+});
+test('modal focus stays inside the dialog and returns to its opener', () => {
+  const {app, context, els} = setup();
+  const dialog = element(), first = element(), last = element(), opener = element();
+  dialog.querySelector = () => first;
+  dialog.querySelectorAll = () => [first, last];
+  first.focus = () => { first.focused = true; context.document.activeElement = first; };
+  last.focus = () => { last.focused = true; context.document.activeElement = last; };
+  opener.focus = () => { opener.focused = true; };
+  els['focus-dialog'] = dialog;
+  app.openDialog('focus-dialog', opener);
+  assert.equal(dialog.attributes['aria-modal'], 'true');
+  context.document.activeElement = last;
+  let prevented = false;
+  dialog.listeners.keydown({key:'Tab', shiftKey:false, preventDefault:() => {prevented = true;}});
+  assert.equal(prevented, true);
+  assert.equal(first.focused, true);
+  dialog.close();
+  assert.equal(opener.focused, true);
 });
 test('demo route explains the full workflow and points to the selected task', () => {
   const {app} = setup();

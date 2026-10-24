@@ -177,7 +177,11 @@ function humanizeValidation(item) {
 
 function setFlash(msg, kind = "err") {
   const el = document.getElementById("flash");
-  if (el) el.innerHTML = msg ? `<div class="flash ${kind}">${esc(msg)}</div>` : "";
+  if (!el) return;
+  const urgent = kind === "err" || kind === "bad";
+  el.setAttribute?.("role", urgent ? "alert" : "status");
+  el.setAttribute?.("aria-live", urgent ? "assertive" : "polite");
+  el.innerHTML = msg ? `<div class="flash ${kind}">${esc(msg)}</div>` : "";
 }
 function focusPageHeading() {
   const app = document.getElementById("app");
@@ -191,6 +195,25 @@ function openDialog(id, opener = document.activeElement) {
   const dialog = document.getElementById(id);
   if (!dialog) return;
   if (!dialog.dataset.focusWired) {
+    dialog.addEventListener("keydown", event => {
+      if (event.key !== "Tab") return;
+      const focusable = [...(dialog.querySelectorAll?.(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      ) || [])].filter(node => !node.hidden && node.getAttribute?.("aria-hidden") !== "true");
+      if (!focusable.length) {
+        event.preventDefault();
+        dialog.focus?.({preventScroll: true});
+        return;
+      }
+      const first = focusable[0], last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus?.({preventScroll: true});
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus?.({preventScroll: true});
+      }
+    });
     dialog.addEventListener("close", () => {
       const previous = dialog.__formflowOpener;
       dialog.__formflowOpener = null;
@@ -198,6 +221,7 @@ function openDialog(id, opener = document.activeElement) {
     });
     dialog.dataset.focusWired = "true";
   }
+  dialog.setAttribute?.("aria-modal", "true");
   dialog.__formflowOpener = opener && opener !== document.body ? opener : null;
   dialog.showModal();
   const first = dialog.querySelector?.("[autofocus], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled])");
@@ -568,14 +592,14 @@ function viewLogin() {
     <div class="login-panel">
       <h2>你好，开始吧</h2>
       <p class="tip">组织者用账号登录；提交者用组织者发放的凭证。</p>
-      <div class="tabs">
-        <button id="tab-org" class="on" onclick="switchLoginTab('org')">我是组织者</button>
-        <button id="tab-sub" onclick="switchLoginTab('sub')">我是提交者</button>
+      <div class="tabs" role="tablist" aria-label="登录身份">
+        <button id="tab-org" class="on" role="tab" aria-selected="true" aria-controls="pane-org" onclick="switchLoginTab('org')">我是组织者</button>
+        <button id="tab-sub" role="tab" aria-selected="false" aria-controls="pane-sub" onclick="switchLoginTab('sub')">我是提交者</button>
       </div>
-      <div id="login-err" class="flash err" style="display:none"></div>
-      <div id="pane-org">
-        <label>用户名</label><input id="lg-user" placeholder="请输入用户名" autocomplete="username">
-        <label>密码</label><input id="lg-pass" type="password" placeholder="请输入密码"
+      <div id="login-err" class="flash err" role="alert" aria-live="assertive" style="display:none"></div>
+      <div id="pane-org" role="tabpanel" aria-labelledby="tab-org">
+        <label for="lg-user">用户名</label><input id="lg-user" placeholder="请输入用户名" autocomplete="username">
+        <label for="lg-pass">密码</label><input id="lg-pass" type="password" placeholder="请输入密码"
           autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
         <div class="row" style="margin-top:12px">
           <button onclick="doLogin()" style="flex:2">登录</button>
@@ -587,8 +611,8 @@ function viewLogin() {
           <span class="demo-note">演示账号 demo / demo1234，含虚构种子数据</span>
         </div>
       </div>
-      <div id="pane-sub" style="display:none">
-        <label>提交凭证</label>
+      <div id="pane-sub" role="tabpanel" aria-labelledby="tab-sub" hidden>
+        <label for="lg-cred">提交凭证</label>
         <textarea id="lg-cred" placeholder="粘贴组织者发放的提交凭证（形如 v9MhIdcn_1_EUt...）"
           oninput="cacheSubmissionDraft()" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();doSubLogin()}"></textarea>
         <button onclick="doSubLogin()" style="width:100%">进入我的提交空间</button>
@@ -599,10 +623,13 @@ function viewLogin() {
   checkDemoUser();
 }
 function switchLoginTab(which) {
-  document.getElementById("tab-org").classList.toggle("on", which === "org");
-  document.getElementById("tab-sub").classList.toggle("on", which === "sub");
-  document.getElementById("pane-org").style.display = which === "org" ? "" : "none";
-  document.getElementById("pane-sub").style.display = which === "sub" ? "" : "none";
+  const org = which === "org";
+  const tabOrg = document.getElementById("tab-org"), tabSub = document.getElementById("tab-sub");
+  const paneOrg = document.getElementById("pane-org"), paneSub = document.getElementById("pane-sub");
+  tabOrg.classList.toggle("on", org); tabSub.classList.toggle("on", !org);
+  tabOrg.setAttribute?.("aria-selected", String(org)); tabSub.setAttribute?.("aria-selected", String(!org));
+  paneOrg.hidden = !org; paneSub.hidden = org;
+  paneOrg.style.display = org ? "" : "none"; paneSub.style.display = org ? "none" : "";
   document.getElementById("login-err").style.display = "none";
 }
 function loginErr(msg) {
