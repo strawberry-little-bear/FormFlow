@@ -442,7 +442,7 @@ test('presentation view is session-scoped, reversible, and keyboard discoverable
   assert.ok(routeIndex >= 0 && runtimeIndex > routeIndex, 'showcase route should lead the agent explanation');
   assert.equal((source.match(/id="demo-route"/g) || []).length, 1, 'task page should mount one demo route container');
 });
-test('showcase route puts both role entrances before the detailed organizer state', () => {
+test('showcase route puts the current action before role background', () => {
   const {app} = setup();
   const html = app.demoRouteHtml({id:7, name:'演示任务', status:'collecting', demo_route:{completed:2, total:4,
     next:{title:'检查并接手', href:'#/review/7/2', detail:'已验收 1/4 个主体'},
@@ -452,9 +452,14 @@ test('showcase route puts both role entrances before the detailed organizer stat
       {key:'delivery',title:'固定交付',status:'upcoming',href:'#/delivery/7'}]}});
   const audience = html.indexOf('aria-label="双角色体验"');
   const focus = html.indexOf('当前焦点');
-  assert.ok(audience >= 0 && audience < focus, 'role entrances should appear before detailed organizer state');
+  assert.ok(focus >= 0 && focus < audience, 'current action should appear before role entrances');
   assert.match(html, /回到组织者工作台/);
   assert.match(html, /打开提交者入口/);
+});
+test('presentation route aligns the first render to the top of the showcase', () => {
+  assert.match(source, /state\.presentationMode && !state\.presentationStartAligned/);
+  assert.match(source, /window\?\.scrollTo\?\.\(\{top: 0, left: 0, behavior: "auto"\}\)/);
+  assert.match(source, /从这里开始 · 当前焦点/);
 });
 test('demo login enters showcase view and logout clears the temporary entry state', async () => {
   const {app, context, els} = setup();
