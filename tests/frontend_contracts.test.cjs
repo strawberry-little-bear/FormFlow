@@ -210,6 +210,13 @@ test('demo route explains the full workflow and points to the selected task', ()
   assert.match(html, /#\/roster\/7/);
   assert.match(html, /#\/workbench\/7/);
   assert.match(html, /#\/delivery\/7/);
+  assert.match(html, /Agent \+ 人确认/);
+  assert.match(html, /程序执行/);
+  assert.match(html, /Agent → 人/);
+  assert.match(html, /程序快照/);
+  assert.match(html, /aria-label="检查并接手：下一步，Agent → 人"/);
+  assert.match(styleSource, /\.demo-route-owner\.system/);
+  assert.match(styleSource, /\.demo-route-owner\.human/);
 });
 test('demo route exposes organizer and submitter lanes for a complete showcase', () => {
   const {app} = setup();

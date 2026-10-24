@@ -4333,6 +4333,14 @@ body.presentation-mode .agent-tour details > summary { padding:16px 20px; }
 .demo-route-step.done .demo-route-copy b em { color:#4d8a63; }
 .demo-route-step.current .demo-route-copy b em { color:var(--brand); }
 .demo-route-copy span { color:var(--muted); font-size:10px; line-height:1.45; overflow-wrap:anywhere; }
+.demo-route-owner {
+  display:inline-flex; align-items:center; align-self:flex-start; width:max-content; max-width:100%;
+  margin-top:5px; padding:2px 5px; border:1px solid #ddd8f0; border-radius:4px;
+  color:var(--brand-deep); background:#f7f5ff; font-size:9px; line-height:1.25;
+  overflow-wrap:anywhere;
+}
+.demo-route-owner.system { border-color:#dbe3ef; color:#506b93; background:#f4f7fb; }
+.demo-route-owner.human { border-color:#efdfbb; color:#85611f; background:#fff8e9; }
 .demo-route-arrow { display:flex; color:#b3b6be; }
 .demo-route-arrow svg { width:13px; height:13px; }
 .demo-route-step.route-roster .demo-route-icon { color:#6f8c7c; background:#edf6f0; }
