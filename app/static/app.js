@@ -727,7 +727,10 @@ function demoRouteHtml(task) {
   const total = route ? Math.max(1, Number(route.total) || steps.length) : steps.length;
   const progressPct = Math.round((completed / total) * 100);
   const focusLabel = route && route.completed === route.total ? "闭环已完成" : `现在处理：${current.title}`;
-  return `<section class="demo-route" aria-label="展示路线"><div class="demo-route-head"><div><div class="eyebrow">DEMO ROUTE · 4 STOPS</div><h2>三分钟看懂一次收集</h2><p>按顺序点过四站，就能看到 FormFlow 如何把要求、证据和交付串起来。</p></div><span class="badge brand">${esc(task.name)} · ${esc(TASK_STATUS[task.status] || task.status)}</span></div><div class="demo-route-progress"><span><b>${esc(routeProgress)}</b></span><span>${esc(focusLabel)}</span></div><div class="demo-route-meter" role="progressbar" aria-label="展示路线进度" aria-valuemin="0" aria-valuemax="${total}" aria-valuenow="${completed}"><i style="width:${progressPct}%"></i></div><div class="demo-route-focus"><div class="demo-route-focus-main"><span class="eyebrow">当前焦点</span><strong>${esc(current.title)}</strong><p>${esc(current.detail || "从这里继续查看任务状态")}</p></div><div class="demo-route-focus-next"><span class="eyebrow">完成后</span><strong>${esc(followUp.title)}</strong><span>${esc(followUp.detail || "继续下一站")}</span></div><a class="button-link" href="${current.href}" aria-label="进入${esc(current.title)}">进入${esc(current.title)} ${icon("arrow")}</a></div>${demoRouteSignalHtml(route?.review_signal)}<div class="demo-route-steps">${steps.map((s, i) => `<a class="demo-route-step ${s.tone} ${s.status}" href="${s.href}" aria-current="${s.status === "current" ? "step" : "false"}" aria-label="${esc(s.title)}：${esc(DEMO_ROUTE_STATUS[s.status] || s.status)}"><span class="demo-route-index">${String(i + 1).padStart(2, "0")}</span><span class="demo-route-icon">${s.status === "done" ? icon("check") : icon(s.icon)}</span><span class="demo-route-copy"><b>${esc(s.title)} <em>${esc(DEMO_ROUTE_STATUS[s.status] || s.status)}</em></b><span>${esc(s.detail)}</span></span><span class="demo-route-arrow">${icon("arrow")}</span></a>`).join("")}</div><div class="demo-route-foot"><span><i class="demo-route-pulse"></i>使用虚构种子数据，所有决定都可回到原文证据</span><a href="${next.href}">${esc(route && route.completed === route.total ? "重新查看需求设计" : `进入${next.title}`)} ${icon("arrow")}</a></div></section>`;
+  const fallbackNotice = task.demo_route_source === "fallback"
+    ? `<div class="demo-route-notice" role="status"><span>${esc(task.demo_route_error || "实时路线状态暂时不可用，下面保留已加载的展示路径。")}</span><button class="link" type="button" onclick="viewTasks()">重新读取状态</button></div>`
+    : "";
+  return `<section class="demo-route" aria-label="展示路线"><div class="demo-route-head"><div><div class="eyebrow">DEMO ROUTE · 4 STOPS</div><h2>三分钟看懂一次收集</h2><p>按顺序点过四站，就能看到 FormFlow 如何把要求、证据和交付串起来。</p></div><span class="badge brand" title="${esc(task.name)}">${esc(task.name)} · ${esc(TASK_STATUS[task.status] || task.status)}</span></div>${fallbackNotice}<div class="demo-route-progress"><span><b>${esc(routeProgress)}</b></span><span>${esc(focusLabel)}</span></div><div class="demo-route-meter" role="progressbar" aria-label="展示路线进度" aria-valuemin="0" aria-valuemax="${total}" aria-valuenow="${completed}"><i style="width:${progressPct}%"></i></div><div class="demo-route-focus"><div class="demo-route-focus-main"><span class="eyebrow">当前焦点</span><strong>${esc(current.title)}</strong><p>${esc(current.detail || "从这里继续查看任务状态")}</p></div><div class="demo-route-focus-next"><span class="eyebrow">完成后</span><strong>${esc(followUp.title)}</strong><span>${esc(followUp.detail || "继续下一站")}</span></div><a class="button-link" href="${current.href}" aria-label="进入${esc(current.title)}">进入${esc(current.title)} ${icon("arrow")}</a></div>${demoRouteSignalHtml(route?.review_signal)}<div class="demo-route-steps">${steps.map((s, i) => `<a class="demo-route-step ${s.tone} ${s.status}" href="${s.href}" aria-current="${s.status === "current" ? "step" : "false"}" aria-label="${esc(s.title)}：${esc(DEMO_ROUTE_STATUS[s.status] || s.status)}"><span class="demo-route-index">${String(i + 1).padStart(2, "0")}</span><span class="demo-route-icon">${s.status === "done" ? icon("check") : icon(s.icon)}</span><span class="demo-route-copy"><b>${esc(s.title)} <em>${esc(DEMO_ROUTE_STATUS[s.status] || s.status)}</em></b><span>${esc(s.detail)}</span></span><span class="demo-route-arrow">${icon("arrow")}</span></a>`).join("")}</div><div class="demo-route-foot"><span><i class="demo-route-pulse"></i>使用虚构种子数据，所有决定都可回到原文证据</span><a href="${next.href}">${esc(route && route.completed === route.total ? "重新查看需求设计" : `进入${next.title}`)} ${icon("arrow")}</a></div></section>`;
 }
 function renderDemoRoute(tasks = state.tasks) {
   const box = document.getElementById("demo-route");
@@ -740,9 +743,14 @@ async function loadDemoRoute(task) {
     const route = await api(`/api/tasks/${task.id}/demo-route`);
     if (document.body.dataset.page !== "tasks") return;
     task.demo_route = route;
+    task.demo_route_source = "server";
+    task.demo_route_error = "";
     if (demoRouteTask(state.tasks)?.id === task.id) renderDemoRoute(state.tasks);
   } catch (e) {
-    // The static route remains useful when an older server has no projection endpoint.
+    // Keep the route useful during a short outage, but make the stale source explicit.
+    task.demo_route_source = "fallback";
+    task.demo_route_error = "实时路线状态暂时不可用，下面保留已加载的展示路径。";
+    if (document.body.dataset.page === "tasks" && demoRouteTask(state.tasks)?.id === task.id) renderDemoRoute(state.tasks);
   }
 }
 function paintWorkspaceAgentStatus() {

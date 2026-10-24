@@ -123,6 +123,19 @@ test('demo route renders server lifecycle progress and the next stop', () => {
   assert.match(html, /报告期次须为 2026 秋季第 1 期/);
   assert.match(html, /待确认 · 语义审核/);
 });
+test('demo route makes stale fallback state and long task names explicit', () => {
+  const {app} = setup();
+  const taskName = '一个很长的演示任务名称，用来确认窄屏和悬停提示仍然可读';
+  const html = app.demoRouteHtml({id:7, name:taskName, status:'collecting', demo_route_source:'fallback',
+    demo_route_error:'实时路线状态暂时不可用，下面保留已加载的展示路径。'});
+  assert.match(html, /实时路线状态暂时不可用/);
+  assert.match(html, /role="status"/);
+  assert.match(html, /重新读取状态/);
+  assert.match(html, new RegExp(`title="${taskName}`));
+  assert.match(styleSource, /\.demo-route-notice\s*\{/);
+  assert.match(styleSource, /\.demo-route-notice \.link/);
+  assert.match(styleSource, /\.demo-route-notice \{ align-items:flex-start; flex-direction:column;/);
+});
 test('review revision history keeps old versions as comparison only', () => {
   const {app} = setup();
   const html = app.reviewRevisionHistoryHtml([
