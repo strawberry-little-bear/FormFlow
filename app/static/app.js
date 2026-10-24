@@ -605,8 +605,8 @@ function viewLogin(initialTab = "org") {
       <h2>你好，开始吧</h2>
       <p class="tip">组织者用账号登录；提交者用组织者发放的凭证。</p>
       <div class="tabs" role="tablist" aria-label="登录身份">
-        <button id="tab-org" class="${submitterTab ? "" : "on"}" role="tab" aria-selected="${submitterTab ? "false" : "true"}" aria-controls="pane-org" onclick="switchLoginTab('org')">我是组织者</button>
-        <button id="tab-sub" class="${submitterTab ? "on" : ""}" role="tab" aria-selected="${submitterTab ? "true" : "false"}" aria-controls="pane-sub" onclick="switchLoginTab('sub')">我是提交者</button>
+        <button id="tab-org" class="${submitterTab ? "" : "on"}" role="tab" aria-selected="${submitterTab ? "false" : "true"}" aria-controls="pane-org" tabindex="${submitterTab ? "-1" : "0"}" onkeydown="moveLoginTab(event)" onclick="switchLoginTab('org')">我是组织者</button>
+        <button id="tab-sub" class="${submitterTab ? "on" : ""}" role="tab" aria-selected="${submitterTab ? "true" : "false"}" aria-controls="pane-sub" tabindex="${submitterTab ? "0" : "-1"}" onkeydown="moveLoginTab(event)" onclick="switchLoginTab('sub')">我是提交者</button>
       </div>
       <div id="login-err" class="flash err" role="alert" aria-live="assertive" style="display:none"></div>
       <div id="pane-org" role="tabpanel" aria-labelledby="tab-org"${submitterTab ? " hidden" : ""}>
@@ -640,9 +640,20 @@ function switchLoginTab(which) {
   const paneOrg = document.getElementById("pane-org"), paneSub = document.getElementById("pane-sub");
   tabOrg.classList.toggle("on", org); tabSub.classList.toggle("on", !org);
   tabOrg.setAttribute?.("aria-selected", String(org)); tabSub.setAttribute?.("aria-selected", String(!org));
+  tabOrg.setAttribute?.("tabindex", org ? "0" : "-1"); tabSub.setAttribute?.("tabindex", org ? "-1" : "0");
   paneOrg.hidden = !org; paneSub.hidden = org;
   paneOrg.style.display = org ? "" : "none"; paneSub.style.display = org ? "none" : "";
   document.getElementById("login-err").style.display = "none";
+}
+function moveLoginTab(event) {
+  if (!event || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+  const tabs = [document.getElementById("tab-org"), document.getElementById("tab-sub")].filter(Boolean);
+  const current = tabs.indexOf(event.currentTarget);
+  if (current < 0) return;
+  const next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : (current + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+  event.preventDefault();
+  tabs[next].focus?.();
+  tabs[next].click?.();
 }
 function loginErr(msg) {
   const el = document.getElementById("login-err");

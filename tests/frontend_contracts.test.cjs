@@ -19,7 +19,7 @@ function element(value = '') {
     addEventListener(k, fn) {this.listeners[k] = fn;}, querySelector() {return null;},
     querySelectorAll() {return [];}, scrollIntoView() {this.scrolled = true;},
     insertAdjacentHTML(_, html) {this.innerHTML = html + this.innerHTML;},
-    focus() {this.focused = true;}, showModal() {this.open = true;}, close() {this.open = false; this.listeners.close?.();},
+    focus() {this.focused = true;}, click() {this.clicked = true;}, showModal() {this.open = true;}, close() {this.open = false; this.listeners.close?.();},
     setSelectionRange(start, end) {this.selectionStart = start; this.selectionEnd = end;}};
 }
 function setup(sharedStorage = storage()) {
@@ -35,7 +35,7 @@ function setup(sharedStorage = storage()) {
     window: {addEventListener() {}}, location: {hash:'#/submit'}, Intl, URLSearchParams, FormData,
     setTimeout, clearTimeout, confirm: () => true, console,
     fetch: async () => {throw new Error('Unexpected request');}});
-  vm.runInContext(source + '\nthis.app = {state, route, useVersionAsBase, loadDesignVersion, cacheDesignInputs, restoreDesignInputs, recoverDesignInput, paintChat, runAgent, runExport, deliveryHistoryHtml, loadDeliveryHistory, inspectSnapshot, paintSnapshot, canPublishDesign, publishDiffHtml, designVersionImpactHtml, publishBp, confirmPublish, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, fmtTimeShort, designReadinessHtml, draftFingerprint, collectDraftFields, cacheSubmissionDraft, paintSubmitterNextStep, submitterNextStepHtml, setSubMode, refreshSlotConditions, wbMatches, api, apiError, submitDecision, saveDraft, doSubmit, uploadSlot, deleteSlotFile, cacheReviewDraft, discardReviewDraft, logout, nextPendingReview, setReviewFilter, setReviewTraceFilter, selectReviewRule, viewReview, reviewRevisionHistoryHtml, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, chooseWorkbenchNextStep, workbenchNextStepHtml, agentRunCard, agentTourHtml, submitterGuidance, ruleCard, receiptFilesHtml, submissionIssues, checkAgentRequestNow, resumePendingAgentRequest, savePendingAgentRequest, agentRequestProgressHtml, retryAgent, pollAgentRequest, showSubmissionIssues, initSubChat, demoRouteTask, demoRouteHtml, renderDemoRoute, paintWorkspaceAgentStatus, viewLogin, viewSubmit, switchLoginTab, setFlash, openDialog, readPresentationMode, applyPresentationMode, setPresentationMode, togglePresentationMode};', context);
+  vm.runInContext(source + '\nthis.app = {state, route, useVersionAsBase, loadDesignVersion, cacheDesignInputs, restoreDesignInputs, recoverDesignInput, paintChat, runAgent, runExport, deliveryHistoryHtml, loadDeliveryHistory, inspectSnapshot, paintSnapshot, canPublishDesign, publishDiffHtml, designVersionImpactHtml, publishBp, confirmPublish, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, fmtTimeShort, designReadinessHtml, draftFingerprint, collectDraftFields, cacheSubmissionDraft, paintSubmitterNextStep, submitterNextStepHtml, setSubMode, refreshSlotConditions, wbMatches, api, apiError, submitDecision, saveDraft, doSubmit, uploadSlot, deleteSlotFile, cacheReviewDraft, discardReviewDraft, logout, nextPendingReview, setReviewFilter, setReviewTraceFilter, selectReviewRule, viewReview, reviewRevisionHistoryHtml, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, chooseWorkbenchNextStep, workbenchNextStepHtml, agentRunCard, agentTourHtml, submitterGuidance, ruleCard, receiptFilesHtml, submissionIssues, checkAgentRequestNow, resumePendingAgentRequest, savePendingAgentRequest, agentRequestProgressHtml, retryAgent, pollAgentRequest, showSubmissionIssues, initSubChat, demoRouteTask, demoRouteHtml, renderDemoRoute, paintWorkspaceAgentStatus, viewLogin, viewSubmit, switchLoginTab, moveLoginTab, setFlash, openDialog, readPresentationMode, applyPresentationMode, setPresentationMode, togglePresentationMode};', context);
   Object.assign(context.app.state, {routeEpoch: 1, me:{task:{id:1, status:'collecting', timezone:'Asia/Shanghai'},subject:{id:2}},
     draftVersion:1, fileMeta:{}, sub:{mode:'chat',phase:'fields',fIdx:0, fields:[{id:'name'}],slots:[],answers:{}}});
   context.localStorage.setItem('ff_sub_token', 'test-only-credential');
@@ -70,9 +70,32 @@ test('login tabs and fields expose their relationships to assistive technology',
   app.viewLogin();
   assert.match(source, /role="tablist" aria-label="登录身份"/);
   assert.match(source, /id="tab-org"[^>]*role="tab"[^>]*aria-selected="\$\{submitterTab \? "false" : "true"\}"[^>]*aria-controls="pane-org"/);
+  assert.match(source, /id="tab-org"[^>]*tabindex="\$\{submitterTab \? "-1" : "0"\}"[^>]*onkeydown="moveLoginTab\(event\)"/);
+  assert.match(source, /id="tab-sub"[^>]*tabindex="\$\{submitterTab \? "0" : "-1"\}"[^>]*onkeydown="moveLoginTab\(event\)"/);
   assert.match(source, /id="pane-sub" role="tabpanel" aria-labelledby="tab-sub"\$\{submitterTab \? "" : " hidden"\}/);
   assert.match(source, /<label for="lg-user">用户名<\/label>/);
   assert.match(source, /<label for="lg-pass">密码<\/label>/);
+});
+test('login tabs support roving focus with arrow and Home/End keys', () => {
+  const {app, els} = setup();
+  els['tab-org'] = Object.assign(element(), {id: 'tab-org'});
+  els['tab-sub'] = Object.assign(element(), {id: 'tab-sub'});
+  els['pane-org'] = Object.assign(element(), {style: {}});
+  els['pane-sub'] = Object.assign(element(), {style: {}});
+  els['login-err'] = Object.assign(element(), {style: {}});
+  app.switchLoginTab('org');
+  assert.equal(els['tab-org'].attributes.tabindex, '0');
+  assert.equal(els['tab-sub'].attributes.tabindex, '-1');
+  let prevented = false;
+  app.moveLoginTab({key: 'ArrowRight', currentTarget: els['tab-org'], preventDefault: () => {prevented = true;}});
+  assert.equal(prevented, true);
+  assert.equal(els['tab-sub'].focused, true);
+  assert.equal(els['tab-sub'].clicked, true);
+  app.switchLoginTab('sub');
+  app.moveLoginTab({key: 'Home', currentTarget: els['tab-sub'], preventDefault() {}});
+  assert.equal(els['tab-org'].focused, true);
+  app.moveLoginTab({key: 'End', currentTarget: els['tab-org'], preventDefault() {}});
+  assert.equal(els['tab-sub'].focused, true);
 });
 test('login route can open directly on the submitter tab', () => {
   const {app, context, els} = setup();
