@@ -4123,9 +4123,23 @@ body.presentation-mode .agent-tour details > summary { padding:16px 20px; }
 .runtime-mode.offline { border-color:#eadfc4; color:#85651f; background:#fff8e8; }
 .runtime-mode.online { border-color:#cfe8db; color:#287454; background:#effaf3; }
 .runtime-card-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin-top:11px; }
-.runtime-card-grid > div { display:flex; flex-direction:column; gap:2px; min-width:0; }
-.runtime-card-grid b { font-size:11px; }
+.runtime-card-grid > div { min-width:0; }
+.runtime-card-item {
+  --runtime-accent:#7259c7; --runtime-ink:#5e46ad; --runtime-soft:#f4f1ff; --runtime-line:#e1daf8;
+  display:grid; grid-template-columns:24px minmax(0,1fr); gap:8px; align-items:start;
+  padding:8px; border:1px solid var(--runtime-line); border-left:3px solid var(--runtime-accent);
+  border-radius:7px; background:#fff;
+}
+.runtime-card-item.runtime-tools { --runtime-accent:#4f73b7; --runtime-ink:#3e5e99; --runtime-soft:#eef3fb; --runtime-line:#d9e2f4; }
+.runtime-card-item.runtime-harness { --runtime-accent:#3d966f; --runtime-ink:#287454; --runtime-soft:#edf8f1; --runtime-line:#d4eadc; }
+.runtime-card-item.runtime-mcp { --runtime-accent:#788596; --runtime-ink:#5d6877; --runtime-soft:#f1f3f5; --runtime-line:#dfe3e8; }
+.runtime-card-item.runtime-human { --runtime-accent:#b07a27; --runtime-ink:#85611f; --runtime-soft:#fff7e8; --runtime-line:#efdfbb; }
+.runtime-card-icon { display:flex; align-items:center; justify-content:center; width:24px; height:24px; border:1px solid var(--runtime-line); border-radius:6px; color:var(--runtime-ink); background:var(--runtime-soft); }
+.runtime-card-icon svg { width:13px; height:13px; }
+.runtime-card-item b { display:block; color:var(--runtime-ink); font-size:11px; }
 .runtime-card-grid span,.runtime-card-foot { color:var(--muted); font-size:10px; line-height:1.5; overflow-wrap:anywhere; }
+.runtime-card-item span:not(.runtime-card-icon) { display:block; margin-top:2px; }
+.runtime-card-item code { font-size:9px; padding:1px 3px; word-break:normal; overflow-wrap:anywhere; }
 .runtime-card-foot { margin:11px 0 0; padding-top:9px; border-top:1px dashed var(--line); }
 @media (max-width:900px) {
   .readiness-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }

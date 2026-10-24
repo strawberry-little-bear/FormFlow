@@ -1088,7 +1088,7 @@ async function viewDesign(taskId) {
     <div id="design-recovery"></div><div class="grid-chat"><section class="card agent-panel"><div class="agent-heading"><span class="agent-mark">${icon("sparkle")}</span><div><h2>小齐 <span>需求设计助手</span></h2><p id="agent-status">正在准备…</p></div><span class="agent-live"></span></div>
       <div class="chat"><div class="chat-scroll" id="chat-scroll" role="log" aria-label="需求对话" aria-live="polite"></div><div class="composer"><div class="chips" id="chat-chips"></div>
       <label class="sr-only" for="chat-in">告诉小齐你的收集要求</label><textarea id="chat-in" oninput="cacheDesignInputs()" placeholder="例如：收一份团课 PDF 报告，登记姓名和班级…" onkeydown="if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing){event.preventDefault();chatSend()}"></textarea>
-       <div class="composer-foot"><span>Enter 发送 · Shift + Enter 换行</span><button id="chat-send" onclick="chatSend()" aria-label="发送需求">发送 ${icon('arrow')}</button></div><p class="field-help" id="design-input-hint" role="status"></p></div><section class="agent-runtime-card" aria-label="智能协作边界"><div class="runtime-card-head"><div><div class="eyebrow">AGENT RUNTIME</div><h3>小齐的协作边界</h3></div><span class="runtime-mode" id="agent-runtime-mode">受限运行时</span></div><div class="runtime-card-grid"><div><b>需求 Agent</b><span>把自然语言整理成可核对草案</span></div><div><b>Review skill</b><span>只按当前发布蓝图逐条取证</span></div><div><b>Harness</b><span>scope、预算、幂等与审计都在边界内</span></div><div><b>外部工具</b><span>MCP 未连接，材料不会被发送到未知目的地</span></div></div><p class="runtime-card-foot" id="agent-runtime-status">运行状态会随模型配置和当前请求更新。</p></section></div>
+       <div class="composer-foot"><span>Enter 发送 · Shift + Enter 换行</span><button id="chat-send" onclick="chatSend()" aria-label="发送需求">发送 ${icon('arrow')}</button></div><p class="field-help" id="design-input-hint" role="status"></p></div></div><section class="agent-runtime-card" aria-label="智能协作边界"><div class="runtime-card-head"><div><div class="eyebrow">AGENT RUNTIME</div><h3>小齐的协作边界</h3></div><span class="runtime-mode" id="agent-runtime-mode">受限运行时</span></div><div class="runtime-card-grid"><div class="runtime-card-item runtime-skill"><span class="runtime-card-icon">${icon("sparkle")}</span><div><b>Skill · 需求整理</b><span><code>requirements_draft</code> 把原始要求整理成可核对草案</span></div></div><div class="runtime-card-item runtime-tools"><span class="runtime-card-icon">${icon("tasks")}</span><div><b>工具白名单</b><span>模板、字段和规则校验只在当前任务 scope 内运行</span></div></div><div class="runtime-card-item runtime-harness"><span class="runtime-card-icon">${icon("review")}</span><div><b>Harness · 受限执行</b><span>预算、幂等键、结果上限与审计在边界内检查</span></div></div><div class="runtime-card-item runtime-mcp"><span class="runtime-card-icon">${icon("expand")}</span><div><b>MCP 边界</b><span>没有外部 adapter；模型不能访问网络、文件系统或任意 SQL</span></div></div><div class="runtime-card-item runtime-human"><span class="runtime-card-icon">${icon("workbench")}</span><div><b>人工确认</b><span>不确定内容、材料门槛和最终发布由组织者决定</span></div></div></div><p class="runtime-card-foot" id="agent-runtime-status">运行状态会随模型配置和当前请求更新。</p></section>
     </section><section id="draft-panel" aria-label="实时收集表预览"></section></div>
     <dialog id="publish-dialog" aria-labelledby="publish-title"><form onsubmit="event.preventDefault();confirmPublish()"><div class="eyebrow">REVIEW & PUBLISH</div><h2 id="publish-title" tabindex="-1">确认这份收集要求</h2><p>发布后，这个版本的字段、材料和规则会被冻结。后续修改将产生新版本。</p><div id="publish-summary"></div><label class="check-label"><input type="checkbox" id="publish-consent" required>我已核对材料要求、规则依据、截止时间和数据用途</label><div class="dialog-actions"><button type="button" class="ghost" onclick="this.closest('dialog').close()">返回核对</button><button type="submit" id="publish-confirm">确认并发布</button></div><div id="publish-error" role="alert" class="inline-error"></div></form></dialog>`;
   setAgentBusy(true, "正在加载"); renderDraftPanel();
@@ -1181,22 +1181,26 @@ function paintAgentRuntime() {
   const status = document.getElementById('agent-runtime-status');
   if (!mode || !status) return;
   const request = state.agentRequest;
+  const setMode = (label, tone = '') => {
+    mode.textContent = label;
+    mode.className = `runtime-mode${tone ? ` ${tone}` : ''}`;
+  };
   if (state.llmConfigured === false) {
-    mode.textContent = "离线可演示";
+    setMode("离线可演示", "offline");
     status.textContent = "当前没有模型密钥：模板和手动编辑可用，需求 Agent 会保留原文并明确停下。";
     return;
   }
   if (request?.status === "queued") {
-    mode.textContent = "请求已入队";
+    setMode("请求已入队", "online");
     status.textContent = "请求已先落库；断线或刷新后会按同一个请求编号继续查询。";
     return;
   }
   if (request?.status === "running" || request?.status === "checking") {
-    mode.textContent = "正在协作";
+    setMode("正在协作", "online");
     status.textContent = "需求 Agent 正在整理；旧草案不会被半份结果覆盖。";
     return;
   }
-  mode.textContent = "受限运行时";
+  setMode("受限运行时", "online");
   status.textContent = "只在当前任务范围内运行；工具调用受 scope、预算、幂等和审计约束。";
 }
 function renderChips() {

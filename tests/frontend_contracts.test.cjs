@@ -25,7 +25,7 @@ function element(value = '') {
 function setup(sharedStorage = storage()) {
   const els = Object.fromEntries(['sub', 'draft-hint', 'flash', 'receipt-out', 'decision-submit', 'presentation-toggle',
     'review-conflict', 'dc-type', 'dc-rule', 'dc-reason', 'dc-exp', 'acceptance-reason', 'acceptance-submit',
-    'review-draft-status', 'submission-errors', 'field-error-name', 'dl', 'delivery-history-list', 'delivery-history-more-error', 'snap-view', 'app', 'rv', 'rv-name', 'my-results', 'submit-next-step', 'nav', 'role-label', 'wb-next-step', 'btn-logout', 'workspace-agent-mode', 'workspace-agent-status'].map(id => [id, element()]));
+    'review-draft-status', 'submission-errors', 'field-error-name', 'dl', 'delivery-history-list', 'delivery-history-more-error', 'snap-view', 'app', 'rv', 'rv-name', 'my-results', 'submit-next-step', 'nav', 'role-label', 'wb-next-step', 'btn-logout', 'workspace-agent-mode', 'workspace-agent-status', 'agent-runtime-mode', 'agent-runtime-status'].map(id => [id, element()]));
   const fields = [Object.assign(element('old'), {dataset: {field:'name'}})];
   els['field-name'] = fields[0];
   const body = Object.assign(element(), {dataset: {page: 'tasks'}});
@@ -35,7 +35,7 @@ function setup(sharedStorage = storage()) {
     window: {addEventListener() {}}, location: {hash:'#/submit'}, Intl, URLSearchParams, FormData,
     setTimeout, clearTimeout, confirm: () => true, console,
     fetch: async () => {throw new Error('Unexpected request');}});
-  vm.runInContext(source + '\nthis.app = {state, route, useVersionAsBase, loadDesignVersion, cacheDesignInputs, restoreDesignInputs, recoverDesignInput, paintChat, runAgent, runExport, deliveryHistoryHtml, loadDeliveryHistory, inspectSnapshot, paintSnapshot, canPublishDesign, publishDiffHtml, designVersionImpactHtml, publishBp, confirmPublish, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, fmtTimeShort, designReadinessHtml, draftFingerprint, collectDraftFields, cacheSubmissionDraft, paintSubmitterNextStep, submitterNextStepHtml, setSubMode, moveSubmitModeTab, refreshSlotConditions, wbMatches, api, apiError, submitDecision, saveDraft, doSubmit, uploadSlot, deleteSlotFile, cacheReviewDraft, discardReviewDraft, logout, nextPendingReview, setReviewFilter, setReviewTraceFilter, selectReviewRule, viewReview, reviewRevisionHistoryHtml, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, chooseWorkbenchNextStep, workbenchNextStepHtml, agentRunCard, agentTourHtml, submitterGuidance, ruleCard, receiptFilesHtml, submissionIssues, checkAgentRequestNow, resumePendingAgentRequest, savePendingAgentRequest, agentRequestProgressHtml, retryAgent, pollAgentRequest, showSubmissionIssues, initSubChat, demoRouteTask, demoRouteHtml, renderDemoRoute, paintWorkspaceAgentStatus, viewLogin, viewSubmit, switchLoginTab, moveLoginTab, setFlash, openDialog, readPresentationMode, applyPresentationMode, setPresentationMode, togglePresentationMode, fillDemoCred, doLogin};', context);
+  vm.runInContext(source + '\nthis.app = {state, route, useVersionAsBase, loadDesignVersion, cacheDesignInputs, restoreDesignInputs, recoverDesignInput, paintChat, runAgent, runExport, deliveryHistoryHtml, loadDeliveryHistory, inspectSnapshot, paintSnapshot, canPublishDesign, publishDiffHtml, designVersionImpactHtml, publishBp, confirmPublish, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, fmtTimeShort, designReadinessHtml, draftFingerprint, collectDraftFields, cacheSubmissionDraft, paintSubmitterNextStep, submitterNextStepHtml, setSubMode, moveSubmitModeTab, refreshSlotConditions, wbMatches, api, apiError, submitDecision, saveDraft, doSubmit, uploadSlot, deleteSlotFile, cacheReviewDraft, discardReviewDraft, logout, nextPendingReview, setReviewFilter, setReviewTraceFilter, selectReviewRule, viewReview, reviewRevisionHistoryHtml, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, chooseWorkbenchNextStep, workbenchNextStepHtml, agentRunCard, agentTourHtml, submitterGuidance, ruleCard, receiptFilesHtml, submissionIssues, checkAgentRequestNow, resumePendingAgentRequest, savePendingAgentRequest, agentRequestProgressHtml, retryAgent, pollAgentRequest, showSubmissionIssues, initSubChat, demoRouteTask, demoRouteHtml, renderDemoRoute, paintWorkspaceAgentStatus, paintAgentRuntime, viewLogin, viewSubmit, switchLoginTab, moveLoginTab, setFlash, openDialog, readPresentationMode, applyPresentationMode, setPresentationMode, togglePresentationMode, fillDemoCred, doLogin};', context);
   Object.assign(context.app.state, {routeEpoch: 1, me:{task:{id:1, status:'collecting', timezone:'Asia/Shanghai'},subject:{id:2}},
     draftVersion:1, fileMeta:{}, sub:{mode:'chat',phase:'fields',fIdx:0, fields:[{id:'name'}],slots:[],answers:{}}});
   context.localStorage.setItem('ff_sub_token', 'test-only-credential');
@@ -352,6 +352,31 @@ test('task workspace explains offline mode without hiding the available workflow
   assert.match(styleSource, /@media \(max-width:900px\) \{[\s\S]*\.runtime-strip-grid \{ grid-template-columns:repeat\(3,minmax\(0,1fr\)\); \}/);
   assert.match(styleSource, /@media \(max-width:900px\) \{[\s\S]*body\.presentation-mode \.workspace-runtime-strip \{ grid-template-columns:1fr; \}/);
   assert.match(styleSource, /@media \(max-width:340px\)[\s\S]*\.runtime-strip-grid \{ grid-template-columns:1fr; \}/);
+});
+test('design workspace exposes the same constrained agent boundary', () => {
+  const {app, els} = setup();
+  assert.match(source, /class="runtime-card-item runtime-skill"/);
+  assert.match(source, /class="runtime-card-item runtime-tools"/);
+  assert.match(source, /class="runtime-card-item runtime-harness"/);
+  assert.match(source, /class="runtime-card-item runtime-mcp"/);
+  assert.match(source, /class="runtime-card-item runtime-human"/);
+  assert.match(source, /requirements_draft/);
+  assert.match(source, /MCP 边界/);
+  assert.match(source, /人工确认/);
+  assert.match(styleSource, /\.runtime-card-item\.runtime-harness/);
+  assert.match(styleSource, /\.runtime-card-icon svg/);
+  assert.match(styleSource, /@media \(max-width:600px\)[\s\S]*\.runtime-card-grid \{ grid-template-columns:1fr; \}/);
+  app.state.llmConfigured = false;
+  app.paintAgentRuntime();
+  assert.equal(els['agent-runtime-mode'].textContent, '离线可演示');
+  assert.equal(els['agent-runtime-mode'].className, 'runtime-mode offline');
+  assert.match(els['agent-runtime-status'].textContent, /模板和手动编辑可用/);
+  app.state.llmConfigured = true;
+  app.state.agentRequest = {status: 'running'};
+  app.paintAgentRuntime();
+  assert.equal(els['agent-runtime-mode'].textContent, '正在协作');
+  assert.equal(els['agent-runtime-mode'].className, 'runtime-mode online');
+  assert.match(els['agent-runtime-status'].textContent, /旧草案不会被半份结果覆盖/);
 });
 test('showcase run source stays separate from model configuration', () => {
   const {app} = setup();
