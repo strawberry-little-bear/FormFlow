@@ -1406,6 +1406,11 @@ test('long review queues keep all rules addressable and retain the next-pending 
   assert.match(html,/50 项/);
   assert.equal((html.match(/class="evidence-detail"/g) || []).length,1);
 });
+test('narrow review queues keep every rule group inside the single-column viewport', () => {
+  assert.match(styleSource, /\.review-rules \{ flex-direction:column; overflow:visible; max-height:none; padding-bottom:0; \}/);
+  assert.match(styleSource, /\.review-group \{ width:100%; min-width:0; \}/);
+  assert.match(styleSource, /\.review-rule-item \{ width:100%; min-width:0; flex:none; \}/);
+});
 test('next pending review skips completed and confirmed-issue rules; shortcuts explain the final gate', async () => {
   const env=setup(),page=reviewPage(reviewScope('a'));
   page.rules=[{rule_id:'A',result:'unknown'},{rule_id:'B',result:'issue',decision:{decision:'confirm_issue'}},

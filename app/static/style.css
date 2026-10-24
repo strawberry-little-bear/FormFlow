@@ -3691,8 +3691,9 @@ a.wb-next-action:hover, button.wb-next-action:hover { background:var(--brand-dee
   .agent-run-steps { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .remind-panel, .submit-side, .roster-import, .review-list-col { position:static; }
   .review-layout { grid-template-columns:1fr; }
-  .review-rules { flex-direction:row; overflow-x:auto; max-height:none; padding-bottom:4px; }
-  .review-rule-item { min-width:224px; flex:none; }
+  .review-rules { flex-direction:column; overflow:visible; max-height:none; padding-bottom:0; }
+  .review-group { width:100%; min-width:0; }
+  .review-rule-item { width:100%; min-width:0; flex:none; }
   .roster-head { display:none; }
   .roster-row { grid-template-columns:minmax(0,1fr) auto; row-gap:6px; }
   .roster-row > div:nth-child(2), .roster-row > div:nth-child(3) { justify-self:start; }
