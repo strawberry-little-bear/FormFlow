@@ -3139,6 +3139,18 @@ dialog p {
     font-size:12px
   }
 }
+@media(max-width:340px) {
+  .skip-link { left:12px; max-width:calc(100vw - 24px); }
+  .auth-page main { padding:12px; }
+  .login-hero,.login-panel { padding:20px 16px; }
+  .login-hero h1 { font-size:24px; line-height:1.35; overflow-wrap:anywhere; }
+  .hero-flow { padding:10px; }
+  .hero-flow-steps { grid-template-columns:1fr; gap:7px; }
+  .hero-flow-steps > span { padding:7px 8px; }
+  .hero-flow-steps strong { white-space:normal; }
+  .tabs { flex-direction:column; }
+  .tabs button { width:100%; }
+}
 @media(prefers-reduced-motion:reduce) {
   *,*::before,*::after {
     animation:none!important;

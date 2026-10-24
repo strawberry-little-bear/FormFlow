@@ -97,6 +97,13 @@ test('login tabs support roving focus with arrow and Home/End keys', () => {
   app.moveLoginTab({key: 'End', currentTarget: els['tab-org'], preventDefault() {}});
   assert.equal(els['tab-sub'].focused, true);
 });
+test('login remains readable at 200 percent narrow widths', () => {
+  assert.match(styleSource, /@media\(max-width:340px\)\s*\{[\s\S]*\.hero-flow-steps \{ grid-template-columns:1fr; gap:7px; \}/);
+  assert.match(styleSource, /@media\(max-width:340px\)[\s\S]*\.hero-flow-steps strong \{ white-space:normal; \}/);
+  assert.match(styleSource, /@media\(max-width:340px\)[\s\S]*\.tabs \{ flex-direction:column; \}/);
+  assert.match(styleSource, /@media\(max-width:340px\)[\s\S]*\.auth-page main \{ padding:12px; \}/);
+  assert.match(styleSource, /@media\(max-width:340px\)[\s\S]*\.skip-link \{ left:12px; max-width:calc\(100vw - 24px\); \}/);
+});
 test('login route can open directly on the submitter tab', () => {
   const {app, context, els} = setup();
   context.location.hash = '#/login?role=sub';
