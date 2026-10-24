@@ -174,6 +174,8 @@ test('task workspace explains offline mode without hiding the available workflow
   assert.equal(els['workspace-agent-mode'].textContent, '模型已接入');
   assert.match(els['workspace-agent-status'].textContent, /运行摘要/);
   assert.match(els['workspace-agent-status'].textContent, /不代表这次结果一定调用实时模型/);
+  assert.match(source, /class="runtime-strip-icon"/);
+  assert.match(styleSource, /\.runtime-strip-icon svg/);
 });
 test('showcase run source stays separate from model configuration', () => {
   const {app} = setup();
