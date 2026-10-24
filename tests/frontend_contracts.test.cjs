@@ -35,7 +35,7 @@ function setup(sharedStorage = storage()) {
     window: {addEventListener() {}}, location: {hash:'#/submit'}, Intl, URLSearchParams, FormData,
     setTimeout, clearTimeout, confirm: () => true, console,
     fetch: async () => {throw new Error('Unexpected request');}});
-  vm.runInContext(source + '\nthis.app = {state, useVersionAsBase, loadDesignVersion, cacheDesignInputs, restoreDesignInputs, recoverDesignInput, paintChat, runAgent, runExport, deliveryHistoryHtml, loadDeliveryHistory, inspectSnapshot, paintSnapshot, canPublishDesign, publishDiffHtml, designVersionImpactHtml, publishBp, confirmPublish, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, fmtTimeShort, designReadinessHtml, draftFingerprint, collectDraftFields, cacheSubmissionDraft, paintSubmitterNextStep, submitterNextStepHtml, setSubMode, refreshSlotConditions, wbMatches, api, submitDecision, saveDraft, doSubmit, uploadSlot, deleteSlotFile, cacheReviewDraft, discardReviewDraft, logout, nextPendingReview, setReviewFilter, setReviewTraceFilter, selectReviewRule, viewReview, reviewRevisionHistoryHtml, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, chooseWorkbenchNextStep, workbenchNextStepHtml, agentRunCard, agentTourHtml, submitterGuidance, ruleCard, receiptFilesHtml, submissionIssues, checkAgentRequestNow, resumePendingAgentRequest, savePendingAgentRequest, agentRequestProgressHtml, retryAgent, pollAgentRequest, showSubmissionIssues, initSubChat, demoRouteTask, demoRouteHtml, renderDemoRoute, paintWorkspaceAgentStatus, viewLogin, switchLoginTab, setFlash, openDialog, readPresentationMode, applyPresentationMode, setPresentationMode, togglePresentationMode};', context);
+  vm.runInContext(source + '\nthis.app = {state, route, useVersionAsBase, loadDesignVersion, cacheDesignInputs, restoreDesignInputs, recoverDesignInput, paintChat, runAgent, runExport, deliveryHistoryHtml, loadDeliveryHistory, inspectSnapshot, paintSnapshot, canPublishDesign, publishDiffHtml, designVersionImpactHtml, publishBp, confirmPublish, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, fmtTimeShort, designReadinessHtml, draftFingerprint, collectDraftFields, cacheSubmissionDraft, paintSubmitterNextStep, submitterNextStepHtml, setSubMode, refreshSlotConditions, wbMatches, api, apiError, submitDecision, saveDraft, doSubmit, uploadSlot, deleteSlotFile, cacheReviewDraft, discardReviewDraft, logout, nextPendingReview, setReviewFilter, setReviewTraceFilter, selectReviewRule, viewReview, reviewRevisionHistoryHtml, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, chooseWorkbenchNextStep, workbenchNextStepHtml, agentRunCard, agentTourHtml, submitterGuidance, ruleCard, receiptFilesHtml, submissionIssues, checkAgentRequestNow, resumePendingAgentRequest, savePendingAgentRequest, agentRequestProgressHtml, retryAgent, pollAgentRequest, showSubmissionIssues, initSubChat, demoRouteTask, demoRouteHtml, renderDemoRoute, paintWorkspaceAgentStatus, viewLogin, viewSubmit, switchLoginTab, setFlash, openDialog, readPresentationMode, applyPresentationMode, setPresentationMode, togglePresentationMode};', context);
   Object.assign(context.app.state, {routeEpoch: 1, me:{task:{id:1, status:'collecting', timezone:'Asia/Shanghai'},subject:{id:2}},
     draftVersion:1, fileMeta:{}, sub:{mode:'chat',phase:'fields',fIdx:0, fields:[{id:'name'}],slots:[],answers:{}}});
   context.localStorage.setItem('ff_sub_token', 'test-only-credential');
@@ -69,10 +69,44 @@ test('login tabs and fields expose their relationships to assistive technology',
   const {app} = setup();
   app.viewLogin();
   assert.match(source, /role="tablist" aria-label="登录身份"/);
-  assert.match(source, /id="tab-org"[^>]*role="tab"[^>]*aria-selected="true"[^>]*aria-controls="pane-org"/);
-  assert.match(source, /id="pane-sub" role="tabpanel" aria-labelledby="tab-sub" hidden/);
+  assert.match(source, /id="tab-org"[^>]*role="tab"[^>]*aria-selected="\$\{submitterTab \? "false" : "true"\}"[^>]*aria-controls="pane-org"/);
+  assert.match(source, /id="pane-sub" role="tabpanel" aria-labelledby="tab-sub"\$\{submitterTab \? "" : " hidden"\}/);
   assert.match(source, /<label for="lg-user">用户名<\/label>/);
   assert.match(source, /<label for="lg-pass">密码<\/label>/);
+});
+test('login route can open directly on the submitter tab', () => {
+  const {app, context, els} = setup();
+  context.location.hash = '#/login?role=sub';
+  app.route();
+  assert.match(els.app.innerHTML, /id="tab-sub" class="on"[^>]*aria-selected="true"/);
+  assert.match(els.app.innerHTML, /id="pane-org"[^>]* hidden/);
+  assert.match(els.app.innerHTML, /id="pane-sub"[^>]*aria-labelledby="tab-sub"(?! hidden)/);
+});
+test('apiError preserves HTTP status for callers that need an auth fallback', () => {
+  const {app} = setup();
+  assert.equal(app.apiError({detail: '凭证失效'}, 401).status, 401);
+});
+test('submitter navigation is reachable from an organizer session without a submitter token', () => {
+  const {app, context, els} = setup();
+  context.localStorage.removeItem('ff_sub_token');
+  context.localStorage.setItem('ff_org_token', 'org-test');
+  context.location.hash = '#/tasks';
+  app.renderNav();
+  assert.match(els.nav.innerHTML, /href="#\/login\?role=sub"/);
+  assert.match(els.nav.innerHTML, /提交者入口/);
+});
+test('submitter page redirects to submitter login when the credential is missing or expired', async () => {
+  const {app, context} = setup();
+  context.localStorage.removeItem('ff_sub_token');
+  await app.viewSubmit();
+  assert.equal(context.location.hash, '#/login?role=sub');
+
+  context.location.hash = '#/submit';
+  context.localStorage.setItem('ff_sub_token', 'expired');
+  context.fetch = async () => response({detail: '凭证失效'}, 401);
+  await app.viewSubmit();
+  assert.equal(context.localStorage.getItem('ff_sub_token'), null);
+  assert.equal(context.location.hash, '#/login?role=sub');
 });
 test('flash messages announce errors urgently and successes politely', () => {
   const {app, els} = setup();

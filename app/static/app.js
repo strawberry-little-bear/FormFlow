@@ -493,7 +493,9 @@ function route() {
   state.reviewData = null; state.reviewRule = null; state.reviewFilter = "all"; state.reviewTraceFilter = "all"; state.reviewContext = null;
   document.querySelectorAll("dialog[open]").forEach(d => d.close());
   const h = (location.hash || "#/login").replace(/^#/, "");
-  const parts = h.split("/").filter(Boolean);
+  const [path, queryString = ""] = h.split("?");
+  const parts = path.split("/").filter(Boolean);
+  const query = new URLSearchParams(queryString);
   document.body.classList.toggle("auth-page", parts[0] === "login");
   document.body.dataset.page = parts[0] || "login";
   state.presentationMode = parts[0] === "tasks" && readPresentationMode();
@@ -504,7 +506,7 @@ function route() {
   }
   const app = document.getElementById("app");
   const render = result => { setTimeout(focusPageHeading, 0); return result; };
-  if (parts[0] === "login") return render(viewLogin());
+  if (parts[0] === "login") return render(viewLogin(query.get("role") === "sub" ? "sub" : "org"));
   if (parts[0] === "tasks") return render(viewTasks());
   if (parts[0] === "design") return render(viewDesign(+parts[1]));
   if (parts[0] === "workbench") return render(viewWorkbench(+parts[1]));
@@ -547,6 +549,7 @@ function renderNav() {
     [`#/design/${taskId}`, "需求设计", "design"], [`#/roster/${taskId}`, "名单与凭证", "roster"],
     [`#/workbench/${taskId}`, "收集工作台", "workbench"], [`#/delivery/${taskId}`, "交付与归档", "delivery"]);
   if (sub) items.push(["#/submit", submitting ? "我的提交" : "切换到提交者", "roster"]);
+  else if (org && !submitting) items.push(["#/login?role=sub", "提交者入口", "roster"]);
   if (submitting && org) items.push(["#/tasks", "切换到组织者", "tasks"]);
   const activeHash = parts[0] === "review" ? `#/workbench/${taskId}` : location.hash;
   nav.innerHTML = '<span class="nav-caption">工作空间</span>' + items.map(([href, label, ic], i) =>
@@ -562,7 +565,8 @@ function logout() {
 }
 
 /* ---------------------------------------------------------------- 登录 */
-function viewLogin() {
+function viewLogin(initialTab = "org") {
+  const submitterTab = initialTab === "sub";
   document.getElementById("app").innerHTML = `
   <div class="login-wrap">
     <div class="login-hero">
@@ -593,11 +597,11 @@ function viewLogin() {
       <h2>你好，开始吧</h2>
       <p class="tip">组织者用账号登录；提交者用组织者发放的凭证。</p>
       <div class="tabs" role="tablist" aria-label="登录身份">
-        <button id="tab-org" class="on" role="tab" aria-selected="true" aria-controls="pane-org" onclick="switchLoginTab('org')">我是组织者</button>
-        <button id="tab-sub" role="tab" aria-selected="false" aria-controls="pane-sub" onclick="switchLoginTab('sub')">我是提交者</button>
+        <button id="tab-org" class="${submitterTab ? "" : "on"}" role="tab" aria-selected="${submitterTab ? "false" : "true"}" aria-controls="pane-org" onclick="switchLoginTab('org')">我是组织者</button>
+        <button id="tab-sub" class="${submitterTab ? "on" : ""}" role="tab" aria-selected="${submitterTab ? "true" : "false"}" aria-controls="pane-sub" onclick="switchLoginTab('sub')">我是提交者</button>
       </div>
       <div id="login-err" class="flash err" role="alert" aria-live="assertive" style="display:none"></div>
-      <div id="pane-org" role="tabpanel" aria-labelledby="tab-org">
+      <div id="pane-org" role="tabpanel" aria-labelledby="tab-org"${submitterTab ? " hidden" : ""}>
         <label for="lg-user">用户名</label><input id="lg-user" placeholder="请输入用户名" autocomplete="username">
         <label for="lg-pass">密码</label><input id="lg-pass" type="password" placeholder="请输入密码"
           autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
@@ -611,7 +615,7 @@ function viewLogin() {
           <span class="demo-note">演示账号 demo / demo1234，含虚构种子数据</span>
         </div>
       </div>
-      <div id="pane-sub" role="tabpanel" aria-labelledby="tab-sub" hidden>
+      <div id="pane-sub" role="tabpanel" aria-labelledby="tab-sub"${submitterTab ? "" : " hidden"}>
         <label for="lg-cred">提交凭证</label>
         <textarea id="lg-cred" placeholder="粘贴组织者发放的提交凭证（形如 v9MhIdcn_1_EUt...）"
           oninput="cacheSubmissionDraft()" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();doSubLogin()}"></textarea>
@@ -2681,8 +2685,10 @@ function fmtBytes(n) {
 }
 function apiError(data, status) {
   const detail = data && data.detail;
-  return new Error(Array.isArray(detail) ? detail.map(x => humanizeValidation(x)).join("；")
+  const error = new Error(Array.isArray(detail) ? detail.map(x => humanizeValidation(x)).join("；")
     : (typeof detail === "string" ? humanizeValidation({ msg: detail }) : "出了点问题，请稍后再试（" + status + "）"));
+  error.status = status;
+  return error;
 }
 function receiptFilesHtml(receipt) {
   const files = Array.isArray(receipt?.files) ? receipt.files : [];
@@ -2840,6 +2846,10 @@ async function reloadServerDraft() {
 
 async function viewSubmit() {
   const epoch = state.routeEpoch, token = subToken();
+  if (!token) {
+    location.hash = "#/login?role=sub";
+    return;
+  }
   state.me = null; state.draftVersion = null; state.sub = null; state.receipt = null; state.submitterResults = null; state.submitterReadOnly = false;
   document.getElementById("app").innerHTML = `<div id="flash" role="status" aria-live="polite"></div><div id="sub"><p class="empty">正在打开你的提交空间…</p></div>`;
   try {
@@ -2957,6 +2967,11 @@ async function viewSubmit() {
     loadMyResults();
   } catch (e) {
     if (epoch !== state.routeEpoch) return;
+    if (e.status === 401) {
+      localStorage.removeItem(SUB_KEY);
+      location.hash = "#/login?role=sub";
+      return;
+    }
     document.getElementById("sub").innerHTML =
       `<div class="flash err">${esc(e.message)}（请重新用凭证登录）</div>`;
   }
