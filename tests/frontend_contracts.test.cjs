@@ -285,6 +285,17 @@ test('agent trace can be narrowed to tool family or human handoff for live expla
   assert.match(html, /需人工/);
   assert.match(html, /aria-pressed="true"/);
 });
+test('agent surfaces use the shared SVG icon language', () => {
+  const {app} = setup();
+  const trace = app.agentRunCard({status:'success', coverage:{files:[]}}, [], [
+    {tool:'review.deterministic_rule', rule_id:'D-01', status:'satisfied', duration_ms:4, sequence:1},
+  ]);
+  assert.match(trace, /<svg[^>]*aria-hidden="true"/);
+  assert.match(source, /sparkle:/);
+  assert.match(source, /close:/);
+  assert.doesNotMatch(source, /<div class="avatar">✧<\/div>/);
+  assert.doesNotMatch(source, /class="file-chip-x"[^>]*>×<\/button>/);
+});
 test('publish readiness summarizes scope, collection, timing, review, and data boundaries', () => {
   const {app} = setup();
   const html = app.designReadinessHtml({

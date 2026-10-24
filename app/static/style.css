@@ -4277,3 +4277,14 @@ body.presentation-mode .agent-tour details > summary { padding:16px 20px; }
   .demo-route-trace ol { grid-template-columns:1fr; }
   .demo-route-foot { align-items:flex-start; flex-direction:column; gap:8px; }
 }
+
+/* Shared SVG sizing for compact agent and file controls. */
+.agent-mark svg { width:19px; height:19px; }
+.msg .avatar svg { width:15px; height:15px; }
+.floating-spark { display:grid; place-items:center; }
+.floating-spark svg { width:18px; height:18px; }
+.agent-trace-kind { gap:4px; }
+.agent-trace-kind svg { width:12px; height:12px; flex:none; }
+.icon-only { gap:0; }
+.icon-only svg { width:16px; height:16px; flex:none; }
+.file-chip-x.icon-only svg { width:12px; height:12px; }

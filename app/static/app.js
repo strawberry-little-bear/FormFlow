@@ -284,10 +284,11 @@ const agentRunCard = (run, rules, toolTrace = [], taskId = null, subjectId = nul
       : item.duration_ms < 1000 ? `${item.duration_ms} 毫秒` : `${(item.duration_ms / 1000).toFixed(1)} 秒`;
     const label = traceStatus[item.status] || "已记录";
     const tone = ["issue", "failed"].includes(item.status) ? "warn" : item.status === "unknown" ? "info" : "ok";
+    const toolIcon = item.tool === "review.deterministic_rule" ? "check" : item.tool === "review.semantic_rule" ? "design" : "review";
     const sequence = Number(item.sequence) > 0 ? `第 ${item.sequence} 步` : "运行步骤";
     const version = item.tool_version ? ` · ${item.tool_version}` : "";
     const correlation = item.correlation_id ? ` · ${item.correlation_id}` : "";
-    return `<li class="agent-trace-row"><span class="agent-trace-kind ${tone}">${esc(toolLabel)}</span><div><b>${esc(title)}</b><span class="agent-trace-meta"><strong>${esc(sequence)}</strong><span>${esc(label)} · 用时 ${esc(elapsed)}${esc(version)}${esc(correlation)}</span></span></div></li>`;
+    return `<li class="agent-trace-row"><span class="agent-trace-kind ${tone}">${icon(toolIcon)}<span>${esc(toolLabel)}</span></span><div><b>${esc(title)}</b><span class="agent-trace-meta"><strong>${esc(sequence)}</strong><span>${esc(label)} · 用时 ${esc(elapsed)}${esc(version)}${esc(correlation)}</span></span></div></li>`;
   }).join("");
   const traceSimulation = (toolTrace || []).some(item => item.simulation === true);
   const traceModeUnknown = (toolTrace || []).some(item =>
@@ -503,7 +504,9 @@ const ICONS = {
   check: '<path d="m5 12 4 4L19 6"/>',
   review: '<path d="M4 4h11l5 5v11H4z"/><path d="M15 4v5h5"/><path d="m8.5 14.5 2 2 4-4"/>',
   expand: '<path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/>',
-  collapse: '<path d="M9 3v6H3M15 3v6h6M9 21v-6H3M15 21v-6h6"/>'
+  collapse: '<path d="M9 3v6H3M15 3v6h6M9 21v-6H3M15 21v-6h6"/>',
+  sparkle: '<path d="m12 3 1.7 5.3L19 10l-5.3 1.7L12 17l-1.7-5.3L5 10l5.3-1.7Z"/><path d="m19 16 .7 2.3L22 19l-2.3.7L19 22l-.7-2.3L16 19l2.3-.7Z"/>',
+  close: '<path d="m6 6 12 12M18 6 6 18"/>'
 };
 function icon(name) { return `<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] || ICONS.tasks}</svg>`; }
 function renderNav() {
@@ -668,7 +671,7 @@ async function viewTasks() {
       <div id="task-list" aria-live="polite"><p class="empty">正在读取任务…</p></div></section>
     <p class="workspace-note">${icon("delivery")} 正式提交保留版本记录，交付时按固定快照整理。</p>
     <dialog id="create-dialog"><form onsubmit="event.preventDefault();createTask()">
-      <div class="dialog-heading"><div><div class="eyebrow">NEW COLLECTION</div><h2>开始一次新的收集</h2></div><button type="button" class="ghost" aria-label="关闭新建任务" onclick="this.closest('dialog').close()">×</button></div>
+      <div class="dialog-heading"><div><div class="eyebrow">NEW COLLECTION</div><h2>开始一次新的收集</h2></div><button type="button" class="ghost icon-only" aria-label="关闭新建任务" title="关闭新建任务" onclick="this.closest('dialog').close()">${icon("close")}</button></div>
       <p class="muted">先起个名字，具体材料和检查要求下一步与小齐一起确认。</p>
       <label for="tk-name">任务名称</label><input id="tk-name" required maxlength="120" placeholder="例如：2026 秋季团课报告收集">
       <div class="row"><div><label for="tk-mode">收集范围</label><select id="tk-mode"><option value="roster">名册制 · 有固定应交名单</option><option value="open">开放制 · 面向报名者</option></select></div>
@@ -958,7 +961,7 @@ async function viewDesign(taskId) {
     <div id="agent-request-status" aria-live="polite"></div>
     <div id="llm-status-banner" class="llm-banner" style="display:none"></div>
     <div class="step-flow"><span class="st on"><span class="dot">1</span>描述需求</span><span class="arw"></span><span class="st" id="st-2"><span class="dot">2</span>核对与澄清</span><span class="arw"></span><span class="st" id="st-3"><span class="dot">3</span>确认发布</span><span class="step-hint">草案存在服务器上；没发出去的内容只留在当前标签页</span></div>
-    <div id="design-recovery"></div><div class="grid-chat"><section class="card agent-panel"><div class="agent-heading"><span class="agent-mark">✧</span><div><h2>小齐 <span>需求设计助手</span></h2><p id="agent-status">正在准备…</p></div><span class="agent-live"></span></div>
+    <div id="design-recovery"></div><div class="grid-chat"><section class="card agent-panel"><div class="agent-heading"><span class="agent-mark">${icon("sparkle")}</span><div><h2>小齐 <span>需求设计助手</span></h2><p id="agent-status">正在准备…</p></div><span class="agent-live"></span></div>
       <div class="chat"><div class="chat-scroll" id="chat-scroll" role="log" aria-label="需求对话" aria-live="polite"></div><div class="composer"><div class="chips" id="chat-chips"></div>
       <label class="sr-only" for="chat-in">告诉小齐你的收集要求</label><textarea id="chat-in" oninput="cacheDesignInputs()" placeholder="例如：收一份团课 PDF 报告，登记姓名和班级…" onkeydown="if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing){event.preventDefault();chatSend()}"></textarea>
        <div class="composer-foot"><span>Enter 发送 · Shift + Enter 换行</span><button id="chat-send" onclick="chatSend()" aria-label="发送需求">发送 ${icon('arrow')}</button></div><p class="field-help" id="design-input-hint" role="status"></p></div><section class="agent-runtime-card" aria-label="智能协作边界"><div class="runtime-card-head"><div><div class="eyebrow">AGENT RUNTIME</div><h3>小齐的协作边界</h3></div><span class="runtime-mode" id="agent-runtime-mode">受限运行时</span></div><div class="runtime-card-grid"><div><b>需求 Agent</b><span>把自然语言整理成可核对草案</span></div><div><b>Review skill</b><span>只按当前发布蓝图逐条取证</span></div><div><b>Harness</b><span>scope、预算、幂等与审计都在边界内</span></div><div><b>外部工具</b><span>MCP 未连接，材料不会被发送到未知目的地</span></div></div><p class="runtime-card-foot" id="agent-runtime-status">运行状态会随模型配置和当前请求更新。</p></section></div>
@@ -1084,12 +1087,12 @@ function agentSay(html, mini) { state.chat.push({role: 'agent', html, mini: mini
 function chatTyping(on) {
   document.getElementById('typing-row')?.remove(); if (!on) return;
   const box = document.getElementById('chat-scroll'); if (!box) return;
-  box.insertAdjacentHTML('beforeend', `<div class="msg agent" id="typing-row"><div class="avatar">✧</div><div class="body"><span class="typing"><i></i><i></i><i></i></span><span class="mini">${esc(agentWaitCopy())}</span></div></div>`); chatScrollBottom();
+  box.insertAdjacentHTML('beforeend', `<div class="msg agent" id="typing-row"><div class="avatar">${icon("sparkle")}</div><div class="body"><span class="typing"><i></i><i></i><i></i></span><span class="mini">${esc(agentWaitCopy())}</span></div></div>`); chatScrollBottom();
 }
 function paintChat() {
   if(state.designRenderedBase === state.designBaseId) cacheDesignInputs();
   const box = document.getElementById('chat-scroll'); if (!box) return;
-  box.innerHTML = state.chat.map(m => `<div class="msg ${m.role}"><div class="avatar">${m.role === 'agent' ? '✧' : '我'}</div><div class="body">${m.html}${m.mini ? `<div class="mini">${m.mini}</div>` : ''}</div></div>`).join('');
+  box.innerHTML = state.chat.map(m => `<div class="msg ${m.role}"><div class="avatar">${m.role === 'agent' ? icon("sparkle") : '我'}</div><div class="body">${m.html}${m.mini ? `<div class="mini">${m.mini}</div>` : ''}</div></div>`).join('');
   const clar = state.designQuestions || [];
   if (state.bpId && clar.length && !state.answeredDone) box.insertAdjacentHTML('beforeend', clarCard(clar));
   state.designRenderedBase=state.designBaseId;restoreDesignInputs();chatScrollBottom();
@@ -1425,7 +1428,7 @@ function renderDraftPanel() {
     : '尚未生成草案';
   document.getElementById('st-2')?.classList.toggle('on',has);
   document.getElementById('st-3')?.classList.toggle('on',state.draftStatus === 'published');
-  if(!has) { box.innerHTML = `<div class="preview-empty"><div class="preview-empty-art"><div class="mock-sheet"><span></span><i></i><i></i><b></b></div><span class="floating-spark">✧</span></div><div class="eyebrow">LIVE PREVIEW</div><h2>你的收集表，会在这里成形</h2><p>先告诉小齐你的要求，或选一个模板。<br>字段、材料和检查依据会一起呈现。</p><div class="preview-placeholder-tags"><span>登记信息</span><span>材料上传</span><span>检查规则</span></div></div>`; return; }
+  if(!has) { box.innerHTML = `<div class="preview-empty"><div class="preview-empty-art"><div class="mock-sheet"><span></span><i></i><i></i><b></b></div><span class="floating-spark">${icon("sparkle")}</span></div><div class="eyebrow">LIVE PREVIEW</div><h2>你的收集表，会在这里成形</h2><p>先告诉小齐你的要求，或选一个模板。<br>字段、材料和检查依据会一起呈现。</p><div class="preview-placeholder-tags"><span>登记信息</span><span>材料上传</span><span>检查规则</span></div></div>`; return; }
   const rules = bp.rules || [], tp = bp.time_policy || {}, clar = d.clarifications || [];
   const scope = bp.task_scope || {}, hasContents = (bp.fields || []).length || (bp.slots || []).length;
   const blocking = state.designBlocking || [], advisories = state.designAdvisories || [];
@@ -2658,7 +2661,7 @@ function fileChips(slot, ro) {
   if (!ids.length) return "";
   return ids.map(fid => {
     const m = state.fileMeta[fid] || { name: fid };
-    return `<span class="file-chip">${icon("delivery")}<span class="file-chip-name" title="${esc(m.name)}">${esc(m.name)}</span><span class="file-chip-size">${esc(fmtBytes(m.size))}</span>${ro ? "" : `<button type="button" class="file-chip-x" aria-label="删除 ${esc(m.name)}" onclick="deleteSlotFile('${esc(slot)}','${esc(fid)}')">×</button>`}</span>`;
+    return `<span class="file-chip">${icon("delivery")}<span class="file-chip-name" title="${esc(m.name)}">${esc(m.name)}</span><span class="file-chip-size">${esc(fmtBytes(m.size))}</span>${ro ? "" : `<button type="button" class="file-chip-x icon-only" aria-label="删除 ${esc(m.name)}" title="删除 ${esc(m.name)}" onclick="deleteSlotFile('${esc(slot)}','${esc(fid)}')">${icon("close")}</button>`}</span>`;
   }).join("");
 }
 function paintSlotFiles(slot, ro) {
@@ -3192,7 +3195,7 @@ function paintSubChat() {
   if (!box) return;
   box.innerHTML = state.sub.msgs.map(m => `
     <div class="msg ${m.role}">
-      <div class="avatar">${m.role === "agent" ? "✧" : "我"}</div>
+      <div class="avatar">${m.role === "agent" ? icon("sparkle") : "我"}</div>
       <div class="body">${m.html}</div>
     </div>`).join("");
   box.scrollTop = box.scrollHeight;
@@ -3257,7 +3260,7 @@ function subFieldCard(i) {
   const opts = f.options && f.options.length ? `
     <div class="chips">${f.options.map((o, k) =>
       `<span class="chip" onclick="subPickOption(${i}, ${k}, this)">${esc(o)}</span>`).join("")}</div>` : "";
-  return `<div class="msg agent"><div class="avatar">✧</div><div class="body">
+  return `<div class="msg agent"><div class="avatar">${icon("sparkle")}</div><div class="body">
     <b>第 ${i + 1}/${state.sub.fields.length} 题 · ${esc(f.label)}</b>
     ${req ? '<span class="badge bad">必填</span>' : '<span class="badge">选填</span>'}
     ${f.purpose ? `<div class="mini">${esc(f.purpose)}</div>` : ""}
@@ -3327,7 +3330,7 @@ function subSlotCard(i) {
   const done = (state.files[s.id] || []).length;
   const na = s.required_condition && !req
     ? `<div class="mini">按你刚才填的内容，这项材料<b>不适用</b>（条件：${esc(s.required_condition)}），可以直接跳过。</div>` : "";
-  return `<div class="msg agent"><div class="avatar">✧</div><div class="body">
+  return `<div class="msg agent"><div class="avatar">${icon("sparkle")}</div><div class="body">
     <b>第 ${i + 1}/${state.sub.slots.length} 项材料 · ${esc(s.label)}</b>
     ${req ? '<span class="badge bad">必交</span>' : '<span class="badge">选交</span>'}
     <div class="mini">${esc(slotMetaText(s))}</div>
@@ -3383,7 +3386,7 @@ function subDoneCard() {
       ? `<span class="badge ok">${state.files[s.id].length} 个</span>`
       : (subSlotReq(s) ? '<span class="badge bad">未上传</span>' : '<span class="muted">未传（不适用/选交）</span>')}</td></tr>`).join("");
   const missing = state.sub.slots.filter(s => subSlotReq(s) && !(state.files[s.id] || []).length);
-  return `<div class="msg agent"><div class="avatar">✧</div><div class="body">
+  return `<div class="msg agent"><div class="avatar">${icon("sparkle")}</div><div class="body">
     <b>核对一下再提交 ✅</b>
     ${state.sub.fields.length ? `<table style="margin-top:8px"><tr><th>登记信息</th><th>内容</th></tr>${ans}</table>` : ""}
     ${state.sub.slots.length ? `<table style="margin-top:8px"><tr><th>材料</th><th>状态</th></tr>${files}</table>` : ""}
