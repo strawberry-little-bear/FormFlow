@@ -3514,6 +3514,19 @@ a.wb-next-action:hover, button.wb-next-action:hover { background:var(--brand-dee
 .submit-shell { max-width:1180px; }
 .submit-overview { margin-bottom:16px; }
 .submit-overview .overview-stats { margin-bottom:12px; }
+.submit-next-step {
+  display:flex; align-items:flex-start; justify-content:space-between; gap:16px;
+  margin:0 0 16px; padding:15px 18px;
+  border:1px solid #dedbea; border-left:3px solid var(--brand);
+  border-radius:10px; background:#fbfaff;
+}
+.submit-next-step > div { min-width:0; }
+.submit-next-step h2 { margin:3px 0 4px; font-size:15px; line-height:1.45; }
+.submit-next-step p { margin:0; color:var(--muted); font-size:11px; line-height:1.7; overflow-wrap:anywhere; }
+.submit-next-step > .badge { flex:none; margin-top:2px; }
+.submit-next-step.warn { border-left-color:var(--warn); background:#fffaf0; }
+.submit-next-step.ok { border-left-color:var(--ok); background:#f8fcf9; }
+.submit-next-step.neutral { border-left-color:#9a9eaa; background:#f8f8fa; }
 .receipt {
   display:flex; justify-content:space-between; align-items:center; gap:18px; flex-wrap:wrap;
   background:#fff; border:1px solid var(--line); border-left:3px solid var(--ok);
@@ -3708,6 +3721,8 @@ a.wb-next-action:hover, button.wb-next-action:hover { background:var(--brand-dee
   .submit-card-head .tabs { max-width:none; width:100%; }
   .submit-actions > button { flex:1; }
   .submit-actions .muted { flex-basis:100%; margin-left:0; }
+  .submit-next-step { flex-direction:column; gap:9px; padding:14px 15px; }
+  .submit-next-step > .badge { margin-top:0; }
   .receipt { flex-direction:column; align-items:flex-start; gap:8px; }
   .receipt-meta { text-align:left; }
   .receipt-files li { align-items:flex-start; flex-direction:column; gap:1px; }

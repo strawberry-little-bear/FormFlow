@@ -379,6 +379,57 @@ function submitterSummary(value) {
     "未正式提交": "还没有正式提交",
   })[value] || value || "正在更新进度";
 }
+function submitterNextStepHtml({formal = false, readOnly = false, issues = [], summary = "", buckets = {}, runStatus = "", revision = null} = {}) {
+  const pendingJobs = (buckets.pending_jobs || []).length || ["queued", "running", "retry_wait"].includes(runStatus);
+  const blocking = (buckets.blocking || []).length;
+  const human = (buckets.unknown || []).length + (buckets.human || []).length;
+  const incomplete = (buckets.incomplete || []).length;
+  let tone = "info", kicker = "现在先做", title = "继续完成这份提交", detail = "填写和上传会先保存在草稿里，正式提交后才会开始核对。", badge = "进行中";
+  if (readOnly) {
+    tone = "neutral"; kicker = "当前状态"; title = formal ? "查看已提交版本与核对记录" : "这项任务已结束";
+    detail = formal ? "页面已只读；回执、版本和组织者给出的核对记录仍可查看。" : "不能再保存或提交，但已有内容仍可查看。";
+    badge = "只读";
+  } else if (!formal && issues.length) {
+    tone = "warn"; kicker = "现在先做"; title = "完成登记并上传材料";
+    detail = `还有 ${issues.length} 项需要核对；填写和附件会保留在本页，完成后再点正式提交。`;
+    badge = "尚未提交";
+  } else if (!formal) {
+    tone = "ok"; kicker = "下一步"; title = "核对内容后正式提交";
+    detail = "当前填写和材料已具备提交条件；点击“提交材料并开始核对”后才会生成正式版本。";
+    badge = "可以提交";
+  } else if (summary === "已验收") {
+    tone = "ok"; kicker = "已完成"; title = "这份提交已经验收";
+    detail = "当前正式版本已完成组织者验收；如需查看文件或回执，可在下方展开。"; badge = "已验收";
+  } else if (blocking || summary === "待补正") {
+    tone = "warn"; kicker = "现在先做"; title = "处理需要更正的事项";
+    detail = blocking
+      ? `有 ${blocking} 项需要补充或更正；打开下方核对记录可以看到原文位置和建议做法。`
+      : "当前检查记录显示有材料需要补充或更正；打开下方核对记录可以看到原文位置和建议做法。";
+    badge = "需要更正";
+  } else if (human || summary === "待人工") {
+    kicker = "等待确认"; title = "等待组织者核对剩余事项";
+    detail = human
+      ? "材料检查不会替组织者做最终判断；你可以先查看当前版本和已保留的证据。"
+      : "当前检查记录需要组织者确认；你可以先查看当前版本和已保留的证据。";
+    badge = "组织者核对";
+  } else if (incomplete || summary === "检查未完成") {
+    tone = "warn"; kicker = "检查未完成"; title = "先等检查完成，再决定是否补交";
+    detail = "这不代表材料不合格；如果临近截止时间，可以联系组织者协助核对。"; badge = "待更新";
+  } else if (pendingJobs || ["排队中", "检查中"].includes(summary)) {
+    kicker = "正在处理"; title = "等待材料核对完成";
+    detail = `第 ${revision || "当前"} 版已经收到，检查完成后这里会自动更新。`; badge = "核对中";
+  } else if (summary === "规则通过（待人工验收）") {
+    tone = "ok"; kicker = "最后一步"; title = "等待组织者最终验收";
+    detail = "规则检查已完成，是否验收仍由组织者确认；你无需重复提交相同材料。"; badge = "待验收";
+  } else if (summary === "规则通过") {
+    tone = "ok"; kicker = "已完成"; title = "材料检查已完成";
+    detail = "当前版本没有需要你处理的事项；如任务需要人工验收，组织者会继续确认。"; badge = "检查完成";
+  } else if (formal) {
+    kicker = "正在读取"; title = "正在读取这份提交的核对结果";
+    detail = "回执已经生成，正在读取当前版本的检查状态；已提交内容不会丢失。"; badge = "读取中";
+  }
+  return `<section class="submit-next-step ${tone}" aria-live="polite"><div><span class="eyebrow">${esc(kicker)}</span><h2>${esc(title)}</h2><p>${esc(detail)}</p></div><span class="badge ${tone === "warn" ? "warn" : tone === "ok" ? "ok" : ""}">${esc(badge)}</span></section>`;
+}
 const ruleCard = (r) => {
   const explanation = submitterExplanation(r), nextStep = submitterNextStep(r);
   const evidence = (r.evidence || []).map(e =>
@@ -2708,6 +2759,7 @@ function cacheSubmissionDraft() {
   const draft = { fields: collectDraftFields(), slot_file_ids: state.files, draft_version: state.draftVersion,
     file_meta: state.fileMeta, pending_submission: state.pendingSubmission };
   updateSubmissionProgress(draft.fields);
+  paintSubmitterNextStep();
   const dirty = draftFingerprint(draft.fields, draft.slot_file_ids) !== state.serverDraftFingerprint;
   state.localDrafts = state.localDrafts || {};
   state.localDrafts[key] = JSON.stringify(draft);
@@ -2720,6 +2772,22 @@ function cacheSubmissionDraft() {
     state.cacheFailed = true;
     setFlash("浏览器暂存不可用，请先保存草稿再离开页面");
   }
+}
+function paintSubmitterNextStep(results = state.submitterResults) {
+  const box = document.getElementById("submit-next-step");
+  if (!box || !state.me) return;
+  const formal = !!state.receipt?.formal;
+  const fields = collectDraftFields();
+  const issues = formal ? [] : (state.sub ? submissionIssues(fields) : []);
+  box.innerHTML = submitterNextStepHtml({
+    formal,
+    readOnly: !!state.submitterReadOnly,
+    issues,
+    summary: results?.summary || "",
+    buckets: results?.buckets || {},
+    runStatus: results?.run_status || "",
+    revision: results?.revision,
+  });
 }
 window.addEventListener("beforeunload", event => {
   cacheSubmissionDraft();cacheDesignInputs();
@@ -2735,7 +2803,7 @@ async function reloadServerDraft() {
 
 async function viewSubmit() {
   const epoch = state.routeEpoch, token = subToken();
-  state.me = null; state.draftVersion = null; state.sub = null;
+  state.me = null; state.draftVersion = null; state.sub = null; state.receipt = null; state.submitterResults = null; state.submitterReadOnly = false;
   document.getElementById("app").innerHTML = `<div id="flash" role="status" aria-live="polite"></div><div id="sub"><p class="empty">正在打开你的提交空间…</p></div>`;
   try {
     const [me, draft, receipt] = await Promise.all([
@@ -2745,6 +2813,8 @@ async function viewSubmit() {
     ]);
     if (epoch !== state.routeEpoch || token !== subToken()) return;
     state.me = me; state.draftVersion = draft.draft_version || null;
+    state.receipt = receipt;
+    state.submitterReadOnly = READONLY_STATUSES.includes(me.task.status);
     state.serverDraftFields = {...(draft.fields || {})};
     state.serverDraftFingerprint = draftFingerprint(draft.fields, draft.slot_file_ids);
     let cached = null;
@@ -2779,6 +2849,7 @@ async function viewSubmit() {
           <div class="overview-stats">${[["登记字段", `${done}/${fields.length}`, "design"], [fileMetricLabel, uploaded, "delivery"], ["首次截止", fmtTimeShort(me.task.first_deadline, me.task.timezone).slice(5), "workbench"], ["补正截止", fmtTimeShort(me.task.correction_deadline, me.task.timezone).slice(5), "workbench"]].map(([l, v, ic]) => `<div class="overview-stat"><span>${esc(l)}</span><strong class="stat-text" ${l === "登记字段" ? 'id="submission-field-count"' : l === fileMetricLabel ? 'id="submission-file-count"' : ""}>${esc(v)}</strong><i>${icon(ic)}</i></div>`).join("")}</div>
           ${receiptHtml}
         </section>
+        <div id="submit-next-step">${submitterNextStepHtml({formal: !!receipt.formal, readOnly: ro, issues: []})}</div>
         <div class="submit-layout">
           <section class="card submit-form-card">
             <div class="submit-card-head"><div><div class="eyebrow">FORM</div><h2>填写与上传</h2></div>
@@ -2840,6 +2911,7 @@ async function viewSubmit() {
     refreshSlotConditions(slots);
     initSubChat(fields, slots, ro, me.subject.name, draft.fields || {});
     setSubMode("form");
+    paintSubmitterNextStep();
     if (local) {
       document.getElementById("draft-hint").textContent = localConflict
         ? "服务端已有更新，已保留本地填写；请先核对，旧版本保存会被拦截。"
@@ -2981,6 +3053,8 @@ async function loadMyResults() {
   try {
     const r = await api("/api/me/results", { sub: true });
     if (epoch !== state.routeEpoch || token !== subToken() || requestId !== state.resultsRequestId) return;
+    state.submitterResults = r;
+    paintSubmitterNextStep(r);
     const b = r.buckets || {};
     const details = r.details || [];
     const countBadge = (items, label, kind) => items?.length
