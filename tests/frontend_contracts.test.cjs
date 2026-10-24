@@ -255,8 +255,10 @@ test('demo route renders server lifecycle progress and the next stop', () => {
   assert.match(html, /没有调用实时模型/);
   assert.match(html, /aria-label="复核执行链"/);
   assert.match(html, /Harness 预算/);
-  assert.match(html, /页数<\/b> 2 \/ 40/);
-  assert.match(html, /语义调用<\/b> 1 \/ 30/);
+  assert.match(html, /页数<\/b><em>2 \/ 40<\/em>/);
+  assert.match(html, /语义调用<\/b><em>1 \/ 30<\/em>/);
+  assert.match(html, /aria-label="页数预算 2 \/ 40"/);
+  assert.match(styleSource, /\.demo-route-signal-budget-item > i > i/);
   assert.match(html, /读取材料/);
   assert.match(html, /程序核验/);
   assert.match(html, /语义审核/);

@@ -835,8 +835,19 @@ function demoRouteSignalHtml(signal) {
   const budget = signal.budget || {};
   const pageBudget = budget.pages || {};
   const semanticBudget = budget.semantic_calls || {};
+  const budgetMetric = (label, metric, fallbackUsed) => {
+    const usedValue = Number(metric.used ?? fallbackUsed ?? 0);
+    const limitValue = Number(metric.limit);
+    const used = Number.isFinite(usedValue) ? Math.max(0, usedValue) : 0;
+    const hasLimit = Number.isFinite(limitValue) && limitValue > 0;
+    const limit = hasLimit ? limitValue : null;
+    const ratio = hasLimit ? Math.min(1, Math.max(0, used / limitValue)) : 0;
+    const tone = ratio >= .9 ? "warn" : ratio >= .7 ? "caution" : "ok";
+    const value = `${used} / ${limit == null ? "—" : limit}`;
+    return `<div class="demo-route-signal-budget-item ${tone}"><span><b>${esc(label)}</b><em>${esc(value)}</em></span><i role="progressbar" aria-label="${esc(`${label}预算 ${value}`)}" aria-valuemin="0" aria-valuemax="${esc(limit ?? 0)}" aria-valuenow="${esc(used)}"><i style="width:${ratio * 100}%"></i></i></div>`;
+  };
   const budgetHtml = (pageBudget.limit != null || semanticBudget.limit != null)
-    ? `<div class="demo-route-signal-budget" aria-label="Harness 预算"><span class="eyebrow">Harness 预算</span><span><b>页数</b> ${esc(pageBudget.used ?? signal.pages_read ?? 0)} / ${esc(pageBudget.limit ?? "—")}</span><span><b>语义调用</b> ${esc(semanticBudget.used ?? signal.llm_calls_used ?? 0)} / ${esc(semanticBudget.limit ?? "—")}</span></div>`
+    ? `<div class="demo-route-signal-budget" aria-label="Harness 预算"><span class="eyebrow">Harness 预算</span>${budgetMetric("页数", pageBudget, signal.pages_read)}${budgetMetric("语义调用", semanticBudget, signal.llm_calls_used)}</div>`
     : "";
   const focus = signal.focus_rule;
   const chain = [
