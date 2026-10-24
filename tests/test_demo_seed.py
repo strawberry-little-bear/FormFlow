@@ -5,6 +5,7 @@ import json
 
 from sqlalchemy import select
 
+from app.config import settings
 from app.models import AuditEvent, CheckRun, Subject
 from app.services import export as export_service
 from app.services.checks import current_summary
@@ -76,6 +77,10 @@ def test_demo_route_projection_follows_seed_lifecycle(db_session):
     assert signal["focus_rule"]["status"] in {"有问题", "待确认", "检查未完成", "人工判断"}
     assert signal["focus_rule"]["executor"] in {"deterministic", "semantic", "cross_material", "human_only"}
     assert signal["run_source"] == "simulation"
+    assert signal["budget"]["pages"] == {
+        "used": signal["pages_read"], "limit": settings.max_pages_per_run}
+    assert signal["budget"]["semantic_calls"] == {
+        "used": signal["llm_calls_used"], "limit": settings.max_llm_calls_per_run}
     assert len(signal["trace"]) == signal["trace_total"]
     assert {item["tool"] for item in signal["trace"]} == {
         "review.deterministic_rule", "review.semantic_rule"}

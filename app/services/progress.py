@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from ..models import (AuditEvent, CheckRun, DeliverySnapshot, Exemption, ExportJob,
                       ManualDecision, BlueprintVersion, Revision, RosterEntry,
                       Submission, Subject, Task, RUN_SUPERSEDED)
+from ..config import settings
 from ..security import utcnow
 from ..timeutils import as_utc
 from .checks import current_summary, review_rule_details, run_coverage
@@ -148,7 +149,9 @@ def _review_signal(db: Session, task: Task, subject_id: int | None) -> dict | No
                 "llm_calls_used": 0, "rules_total": 0, "deterministic_rules": 0,
                 "semantic_rules": 0, "human_rules": 0,
                 "pending_rules": 0, "coverage_complete": True,
-                "coverage_gaps": 0, "run_source": "unknown", "trace": []}
+                "coverage_gaps": 0, "run_source": "unknown", "trace": [],
+                "budget": {"pages": {"used": 0, "limit": settings.max_pages_per_run},
+                           "semantic_calls": {"used": 0, "limit": settings.max_llm_calls_per_run}}}
     subject = db.get(Subject, subject_id)
     rules = review_rule_details(db, run, task, subject_id,
                                 submission.current_revision_id)
@@ -194,6 +197,10 @@ def _review_signal(db: Session, task: Task, subject_id: int | None) -> dict | No
             "semantic_rules": semantic, "human_rules": human,
             "pending_rules": pending, "coverage_complete": coverage["complete"],
             "coverage_gaps": coverage["unread_pages"] + coverage["failed_pages"],
+            "budget": {"pages": {"used": run.pages_read or 0,
+                                   "limit": settings.max_pages_per_run},
+                       "semantic_calls": {"used": run.llm_calls_used or 0,
+                                           "limit": settings.max_llm_calls_per_run}},
              "focus_rule": focus_rule, "trace": trace, "trace_total": len(trace)}
 
 

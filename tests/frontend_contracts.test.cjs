@@ -232,6 +232,7 @@ test('demo route renders server lifecycle progress and the next stop', () => {
       deterministic_rules:1, semantic_rules:2, human_rules:1, pending_rules:2,
       coverage_complete:true, coverage_gaps:0, llm_calls_used:1,
       run_source:'simulation',
+      budget:{pages:{used:2, limit:40}, semantic_calls:{used:1, limit:30}},
        trace:[{tool:'review.deterministic_rule', sequence:1, status:'satisfied', simulation:true, duration_ms:3},
          {tool:'review.semantic_rule', sequence:2, status:'unknown', simulation:true, duration_ms:18},
          {tool:'review.semantic_rule', sequence:3, status:'issue', simulation:true, duration_ms:21}],
@@ -253,6 +254,9 @@ test('demo route renders server lifecycle progress and the next stop', () => {
   assert.match(html, /离线演示结果/);
   assert.match(html, /没有调用实时模型/);
   assert.match(html, /aria-label="复核执行链"/);
+  assert.match(html, /Harness 预算/);
+  assert.match(html, /页数<\/b> 2 \/ 40/);
+  assert.match(html, /语义调用<\/b> 1 \/ 30/);
   assert.match(html, /读取材料/);
   assert.match(html, /程序核验/);
   assert.match(html, /语义审核/);
@@ -372,6 +376,7 @@ test('showcase execution chain survives queued runs without trace data', () => {
   assert.match(html, /语义审核/);
   assert.match(html, /人工接手/);
   assert.match(html, /来源待确认/);
+  assert.doesNotMatch(html, /Harness 预算/);
 });
 test('presentation view is session-scoped, reversible, and keyboard discoverable', () => {
   const {app, context, els} = setup();

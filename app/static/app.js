@@ -832,6 +832,12 @@ function demoRouteSignalHtml(signal) {
     : `${signal.coverage_gaps || 0} 页未读或失败，结论会停在待确认`;
   const run = signal.run_id ? `运行 #${signal.run_id}` : "检查已排队";
   const source = REVIEW_RUN_SOURCE[signal.run_source] || REVIEW_RUN_SOURCE.unknown;
+  const budget = signal.budget || {};
+  const pageBudget = budget.pages || {};
+  const semanticBudget = budget.semantic_calls || {};
+  const budgetHtml = (pageBudget.limit != null || semanticBudget.limit != null)
+    ? `<div class="demo-route-signal-budget" aria-label="Harness 预算"><span class="eyebrow">Harness 预算</span><span><b>页数</b> ${esc(pageBudget.used ?? signal.pages_read ?? 0)} / ${esc(pageBudget.limit ?? "—")}</span><span><b>语义调用</b> ${esc(semanticBudget.used ?? signal.llm_calls_used ?? 0)} / ${esc(semanticBudget.limit ?? "—")}</span></div>`
+    : "";
   const focus = signal.focus_rule;
   const chain = [
     { icon: "delivery", label: "读取材料", value: `${signal.pages_read || 0} 页`, detail: signal.coverage_complete ? "材料覆盖完整" : `${signal.coverage_gaps || 0} 页未读或失败`, tone: signal.coverage_complete ? "ok" : "warn" },
@@ -861,7 +867,7 @@ function demoRouteSignalHtml(signal) {
   const focusHtml = focus
     ? `<div class="demo-route-signal-focus"><span class="eyebrow">建议先处理</span><strong>${esc(focus.statement || focus.rule_id || "待处理规则")}</strong><span>${esc(focus.status || "待确认")}${focus.executor ? ` · ${esc(EXECUTOR_LABEL[focus.executor] || focus.executor)}` : ""}</span></div>`
     : "";
-  return `<details class="demo-route-signal" aria-label="真实复核运行摘要"><summary class="demo-route-signal-summary"><span class="demo-route-signal-head"><span><span class="eyebrow">真实复核运行</span><strong>${esc(run)} · ${esc(signal.subject_name || "当前主体")}</strong></span></span><span class="demo-route-signal-summary-side"><span class="runtime-mode ${tone}">${esc(status)}</span><span class="demo-route-signal-toggle">查看运行详情 ${icon("arrow")}</span></span></summary><div class="demo-route-signal-body"><div class="demo-route-signal-provenance"><span class="eyebrow">本次运行来源</span><strong class="runtime-mode ${esc(source.tone)}">${esc(source.label)}</strong><span>${esc(source.detail)}</span></div><p class="demo-route-signal-origin">摘要来自当前正式提交的检查运行；完整证据和原文位置只在授权的复核页查看。</p><div class="demo-route-signal-chain" aria-label="复核执行链">${chainHtml}</div><p>${esc(coverage)} · 程序 ${signal.deterministic_rules || 0} · 语义 ${signal.semantic_rules || 0}${signal.llm_calls_used ? ` · 语义调用 ${signal.llm_calls_used} 次` : ""}</p>${traceHtml}${focusHtml}</div></details>`;
+  return `<details class="demo-route-signal" aria-label="真实复核运行摘要"><summary class="demo-route-signal-summary"><span class="demo-route-signal-head"><span><span class="eyebrow">真实复核运行</span><strong>${esc(run)} · ${esc(signal.subject_name || "当前主体")}</strong></span></span><span class="demo-route-signal-summary-side"><span class="runtime-mode ${tone}">${esc(status)}</span><span class="demo-route-signal-toggle">查看运行详情 ${icon("arrow")}</span></span></summary><div class="demo-route-signal-body"><div class="demo-route-signal-provenance"><span class="eyebrow">本次运行来源</span><strong class="runtime-mode ${esc(source.tone)}">${esc(source.label)}</strong><span>${esc(source.detail)}</span></div><p class="demo-route-signal-origin">摘要来自当前正式提交的检查运行；完整证据和原文位置只在授权的复核页查看。</p><div class="demo-route-signal-chain" aria-label="复核执行链">${chainHtml}</div>${budgetHtml}<p>${esc(coverage)} · 程序 ${signal.deterministic_rules || 0} · 语义 ${signal.semantic_rules || 0}${signal.llm_calls_used ? ` · 语义调用 ${signal.llm_calls_used} 次` : ""}</p>${traceHtml}${focusHtml}</div></details>`;
 }
 function demoRouteHtml(task) {
   if (!task || task.id == null) return "";
