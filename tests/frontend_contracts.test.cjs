@@ -169,6 +169,9 @@ test('demo route renders server lifecycle progress and the next stop', () => {
   assert.match(html, /建议先处理/);
   assert.match(html, /报告期次须为 2026 秋季第 1 期/);
   assert.match(html, /待确认 · 语义审核/);
+  assert.match(html, /<details class="demo-route-signal"/);
+  assert.match(html, /查看运行详情/);
+  assert.doesNotMatch(html, /<details class="demo-route-signal" open>/);
 });
 test('demo route makes stale fallback state and long task names explicit', () => {
   const {app} = setup();

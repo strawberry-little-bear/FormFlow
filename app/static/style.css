@@ -4220,6 +4220,26 @@ body.presentation-mode .agent-tour details > summary { padding:16px 20px; }
 .demo-route-signal-focus .eyebrow { color:#896b2d; font-size:9px; }
 .demo-route-signal-focus strong { min-width:0; overflow-wrap:anywhere; color:var(--ink); font-size:10px; line-height:1.45; }
 .demo-route-signal-focus span:last-child { color:#85651f; font-size:9px; line-height:1.4; text-align:right; }
+.demo-route-signal > summary {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  min-width:0;
+  padding:10px 12px;
+  cursor:pointer;
+  list-style:none;
+}
+.demo-route-signal > summary::-webkit-details-marker { display:none; }
+.demo-route-signal[open] > summary { border-bottom:1px solid #e6e9ed; background:#fcfdfd; }
+.demo-route-signal-head { min-width:0; }
+.demo-route-signal-head > span { display:flex; flex-direction:column; gap:2px; min-width:0; }
+.demo-route-signal-summary-side { display:flex; align-items:center; gap:8px; flex:none; }
+.demo-route-signal-toggle { display:inline-flex; align-items:center; gap:4px; color:var(--brand-deep); font-size:9px; white-space:nowrap; }
+.demo-route-signal-toggle svg { width:12px; height:12px; transition:transform .15s ease; }
+.demo-route-signal[open] .demo-route-signal-toggle svg { transform:rotate(90deg); }
+.demo-route-signal-body { padding:0 12px 10px; }
+.demo-route-signal-body > .demo-route-signal-provenance { margin-top:9px; }
 .runtime-mode.ok { border-color:#cfe8db; color:#287454; background:#effaf3; }
 .runtime-mode.warn { border-color:#eadfc4; color:#85651f; background:#fff8e8; }
 .runtime-mode.info { border-color:#ddd8f0; color:var(--brand-deep); background:var(--brand-soft); }
@@ -4296,6 +4316,10 @@ body.presentation-mode .agent-tour details > summary { padding:16px 20px; }
   .demo-route-trace ol { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .demo-route-signal-focus { grid-template-columns:1fr; gap:2px; }
   .demo-route-signal-focus span:last-child { text-align:left; }
+  .demo-route-signal > summary { align-items:flex-start; padding:9px 10px; }
+  .demo-route-signal-summary-side { align-items:flex-end; flex-direction:column; gap:4px; }
+  .demo-route-signal-toggle { font-size:9px; }
+  .demo-route-signal-body { padding:0 10px 9px; }
   .demo-route-steps { grid-template-columns:1fr; margin-top:13px; }
   .demo-route-step { padding:11px 10px; }
   .demo-route-trace > summary { align-items:flex-start; flex-direction:column; gap:3px; }
