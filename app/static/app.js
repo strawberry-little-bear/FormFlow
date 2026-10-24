@@ -699,7 +699,7 @@ function demoRouteSignalHtml(signal) {
     return `<li class="demo-route-trace-row"><span class="demo-route-trace-index">${esc(step)}</span><span class="demo-route-trace-kind ${tone}">${esc(tool)}</span><span class="demo-route-trace-status">${esc(traceStatus[item.status] || "已记录")} · ${esc(duration)}</span></li>`;
   }).join("");
   const traceHtml = trace.length
-    ? `<details class="demo-route-trace" open><summary><span><b>运行回放</b><small>skill / harness 已记录 ${trace.length} 步</small></span><span>${esc(source.label)}</span></summary><ol>${traceRows}</ol><p>展示工具类别、状态和耗时；原文、参数与结果仍只在授权的复核页查看。</p></details>`
+    ? `<details class="demo-route-trace"><summary><span><b>运行回放</b><small>skill / harness 已记录 ${trace.length} 步</small></span><span>${esc(source.label)}</span></summary><ol>${traceRows}</ol><p>展示工具类别、状态和耗时；原文、参数与结果仍只在授权的复核页查看。</p></details>`
     : "";
   const focusHtml = focus
     ? `<div class="demo-route-signal-focus"><span class="eyebrow">建议先处理</span><strong>${esc(focus.statement || focus.rule_id || "待处理规则")}</strong><span>${esc(focus.status || "待确认")}${focus.executor ? ` · ${esc(EXECUTOR_LABEL[focus.executor] || focus.executor)}` : ""}</span></div>`

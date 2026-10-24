@@ -117,6 +117,7 @@ test('demo route renders server lifecycle progress and the next stop', () => {
   assert.match(html, /2 项待处理/);
   assert.match(html, /运行回放/);
   assert.match(html, /skill \/ harness 已记录 3 步/);
+  assert.doesNotMatch(html, /<details class="demo-route-trace" open>/);
   assert.match(html, /离线语义/);
   assert.match(html, /原文、参数与结果仍只在授权的复核页查看/);
   assert.match(html, /建议先处理/);
