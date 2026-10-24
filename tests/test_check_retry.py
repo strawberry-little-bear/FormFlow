@@ -255,6 +255,18 @@ def test_api_retry_after_failure(client, db_session, monkeypatch):
     db_session.commit()
     assert run_obj2.status == RUN_SUCCESS, run_obj2.error
 
+    findings = client.get(f"/api/tasks/{task_id}/subjects/1/findings", headers=headers)
+    assert findings.status_code == 200, findings.text
+    run_view = findings.json()["run"]
+    assert run_view["id"] == run_obj2.id
+    assert run_view["retry"] == {
+        "attempt": 2,
+        "retried_from": first_run,
+        "from_status": RUN_FAILED,
+    }
+    assert run_view["finished_at"]
+    assert run_view["duration_ms"] >= 0
+
     # 新运行已成功且无失败项：无需重试
     r = client.post(f"/api/tasks/{task_id}/subjects/1/checks/retry", headers=headers)
     assert r.status_code == 409

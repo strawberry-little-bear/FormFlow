@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from .. import storage
+from ..config import settings
 from ..timeutils import iso_utc
 from ..services.review_context import review_context
 from ..services.progress import demo_route_data, workbench_data, exempt_subject_ids
@@ -93,6 +94,50 @@ router = APIRouter(prefix="/api")
 
 def _iso(dt) -> str:
     return iso_utc(dt) or ""
+
+
+def _run_duration_ms(run: CheckRun) -> int:
+    """Return a bounded wall-clock duration for the review run summary."""
+    if run is None or run.created_at is None:
+        return 0
+    if run.finished_at is None and run.status in {"success", "failed", RUN_SUPERSEDED}:
+        # Older seeded/history rows predate finished_at; do not turn their age into
+        # a misleading runtime measurement.
+        return 0
+    start = run.created_at if run.created_at.tzinfo else run.created_at.replace(tzinfo=timezone.utc)
+    end_value = run.finished_at or utcnow()
+    end = end_value if end_value.tzinfo else end_value.replace(tzinfo=timezone.utc)
+    return max(0, min(7_200_000, int((end - start).total_seconds() * 1000)))
+
+
+def _run_retry_meta(db: Session, task_id: int, run_id: int) -> dict:
+    """Follow the compact retry audit chain without exposing audit payloads."""
+    edges: dict[int, tuple[int, str]] = {}
+    events = db.scalars(select(AuditEvent).where(
+        AuditEvent.task_id == task_id,
+        AuditEvent.action == "check.retry").order_by(AuditEvent.id)).all()
+    for event in events:
+        try:
+            payload = json.loads(event.payload_json or "{}")
+            new_id = int(payload.get("new_run"))
+            from_id = int(payload.get("from_run"))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+        if new_id > 0 and from_id > 0:
+            edges[new_id] = (from_id, str(payload.get("from_status") or ""))
+    attempt = 1
+    retried_from = None
+    from_status = ""
+    cursor = run_id
+    visited: set[int] = set()
+    while cursor in edges and cursor not in visited and attempt < 32:
+        visited.add(cursor)
+        parent, parent_status = edges[cursor]
+        if retried_from is None:
+            retried_from, from_status = parent, parent_status
+        attempt += 1
+        cursor = parent
+    return {"attempt": attempt, "retried_from": retried_from, "from_status": from_status}
 
 # ---------------------------------------------------------------- 会话（DB 持久化）
 def current_account(
@@ -1020,6 +1065,10 @@ def findings(task_id: int, subject_id: int, db: Session = Depends(get_db),
         CheckRun.revision_id == rev.id,
         CheckRun.status.not_in([RUN_SUPERSEDED])).order_by(CheckRun.id.desc()))
     rules = review_rule_details(db, run, task, subject.id, rev.id)
+    result_summary: dict[str, int] = {}
+    for rule in rules:
+        result = str(rule.get("result") or "unknown")
+        result_summary[result] = result_summary.get(result, 0) + 1
     try:
         manifest = json.loads(rev.slot_file_ids_json or "{}")
     except (TypeError, ValueError):
@@ -1094,9 +1143,22 @@ def findings(task_id: int, subject_id: int, db: Session = Depends(get_db),
             "revision": {"id": rev.id, "version": rev.version, "receipt": rev.receipt},
             "revision_history": _review_revision_history(db, submission, rev.id),
             "run": ({"id": run.id, "status": run.status,
+                      "created_at": _iso(run.created_at),
+                      "finished_at": _iso(run.finished_at),
+                      "duration_ms": _run_duration_ms(run),
+                      "revision_version": rev.version,
+                      "blueprint_version_id": run.blueprint_version_id,
+                      "retry": _run_retry_meta(db, task.id, run.id),
                      "pages_read": run.pages_read,
                      "llm_calls_used": run.llm_calls_used,
                      "budget_exhausted": run.budget_exhausted,
+                      "budget": {
+                          "pages": {"used": run.pages_read or 0,
+                                    "limit": settings.max_pages_per_run},
+                          "semantic_calls": {"used": run.llm_calls_used or 0,
+                                              "limit": settings.max_llm_calls_per_run},
+                      },
+                      "result_summary": result_summary,
                      "coverage": run_coverage(run)} if run else None),
             "rules": rules, "tool_trace": tool_trace, "decisions": decisions,
             "files": files,

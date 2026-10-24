@@ -7,7 +7,8 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app.main import app
-from app.models import Account, AuditEvent, BlueprintVersion, FileObject, RuleResult, Subject
+from app.models import Account, AuditEvent, BlueprintVersion, CheckRun, FileObject, RuleResult, Subject
+from app.api.routes import _run_duration_ms
 from app.schemas import Blueprint, FieldDef, RuleDef, SlotDef
 from app.security import utcnow
 from app.services.checks import create_run, execute_run, rule_details
@@ -57,6 +58,11 @@ def test_no_formal_revision_is_not_ready(review):
     assert page['acceptance'] == dict(ready=False, accepted=False, blockers=['没有正式提交版本'])
     assert page['files'] == []
     assert page['revision_history'] == []
+
+
+def test_legacy_completed_run_without_finish_time_does_not_fake_duration():
+    run = CheckRun(status='success', created_at=utcnow() - timedelta(days=3), finished_at=None)
+    assert _run_duration_ms(run) == 0
 
 
 def test_review_exposes_current_scope_and_historical_revision_changes(review):
@@ -170,6 +176,16 @@ def test_findings_exposes_only_the_active_runs_audited_tool_trace(review, stub_l
     revision, first_run = submit(db, task, subject, fields={'name': '测试主体'}, client=stub_llm)
     page = findings(client, headers, path)
     assert page['run']['id'] == first_run.id
+    assert page['run']['revision_version'] == revision.version
+    assert page['run']['duration_ms'] >= 0
+    assert page['run']['finished_at']
+    assert page['run']['result_summary']['satisfied'] == 1
+    assert page['run']['retry']['attempt'] == 1
+    assert page['run']['retry']['retried_from'] is None
+    assert page['run']['budget']['pages']['used'] == page['run']['pages_read']
+    assert page['run']['budget']['pages']['limit'] > 0
+    assert page['run']['budget']['semantic_calls']['used'] == page['run']['llm_calls_used']
+    assert page['run']['budget']['semantic_calls']['limit'] > 0
     assert len(page['tool_trace']) == 1
     trace = page['tool_trace'][0]
     assert trace['tool'] == 'review.deterministic_rule'

@@ -279,6 +279,39 @@ const agentRunCard = (run, rules, toolTrace = [], taskId = null, subjectId = nul
   const methods = [...new Set(files.map(f => METHOD_LABEL[f.method] || f.method).filter(Boolean))];
   const status = ({queued: "排队中", running: "检查中", retry_wait: "等待重试", success: "检查完成", failed: "运行失败", superseded: "已被新运行取代"})[run.status] || run.status;
   const runState = run.status === "success" ? "ok" : ["failed", "retry_wait"].includes(run.status) ? "warn" : "info";
+  const durationMs = Number(run.duration_ms);
+  const duration = Number.isFinite(durationMs) && durationMs > 0
+    ? durationMs < 1000 ? `${durationMs} 毫秒` : `${(durationMs / 1000).toFixed(1)} 秒`
+    : ["queued", "running", "retry_wait"].includes(run.status) ? "进行中" : "未记录";
+  const retry = run.retry || {};
+  const attempt = Number(retry.attempt) > 1 ? `第 ${retry.attempt} 次运行` : "首次运行";
+  const origin = retry.retried_from ? `${attempt} · 由 #${retry.retried_from} 重试` : attempt;
+  const budget = run.budget || {};
+  const pageBudget = budget.pages || {};
+  const semanticBudget = budget.semantic_calls || {};
+  const pageLimit = Number.isFinite(Number(pageBudget.limit)) && Number(pageBudget.limit) > 0
+    ? Number(pageBudget.limit) : null;
+  const semanticLimit = Number.isFinite(Number(semanticBudget.limit)) && Number(semanticBudget.limit) > 0
+    ? Number(semanticBudget.limit) : Math.max(1, counts.semantic + counts.cross_material);
+  const pageUsage = `${Number(pageBudget.used ?? run.pages_read ?? 0)}${pageLimit ? ` / ${pageLimit}` : ""} 页`;
+  const semanticUsage = `${Number(semanticBudget.used ?? run.llm_calls_used ?? 0)} / ${semanticLimit} 次`;
+  const resultSummary = Object.keys(run.result_summary || {}).length
+    ? run.result_summary
+    : (rules || []).reduce((out, rule) => {
+      const key = rule.result || "unknown"; out[key] = (out[key] || 0) + 1; return out;
+    }, {});
+  const resultLabels = {satisfied: "已满足", issue: "需处理", unknown: "待人工", failed: "未完成", manual_pending: "人工项", not_applicable: "不适用"};
+  const resultHtml = Object.entries(resultLabels)
+    .filter(([key]) => Number(resultSummary[key]) > 0)
+    .map(([key, label]) => `<span class="agent-result-chip ${key === "satisfied" || key === "not_applicable" ? "ok" : key === "issue" || key === "failed" ? "warn" : "info"}">${label} <b>${Number(resultSummary[key])}</b></span>`).join("")
+    || `<span class="agent-result-empty">${["queued", "running", "retry_wait"].includes(run.status) ? "结果将在运行完成后出现" : "暂无逐规则结果"}</span>`;
+  const runMeta = `<div class="agent-run-meta" aria-label="检查运行摘要">
+    <div><span>运行编号</span><b>#${esc(run.id ?? "—")}</b></div>
+    <div><span>正式版本</span><b>${run.revision_version ? `v${esc(run.revision_version)}` : "未记录"}</b></div>
+    <div><span>耗时</span><b>${esc(duration)}</b></div>
+    <div><span>运行关系</span><b>${esc(origin)}</b></div>
+    <div class="agent-run-result"><span>结果摘要</span><div>${resultHtml}</div></div>
+  </div>`;
   const stages = [
     {label: "读取材料", detail: files.length ? `${files.length} 份材料${methods.length ? ` · ${methods.join(" / ")}` : ""}` : "尚无可读取材料", count: files.length ? `${run.pages_read ?? 0} 页` : "—", tone: files.length ? "ok" : "neutral"},
     {label: "程序核验", detail: counts.deterministic ? "格式、必填项等确定性检查" : "本版本没有程序规则", count: `${counts.deterministic} 项`, tone: "tool"},
@@ -335,7 +368,8 @@ const agentRunCard = (run, rules, toolTrace = [], taskId = null, subjectId = nul
       <div class="runtime-item"><label>Skill</label><b>review_one_submission</b><span>按已发布蓝图逐条核验，不自行决定规则</span></div>
       <div class="runtime-item"><label>授权范围</label><code>review:deterministic</code> <code>review:semantic</code><span>不授予 SQL、文件路径、网络或用户管理权限</span></div>
       <div class="runtime-item"><label>工具白名单</label>${runtimeTools.map(t => `<code>${esc(t.name)}</code>`).join("")}<span>只能调用已注册的核验工具，不能自己选别的</span></div>
-      <div class="runtime-item"><label>调用预算</label><b>${run.llm_calls_used ?? 0} / ${Math.max(1, counts.deterministic + counts.semantic + counts.cross_material)} 次</b><span>预算用完后转人工，不会编造结果</span></div>
+      <div class="runtime-item"><label>页数预算</label><b>${esc(pageUsage)}</b><span>只读取当前正式提交；超出范围会停下来转人工</span></div>
+      <div class="runtime-item"><label>语义调用预算</label><b>${esc(semanticUsage)}</b><span>预算用完后转人工，不会编造结果</span></div>
       <div class="runtime-item"><label>步数上限</label><b>128 步</b><span>超出会自动停下来交给组织者</span></div>
       <div class="runtime-item"><label>人工接手</label><b>不确定 / 失败 → 人工</b><span>拿不准或出问题时不会停在"通过"，而是交给组织者</span></div>
       <div class="runtime-item"><label>结果上限</label><b>16 KB / 条</b><span>每条工具输出有截断，防止注入超长内容</span></div>
@@ -351,6 +385,7 @@ const agentRunCard = (run, rules, toolTrace = [], taskId = null, subjectId = nul
   return `<details class="card agent-run-card"${runOpen}>
     <summary><span><span class="eyebrow">检查是怎么完成的</span><b>按规则分工，不让模型包办</b><small class="agent-run-hint">展开查看程序、Agent 与人工的分工</small></span><span class="badge ${runState}">${esc(status)}</span></summary>
     <p class="agent-run-intro">程序先处理能明确判断的规则，需要理解材料时才调用语义审核。每个判断都回到原文证据，资格和最终验收由人来把关。</p>
+    ${runMeta}
     <ol class="agent-run-steps">${stages.map((s, i) => `<li class="${esc(s.tone)}"><span class="agent-step-index">0${i + 1}</span><div><b>${esc(s.label)}</b><span>${esc(s.detail)}</span></div><em>${esc(s.count)}</em></li>`).join("")}</ol>
     <p class="agent-run-foot">${run.budget_exhausted ? "这次模型检查的预算用完了，没完成的项会保留为待处理，不会当成通过。" : "模型不可用或证据不足时会停下来转人工，检查结果不会自行发布、认定资格或完成验收。"}</p>
     ${runtimeHtml}

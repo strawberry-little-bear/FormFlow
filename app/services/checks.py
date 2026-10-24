@@ -47,6 +47,7 @@ from ..models import (
 from ..parsing import ParseError, parse_file
 from ..schemas import Blueprint
 from .. import storage
+from ..security import utcnow
 from . import tasks as task_service
 from .decision_state import effective_rules, PASS_DECISIONS, RULE_DECISIONS, valid_acceptance
 from .eligibility import eligibility_view
@@ -191,6 +192,10 @@ def execute_run(db: Session, run: CheckRun, client=None) -> CheckRun:
         task_service.audit(db, "check.failed", "check_run",
                            {"run_id": run.id, "error": run.error}, run.task_id)
         return run
+    finally:
+        if run.status in (RUN_SUCCESS, RUN_FAILED):
+            run.finished_at = utcnow()
+            db.flush()
 
 
 def retry_run(db: Session, run: CheckRun) -> CheckRun:

@@ -492,6 +492,28 @@ test('agent trace can be narrowed to tool family or human handoff for live expla
   assert.match(html, /需人工/);
   assert.match(html, /aria-pressed="true"/);
 });
+test('agent run summary exposes version, elapsed time, result distribution, and retry lineage', () => {
+  const {app} = setup();
+  const html = app.agentRunCard({id:12, status:'success', revision_version:3, duration_ms:1840,
+    retry:{attempt:2, retried_from:9, from_status:'failed'}, result_summary:{satisfied:2, issue:1, unknown:1},
+    budget:{pages:{used:2, limit:40}, semantic_calls:{used:1, limit:30}},
+    pages_read:2, llm_calls_used:1, coverage:{files:[]}}, [
+    {rule_id:'D-01',result:'satisfied',requirement:{executor:'deterministic',statement:'必填项'}},
+  ]);
+  assert.match(html, /运行编号/);
+  assert.match(html, /#12/);
+  assert.match(html, /正式版本/);
+  assert.match(html, /v3/);
+  assert.match(html, /1\.8 秒/);
+  assert.match(html, /第 2 次运行 · 由 #9 重试/);
+  assert.match(html, /已满足 <b>2<\/b>/);
+  assert.match(html, /需处理 <b>1<\/b>/);
+  assert.match(html, /待人工 <b>1<\/b>/);
+  assert.match(html, /页数预算/);
+  assert.match(html, /2 \/ 40 页/);
+  assert.match(html, /语义调用预算/);
+  assert.match(html, /1 \/ 30 次/);
+});
 test('agent surfaces use the shared SVG icon language', () => {
   const {app} = setup();
   const trace = app.agentRunCard({status:'success', coverage:{files:[]}}, [], [

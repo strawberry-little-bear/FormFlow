@@ -3307,6 +3307,19 @@ a.wb-next-action:hover, button.wb-next-action:hover { background:var(--brand-dee
 .agent-run-card > summary b { font-size:14px; }
 .agent-run-hint { color:var(--muted); font-size:10px; }
 .agent-run-intro { margin:12px 0 14px; color:#626776; font-size:12px; line-height:1.75; }
+.agent-run-meta { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; margin:0 0 14px; }
+.agent-run-meta > div { min-width:0; padding:9px 10px; border:1px solid var(--line-soft); border-radius:7px; background:#fcfcfe; }
+.agent-run-meta span { display:block; color:var(--muted); font-size:9px; line-height:1.4; }
+.agent-run-meta b { display:block; margin-top:3px; color:var(--ink); font-size:11px; line-height:1.45; overflow-wrap:anywhere; }
+.agent-run-meta .agent-run-result { grid-column:1 / -1; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.agent-run-result > span { flex:none; }
+.agent-run-result > div { display:flex; flex-wrap:wrap; gap:5px; min-width:0; }
+.agent-result-chip { display:inline-flex; align-items:center; gap:4px; padding:3px 6px; border-radius:5px; font-size:9px; line-height:1.3; }
+.agent-result-chip.ok { background:var(--ok-bg); color:#287454; }
+.agent-result-chip.warn { background:var(--warn-bg); color:#89641f; }
+.agent-result-chip.info { background:var(--info-bg); color:var(--info); }
+.agent-result-chip b { display:inline; margin:0; color:inherit; font-size:9px; }
+.agent-result-empty { color:var(--muted); font-size:10px; }
 .agent-run-steps { list-style:none; display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; padding:0; margin:0; }
 .agent-run-steps li {
   display:grid; grid-template-columns:25px minmax(0,1fr); gap:8px; align-items:start;
@@ -3713,6 +3726,7 @@ a.wb-next-action:hover, button.wb-next-action:hover { background:var(--brand-dee
   .wb-next-copy h2 { font-size:15px; }
   .wb-next-action { grid-column:2; justify-self:start; }
   .agent-run-steps { grid-template-columns:1fr; }
+  .agent-run-meta { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .agent-run-steps li { min-height:0; }
   .agent-run-card > summary b { font-size:13px; }
   .card, .submit-form-card, .roster-import, .roster-list, .snapshot-panel,
@@ -3739,6 +3753,9 @@ a.wb-next-action:hover, button.wb-next-action:hover { background:var(--brand-dee
   .overview-stat strong.stat-text { font-size:14px; }
   table { font-size:12px; }
   th,td { padding:9px 8px; }
+}
+@media(max-width:420px) {
+  .agent-run-meta { grid-template-columns:1fr; }
 }
 
 /* ---------------------------------------------------------------- 设计台：版本与发布摘要 */
