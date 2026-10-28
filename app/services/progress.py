@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from ..models import (AuditEvent, CheckRun, DeliverySnapshot, Exemption, ExportJob,
                       ManualDecision, BlueprintVersion, Revision, RosterEntry,
-                      Submission, Subject, Task, RUN_SUPERSEDED)
+                      Submission, Subject, Task, RUN_FAILED, RUN_SUPERSEDED)
 from ..config import settings
 from ..security import utcnow
 from ..timeutils import as_utc
@@ -95,14 +95,26 @@ def _review_run_source(db: Session, task: Task, run: CheckRun) -> str:
 
 def _review_run_trace(db: Session, task: Task, run: CheckRun) -> list[dict]:
     """Project a compact, non-content trace for the first-entry showcase."""
-    events = db.scalars(select(AuditEvent.payload_json).where(
+    events = db.scalars(select(AuditEvent).where(
         AuditEvent.task_id == task.id,
-        AuditEvent.action == "agent.tool.invoked").order_by(AuditEvent.id)).all()
+        AuditEvent.action.in_(("agent.tool.invoked", "check.recovered"))
+    ).order_by(AuditEvent.id)).all()
     trace = []
-    for payload in events:
+    execution_attempt = 1
+    for event in events:
         try:
-            entry = json.loads(payload or "{}")
+            entry = json.loads(event.payload_json or "{}")
         except (TypeError, ValueError):
+            continue
+        if event.action == "check.recovered":
+            try:
+                recovered_run = int(entry.get("run_id"))
+            except (TypeError, ValueError):
+                continue
+            if recovered_run == run.id:
+                execution_attempt = min(32, execution_attempt + 1)
+            continue
+        if event.action != "agent.tool.invoked":
             continue
         if str(entry.get("run_id")) != str(run.id):
             continue
@@ -119,13 +131,77 @@ def _review_run_trace(db: Session, task: Task, run: CheckRun) -> list[dict]:
             duration_ms = 0
         trace.append({
             "tool": tool,
+            "tool_version": str(entry.get("tool_version") or "v1")[:16],
             "sequence": sequence,
+            "execution_attempt": execution_attempt,
             "status": str(entry.get("status") or "")[:32],
             "simulation": (entry.get("simulation") if isinstance(entry.get("simulation"), bool) else None),
             "duration_ms": duration_ms,
         })
     trace.sort(key=lambda item: (item["sequence"] or 10_000, item["tool"]))
     return trace[-12:]
+
+
+def _review_run_retry(db: Session, task: Task, run: CheckRun) -> dict:
+    """Return the run's bounded retry ancestry from audit metadata."""
+    edges: dict[int, int] = {}
+    events = db.scalars(select(AuditEvent.payload_json).where(
+        AuditEvent.task_id == task.id,
+        AuditEvent.action == "check.retry").order_by(AuditEvent.id)).all()
+    for payload in events:
+        try:
+            entry = json.loads(payload or "{}")
+            new_id, from_id = int(entry.get("new_run")), int(entry.get("from_run"))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+        if new_id > 0 and from_id > 0:
+            edges[new_id] = from_id
+    attempt = 1
+    retried_from = None
+    cursor = run.id
+    visited: set[int] = set()
+    while cursor in edges and cursor not in visited and attempt < 32:
+        visited.add(cursor)
+        parent = edges[cursor]
+        if retried_from is None:
+            retried_from = parent
+        attempt += 1
+        cursor = parent
+    return {"attempt": attempt, "retried_from": retried_from}
+
+
+def _review_run_failure(run: CheckRun) -> dict | None:
+    """Return a safe, actionable failure summary without exposing exception text."""
+    if run.status != RUN_FAILED:
+        return None
+    if run.budget_exhausted:
+        return {
+            "code": "budget_exhausted",
+            "title": "运行预算已用完",
+            "detail": "未完成的项目保留为待确认，没有被当成通过。",
+            "action": "组织者可以重试，或直接打开复核页人工核对。",
+        }
+    raw = (run.error or "").lower()
+    if any(token in raw for token in ("ocr", "pdf", "file", "读取", "解析")):
+        return {
+            "code": "material_read_failed",
+            "title": "材料读取没有完成",
+            "detail": "部分材料没有形成可靠的检查依据，系统没有继续猜测结论。",
+            "action": "组织者可以补充清晰材料后重试，或直接人工核对。",
+        }
+    if any(token in raw for token in ("llm", "model", "api", "key", "模型", "网关")):
+        return {
+            "code": "model_unavailable",
+            "title": "语义审核服务暂时不可用",
+            "detail": "程序核验结果仍保留，未完成的语义项目没有被当成通过。",
+            "action": "配置或恢复模型服务后重试，也可以由组织者人工核对。",
+        }
+    return {
+        "code": "run_failed",
+        "title": "这次检查没有完成",
+        "detail": "系统没有形成足够可靠的完整结论，已有材料和历史记录仍保留。",
+        "action": "组织者可以重试，或打开复核页人工核对。",
+    }
 
 
 def _review_signal(db: Session, task: Task, subject_id: int | None) -> dict | None:
@@ -145,11 +221,16 @@ def _review_signal(db: Session, task: Task, subject_id: int | None) -> dict | No
         CheckRun.revision_id == submission.current_revision_id,
         CheckRun.status != RUN_SUPERSEDED).order_by(CheckRun.id.desc()))
     if run is None:
-        return {"status": "queued", "run_id": None, "pages_read": 0,
+        subject = db.get(Subject, subject_id)
+        return {"subject_id": subject_id,
+                "subject_name": subject.display_name if subject else "",
+                "review_href": f"#/review/{task.id}/{subject_id}",
+                "status": "queued", "run_id": None, "pages_read": 0,
                 "llm_calls_used": 0, "rules_total": 0, "deterministic_rules": 0,
                 "semantic_rules": 0, "human_rules": 0,
                 "pending_rules": 0, "coverage_complete": True,
                 "coverage_gaps": 0, "run_source": "unknown", "trace": [],
+                "failure": None,
                 "budget": {"pages": {"used": 0, "limit": settings.max_pages_per_run},
                            "semantic_calls": {"used": 0, "limit": settings.max_llm_calls_per_run}}}
     subject = db.get(Subject, subject_id)
@@ -188,8 +269,14 @@ def _review_signal(db: Session, task: Task, subject_id: int | None) -> dict | No
         break
     coverage = run_coverage(run)
     trace = _review_run_trace(db, task, run)
+    revision = db.get(Revision, run.revision_id)
+    blueprint_version = db.get(BlueprintVersion, run.blueprint_version_id)
     return {"subject_id": subject_id, "subject_name": subject.display_name if subject else "",
+            "review_href": f"#/review/{task.id}/{subject_id}",
             "run_id": run.id, "status": run.status,
+            "revision_version": revision.version if revision else None,
+            "blueprint_version": blueprint_version.version if blueprint_version else None,
+            "retry": _review_run_retry(db, task, run),
             "run_source": _review_run_source(db, task, run),
             "pages_read": run.pages_read or 0,
             "llm_calls_used": run.llm_calls_used or 0,
@@ -197,6 +284,7 @@ def _review_signal(db: Session, task: Task, subject_id: int | None) -> dict | No
             "semantic_rules": semantic, "human_rules": human,
             "pending_rules": pending, "coverage_complete": coverage["complete"],
             "coverage_gaps": coverage["unread_pages"] + coverage["failed_pages"],
+            "failure": _review_run_failure(run),
             "budget": {"pages": {"used": run.pages_read or 0,
                                    "limit": settings.max_pages_per_run},
                        "semantic_calls": {"used": run.llm_calls_used or 0,
@@ -294,12 +382,17 @@ def demo_route_data(db: Session, task: Task) -> dict:
                     else "验收完成后固定快照并生成 CSV + ZIP"),
          "status": delivery_state, "href": f"#/delivery/{task.id}"},
     ]
-    next_step = next((s for s in steps if s["status"] != "done"), steps[-1])
-    current_step = next((s for s in steps if s["status"] == "current"), next_step)
+    current_step = next((s for s in steps if s["status"] == "current"), None)
+    if current_step is None:
+        current_step = next((s for s in steps if s["status"] != "done"), steps[-1])
+    current_index = steps.index(current_step)
+    next_step = next((s for s in steps[current_index + 1:]
+                      if s["status"] != "done"), None)
     completed = sum(s["status"] == "done" for s in steps)
     return {"task_id": task.id, "completed": completed, "total": len(steps),
             "current": {"title": current_step["title"], "href": current_step["href"],
                         "detail": current_step["detail"], "status": current_step["status"]},
-            "next": {"title": next_step["title"], "href": next_step["href"],
-                     "detail": next_step["detail"]},
+            "next": ({"title": next_step["title"], "href": next_step["href"],
+                      "detail": next_step["detail"], "status": next_step["status"]}
+                     if next_step else None),
             "steps": steps, "review_signal": review_signal}

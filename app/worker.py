@@ -23,6 +23,7 @@ from .models import (
     Evidence,
     CheckRun,
     RuleResult,
+    RUN_EXECUTION_OFFLINE_REPLAY,
 )
 from .services import tasks as task_service
 from .services.checks import execute_run
@@ -68,7 +69,12 @@ def run_pending_once(db: Session) -> int:
     runs = db.scalars(select(CheckRun).where(CheckRun.status == RUN_QUEUED)).all()
     n = 0
     for run in runs:
-        execute_run(db, run)
+        client = None
+        if run.execution_mode == RUN_EXECUTION_OFFLINE_REPLAY:
+            # 演示回放仍复用正式检查管线，只把模型网关换成确定性脚本桩。
+            from .services.demo_seed import ScriptedLLM
+            client = ScriptedLLM()
+        execute_run(db, run, client=client)
         db.commit()
         n += 1
     return n
@@ -87,6 +93,7 @@ def main(poll_interval: float = 2.0) -> None:
             print(f"[worker] 恢复 {recovered_design} 个卡住的需求 Agent 请求（重新排队）")
     finally:
         db.close()
+    print("[worker] ready", flush=True)
     while True:
         db = SessionLocal()
         try:

@@ -150,3 +150,47 @@ def test_fallback_attempt_uses_full_timeout_and_retries():
     calls = _install_behavior(c, _primary_down_fallback_ok)
     c.chat([{"role": "user", "content": "x"}])
     assert calls[1] == ("m-fallback", 300, 2)
+
+
+def test_expired_deadline_skips_http_request(monkeypatch):
+    import time
+
+    def unexpected_client(*_args, **_kwargs):
+        raise AssertionError("expired request must not create an HTTP client")
+
+    monkeypatch.setattr("app.llm.httpx.Client", unexpected_client)
+    c = LLMClient(api_key="k", fallback_model="")
+    with pytest.raises(LLMUnavailable, match="时限已耗尽"):
+        c.chat_json([], deadline_monotonic=time.monotonic() - 1)
+
+
+def test_expired_primary_deadline_skips_fallback(monkeypatch):
+    import httpx
+
+    clock = [100.0]
+    calls = []
+
+    class FailingClient:
+        def __init__(self, *, timeout):
+            calls.append(timeout)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def post(self, *_args, **_kwargs):
+            clock[0] = 102.0
+            raise httpx.ConnectError("primary unavailable")
+
+    monkeypatch.setattr("app.llm.time.monotonic", lambda: clock[0])
+    monkeypatch.setattr("app.llm.httpx.Client", FailingClient)
+    monkeypatch.setattr("app.llm.time.sleep", lambda _seconds: None)
+    c = LLMClient(api_key="k", model="primary", fallback_model="fallback",
+                  timeout=20, max_retries=1)
+
+    with pytest.raises(LLMUnavailable, match="时限已耗尽"):
+        c.chat([], deadline_monotonic=101.0)
+
+    assert calls == [1.0]

@@ -66,7 +66,7 @@ class ScriptedLLM(LLMClient):
     def __init__(self) -> None:
         super().__init__(api_key="seed-stub")
 
-    def chat(self, messages, temperature=0.2):
+    def chat(self, messages, temperature=0.2, deadline_monotonic=None):
         user = messages[-1]["content"]
         subject_name = ""
         for name in ("张三", "李四", "王五", "赵六"):
@@ -83,6 +83,42 @@ class ScriptedLLM(LLMClient):
                 return json.dumps(payload, ensure_ascii=False)
         return json.dumps({"result": "satisfied", "explanation": "默认通过", "evidence": []},
                           ensure_ascii=False)
+
+
+class ScriptedRequirementsLLM(LLMClient):
+    """确定性需求 Agent 桩：沿正式解析/校验链生成演示蓝图。"""
+
+    is_simulation = True
+
+    def __init__(self) -> None:
+        super().__init__(api_key="seed-requirements-stub")
+
+    def chat(self, messages, temperature=0.1, deadline_monotonic=None):
+        blueprint = demo_blueprint()
+        # 让演示原文能覆盖每条来源引用，避免回放结果因来源校验变成阻塞项。
+        sources = [
+            "包含本人姓名",
+            "接受一份 PDF 或 DOCX",
+            "最大 10 MiB、20 页",
+            f"{TERM}团课报告",
+            "包含本人姓名",
+            "组织者最终人工验收",
+        ]
+        for rule, source in zip(blueprint.rules, sources):
+            rule.requirement_source = source
+        payload = {
+            "blueprint": json.loads(blueprint.model_dump_json()),
+            "clarifications": [],
+            "publish_summary": [
+                "收集姓名、期次和班级，并接收一份团课报告。",
+                "程序检查格式、数量和大小；期次与姓名仍需语义核对。",
+                "最终验收由组织者确认，回放不会自动发布。",
+            ],
+            "warnings": [
+                "这是离线脚本回放，用于展示需求 Agent 的运行链，不代表真实模型质量。",
+            ],
+        }
+        return json.dumps(payload, ensure_ascii=False)
 
 
 def _report_text(name: str, term: str = TERM) -> str:

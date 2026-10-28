@@ -1,0 +1,55 @@
+{
+  "base": "http://127.0.0.1:8000",
+  "states": [
+    {
+      "action": "ArrowRight preview -> rules",
+      "active": "design-tab-rules",
+      "previewSelected": "false",
+      "previewTabIndex": "-1",
+      "rulesSelected": "true",
+      "rulesTabIndex": "0",
+      "panelLabel": "design-tab-rules",
+      "panelWidth": 658.4375
+    },
+    {
+      "action": "Home rules -> preview",
+      "active": "design-tab-preview",
+      "previewSelected": "true",
+      "previewTabIndex": "0",
+      "rulesSelected": "false",
+      "rulesTabIndex": "-1",
+      "panelLabel": "design-tab-preview",
+      "panelWidth": 658.4375
+    },
+    {
+      "action": "End preview -> rules",
+      "active": "design-tab-rules",
+      "previewSelected": "false",
+      "previewTabIndex": "-1",
+      "rulesSelected": "true",
+      "rulesTabIndex": "0",
+      "panelLabel": "design-tab-rules",
+      "panelWidth": 658.4375
+    }
+  ],
+  "sizes": [
+    {
+      "width": 1440,
+      "viewport": 1440,
+      "document": 1440
+    },
+    {
+      "width": 390,
+      "viewport": 390,
+      "document": 390
+    },
+    {
+      "width": 320,
+      "viewport": 320,
+      "document": 320
+    }
+  ],
+  "tablistCount": 1,
+  "panelCount": 1,
+  "consoleAndPageErrors": []
+}

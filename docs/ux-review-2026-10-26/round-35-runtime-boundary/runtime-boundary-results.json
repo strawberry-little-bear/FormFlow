@@ -1,0 +1,42 @@
+{
+  "base": "http://127.0.0.1:8011",
+  "generatedAt": "2026-10-25T22:24:34.653Z",
+  "results": [
+    {
+      "viewport": 1440,
+      "scrollWidth": 1440,
+      "boundaryText": "数据边界\n当前走离线演示路径，不调用实时模型。",
+      "routeCards": 4,
+      "runtimeAction": true,
+      "runtimeLabel": "Agent runtime\n离线可演示\n模板、程序规则与已有结果可继续演示\n查看运行边界"
+    },
+    {
+      "viewport": 390,
+      "scrollWidth": 390,
+      "boundaryText": "数据边界\n当前走离线演示路径，不调用实时模型。",
+      "routeCards": 4,
+      "runtimeAction": true,
+      "runtimeLabel": "Agent runtime\n离线可演示\n模板、程序规则与已有结果可继续演示\n查看运行边界"
+    },
+    {
+      "viewport": 320,
+      "scrollWidth": 320,
+      "boundaryText": "数据边界\n当前走离线演示路径，不调用实时模型。",
+      "routeCards": 4,
+      "runtimeAction": true,
+      "runtimeLabel": "Agent runtime\n离线可演示\n模板、程序规则与已有结果可继续演示\n查看运行边界"
+    },
+    {
+      "action": "查看运行边界",
+      "detailsOpen": true,
+      "focusInTour": true,
+      "tourText": "现场演示 · AGENT WALKTHROUGH\n两个 Agent 怎样从要求走到可交付证据\n按需展开蓝图确认、审核 Skill、执行护栏与人工接手点\n离线演示\n\n当前没有模型密钥：程序规则、已有结果和人工接手仍可完整演示。\n\n审核运行可在复核页查看证据和工具记录\n01\n输入\n从一句要求开始\n先锁定任务和收集范围，原始要求保留供组织者核对。\n02\n需求 SKILL\nrequirements_draft\n整理有来源的待确认蓝图，不直接发布规则或时间策略。\n03\n蓝图确认\n组织者核对并发布\n确认字段、规则与时间策略后冻结版本，再进入正式收件。\n04\n审核 SKILL\nreview_one_submission\n基于已发布规则逐条检查，整理证据引用与材料覆盖情况。\n05\n人工接手\n组织者做最终决定\n处理不确定项、补正和最终验收；模型不会自行认定通过。\n审核 Agent · Harness 工具护栏\nreview_one_submission · 最多 5 次工具调用 · 30 次语义模型调用 · 40 页材料 · 单结果 ≤16384 B；需求 Agent 由应用服务处理，按 任务、账号和请求编号 恢复；版本冲突 拒绝写入，发布前必须由组织者确认。\n网页内工具白名单\nreview.deterministic_rule review.semantic_rule\n独立只读 MCP sidecar\nlist_my_tasksget_task_collection_progressget_task_next_stepget_task_agent_runtime\n网页内置 Agent 不调用外部 MCP；可选 stdio sidecar 提供 4 项组织者只读工具（任务列表、收集汇总、流程下一步、Agent runtime），不读取逐人名单或材料。\n组织者最终决定\nunknown / failed 结果转人工；材料覆盖缺口转人工；资格、补正和最终验收由组织者决定\nLIVE MCP EVIDENCE\nAgent → MCP 只读导览\n由服务端桥接执行四个白名单读取；浏览器不会接触 MCP 会话 token。\n4 个工具\n任务 #1 · 2026 秋季第 1 期团课报告（演示）\n2026-10-26 06:24\nAgent 只读意图\n定位当前任务下一步并读取受限聚合进度\n运行状态\n已完成\ncorrelation id\nmcp-f3e8856716ea9c65\n01\n任务索引\n已返回\nlist_my_tasks\n已授权任务列表\n1 个任务\n02\n收集进度\n已返回\nget_task_collection_progress\nroster 5 · exempt 1 · required 4 · submitted 3 · unsubmitted 1 · accepted 1\n03\n流程下一步\n已返回\nget_task_next_step\n检查并接手 → 固定交付\n04\nAgent runtime\n已返回\nget_task_agent_runtime\nreview_one_submission、requirements_draft · 工具 2 项\n只读 · 服务端脱敏投影 · 合同 v1 · 工具 4/5 · 语义模型 30 次上限 · 材料 40 页上限\n运行 Agent 导览\n刷新快照\n\n最终验收、补正处理和发布仍由组织者确认",
+      "viewport": 320,
+      "scrollWidth": 320
+    }
+  ],
+  "consoleErrors": [],
+  "pageErrors": [],
+  "badResponses": [],
+  "horizontalOverflow": []
+}

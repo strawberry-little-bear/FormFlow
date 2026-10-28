@@ -30,7 +30,7 @@ class CapturingLLM(StubLLM):
         super().__init__(responses=responses, error=error)
         self.messages: list[list[dict]] = []
 
-    def chat(self, messages, temperature=0.2):
+    def chat(self, messages, temperature=0.2, deadline_monotonic=None):
         self.messages.append([dict(m) for m in messages])
         return super().chat(messages, temperature)
 

@@ -28,7 +28,7 @@ class StubLLM(LLMClient):
         self.error = error
         self.calls = 0
 
-    def chat(self, messages, temperature=0.2):
+    def chat(self, messages, temperature=0.2, deadline_monotonic=None):
         self.calls += 1
         if self.error is not None:
             raise self.error

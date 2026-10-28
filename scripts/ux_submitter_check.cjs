@@ -1,11 +1,13 @@
 /**
  * 提交者端走查：登录 → 表单 → 保存草稿 → 提交前核对。
  */
-const { chromium } = require('C:/Users/18428/.workbuddy-ai/binaries/node/workspace/node_modules/playwright-core');
+const { launchChromium } = require('./ux_browser.cjs');
 const fs = require('fs');
-const OUT = 'E:/FormFlow/docs/ux-review-2026-10-23';
-const BASE = 'http://127.0.0.1:8000';
-const EXEC = 'C:/Users/18428/AppData/Local/ms-playwright/chromium-1248/chrome-win64/chrome.exe';
+const path = require('path');
+const OUT = process.env.FORMFLOW_WALKTHROUGH_OUT
+  ? path.resolve(process.env.FORMFLOW_WALKTHROUGH_OUT)
+  : path.resolve(__dirname, '../docs/ux-review-2026-10-23');
+const BASE = process.env.FORMFLOW_WALKTHROUGH_BASE || 'http://127.0.0.1:8000';
 const CRED = process.argv[2];
 if (!CRED) {
   console.error('缺少提交凭证。用法：node scripts/ux_submitter_check.cjs <种子脚本输出的提交凭证>');
@@ -14,7 +16,7 @@ if (!CRED) {
 fs.mkdirSync(OUT, { recursive: true });
 
 (async () => {
-  const b = await chromium.launch({ executablePath: EXEC, headless: true });
+  const b = await launchChromium({ headless: true });
   const ctx = await b.newContext({ viewport: { width: 1440, height: 1000 } });
   const page = await ctx.newPage();
   const bad = [];

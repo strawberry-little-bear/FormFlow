@@ -1,0 +1,132 @@
+{
+  "base": "http://127.0.0.1:8000",
+  "generatedAt": "2026-10-25T10:47:52.715Z",
+  "standard": "WCAG 2.1/2.2 A/AA automated checks via axe-core",
+  "scans": [
+    {
+      "label": "login-organizer",
+      "route": "#/login",
+      "title": "收齐啦 · FormFlow",
+      "violations": [],
+      "incomplete": [
+        {
+          "id": "aria-prohibited-attr",
+          "impact": "serious",
+          "nodes": 1
+        },
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "nodes": 1
+        }
+      ]
+    },
+    {
+      "label": "tasks",
+      "route": "#/tasks",
+      "title": "收齐啦 · FormFlow",
+      "violations": [],
+      "incomplete": [
+        {
+          "id": "aria-prohibited-attr",
+          "impact": "serious",
+          "nodes": 2
+        }
+      ]
+    },
+    {
+      "label": "design",
+      "route": "#/design/1",
+      "title": "收齐啦 · FormFlow",
+      "violations": [],
+      "incomplete": [
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "nodes": 14
+        }
+      ]
+    },
+    {
+      "label": "roster",
+      "route": "#/roster/1",
+      "title": "收齐啦 · FormFlow",
+      "violations": [],
+      "incomplete": [
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "nodes": 1
+        }
+      ]
+    },
+    {
+      "label": "workbench",
+      "route": "#/workbench/1",
+      "title": "收齐啦 · FormFlow",
+      "violations": [],
+      "incomplete": [
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "nodes": 1
+        }
+      ]
+    },
+    {
+      "label": "review",
+      "route": "#/review/1/2",
+      "title": "收齐啦 · FormFlow",
+      "violations": [],
+      "incomplete": [
+        {
+          "id": "aria-prohibited-attr",
+          "impact": "serious",
+          "nodes": 1
+        },
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "nodes": 1
+        }
+      ]
+    },
+    {
+      "label": "delivery",
+      "route": "#/delivery/1",
+      "title": "收齐啦 · FormFlow",
+      "violations": [],
+      "incomplete": [
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "nodes": 1
+        }
+      ]
+    },
+    {
+      "label": "submitter-entry",
+      "route": "#/login (submitter tab)",
+      "title": "收齐啦 · FormFlow",
+      "violations": [],
+      "incomplete": [
+        {
+          "id": "aria-prohibited-attr",
+          "impact": "serious",
+          "nodes": 1
+        },
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "nodes": 1
+        }
+      ]
+    }
+  ],
+  "errors": {
+    "console": [],
+    "page": [],
+    "responses": []
+  },
+  "violationCount": 0
+}

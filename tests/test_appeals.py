@@ -54,7 +54,7 @@ class RecordingLLM(StubLLM):
         super().__init__(responses)
         self.seen: list[list[dict]] = []
 
-    def chat(self, messages, temperature=0.2):
+    def chat(self, messages, temperature=0.2, deadline_monotonic=None):
         self.seen.append(messages)
         return super().chat(messages, temperature)
 

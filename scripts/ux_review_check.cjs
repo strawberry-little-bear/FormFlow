@@ -1,15 +1,17 @@
 /**
  * 复核页专项走查：使用正确的 subject_id，并捕获网络错误。
  */
-const { chromium } = require('C:/Users/18428/.workbuddy-ai/binaries/node/workspace/node_modules/playwright-core');
+const { launchChromium } = require('./ux_browser.cjs');
 const fs = require('fs');
-const OUT = 'E:/FormFlow/docs/ux-review-2026-10-23';
-const BASE = 'http://127.0.0.1:8000';
-const EXEC = 'C:/Users/18428/AppData/Local/ms-playwright/chromium-1248/chrome-win64/chrome.exe';
+const path = require('path');
+const OUT = process.env.FORMFLOW_WALKTHROUGH_OUT
+  ? path.resolve(process.env.FORMFLOW_WALKTHROUGH_OUT)
+  : path.resolve(__dirname, '../docs/ux-review-2026-10-23');
+const BASE = process.env.FORMFLOW_WALKTHROUGH_BASE || 'http://127.0.0.1:8000';
 fs.mkdirSync(OUT, { recursive: true });
 
 (async () => {
-  const browser = await chromium.launch({ executablePath: EXEC, headless: true });
+  const browser = await launchChromium({ headless: true });
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   const page = await ctx.newPage();
   const netErrors = [];

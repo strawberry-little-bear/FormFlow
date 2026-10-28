@@ -12,7 +12,7 @@ from app.agents.review_agent import CheckContext, run_deterministic
 from app.db import engine
 from app.main import app
 from app.models import (RESULT_ISSUE, RESULT_SATISFIED, RESULT_UNKNOWN,
-                        Member, Subject)
+                        Member, RosterEntry, Subject)
 from app.schemas import Blueprint, FieldDef, RuleDef
 from app.services import tasks as task_service
 from tests.conftest import make_task
@@ -147,8 +147,36 @@ def test_grant_resubmit_warns_same_name(client, db_session):
     r2 = client.post("/api/tasks/" + str(tid) + "/grants",
                      data={"subject_name": "甲队"}, headers=h)
     assert r2.status_code == 200
-    assert "同名" in r2.json().get("warning", "")
+    assert "此前的凭证失效" in r2.json().get("warning", "")
+    assert "相同姓名不自动合并" in r2.json()["warning"]
     assert r2.json()["subject_id"] == r1.json()["subject_id"]
+    assert client.get("/api/me", headers={"Authorization": "Bearer " + r1.json()["credential"]}).status_code == 401
+    assert client.get("/api/me", headers={"Authorization": "Bearer " + r2.json()["credential"]}).status_code == 200
+
+
+def test_roster_reissue_uses_bound_subject_for_duplicate_names(client, db_session):
+    h = _register(client, "org-m2-bound")
+    tid = _mk_task(client, h, "同名主体")
+    first = client.post("/api/tasks/" + str(tid) + "/grants",
+                        data={"subject_name": "同名"}, headers=h)
+    assert first.status_code == 200
+    first_subject_id = first.json()["subject_id"]
+
+    bound = Subject(task_id=tid, kind="individual", display_name="同名")
+    db_session.add(bound)
+    db_session.flush()
+    entry = RosterEntry(task_id=tid, name="同名", subject_id=bound.id)
+    db_session.add(entry)
+    db_session.commit()
+
+    second = client.post("/api/tasks/" + str(tid) + "/grants",
+                         data={"subject_name": "同名", "roster_entry_id": str(entry.id)}, headers=h)
+    assert second.status_code == 200
+    assert second.json()["subject_id"] == bound.id
+    assert second.json()["subject_id"] != first_subject_id
+    assert client.get("/api/me", headers={"Authorization": "Bearer " + first.json()["credential"]}).status_code == 200
+    assert client.get("/api/me", headers={"Authorization": "Bearer " + second.json()["credential"]}).status_code == 200
+
 
 
 def test_grant_individual_ignores_members(client, db_session):

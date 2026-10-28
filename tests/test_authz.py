@@ -162,6 +162,10 @@ def test_export_snapshot_requires_ownership(client, db_session):
     snapshot_detail = client.get(f"/api/snapshots/{snap_id}", headers=ha)
     assert snapshot_detail.status_code == 200
     assert snapshot_detail.json()["snapshot_id"] == snap_id
+    evidence = snapshot_detail.json()["agent_evidence"]
+    assert evidence["snapshot_id"] == snap_id
+    assert "material text" in evidence["privacy"]["excludes"]
+    assert "prompts" in evidence["privacy"]["excludes"]
     newer = client.post(f"/api/tasks/{task_id}/snapshots", data={"kind": "preview"}, headers=ha)
     assert newer.status_code == 200, newer.text
     first_page = client.get(f"/api/tasks/{task_id}/snapshots?limit=1", headers=ha).json()

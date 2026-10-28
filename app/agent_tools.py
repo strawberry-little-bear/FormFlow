@@ -193,7 +193,7 @@ class AgentToolHarness:
                 raise ToolFailure(ToolErrorCode.FORBIDDEN, "当前 Agent 上下文没有此工具的授权范围")
             if not isinstance(raw_arguments, Mapping):
                 raise ToolFailure(ToolErrorCode.INVALID_ARGUMENTS, "工具参数必须是对象")
-            canonical = _canonical_arguments(tool_name, raw_arguments)
+            canonical = _canonical_arguments(tool_name, raw_arguments, context)
             if len(canonical) > spec.max_argument_bytes:
                 raise ToolFailure(ToolErrorCode.INVALID_ARGUMENTS, "工具参数超过允许大小")
             request_hash = hashlib.sha256(canonical).hexdigest()
@@ -209,12 +209,15 @@ class AgentToolHarness:
                     raise ToolFailure(ToolErrorCode.IDEMPOTENCY_CONFLICT,
                                       "相同幂等键对应了不同请求；没有重复执行工具")
                 return _copy_invocation(prior.invocation)
+            tool_deadline = started + min(spec.timeout_seconds, self.default_timeout_seconds)
+            if context.deadline_monotonic is not None:
+                tool_deadline = min(tool_deadline, context.deadline_monotonic)
+            if tool_deadline <= time.monotonic():
+                raise ToolFailure(ToolErrorCode.TIMEOUT, "上层工具时限已耗尽；未启动新调用")
             self.budget.spend(spec.budget_cost)
-            elapsed_limit = min(spec.timeout_seconds, self.default_timeout_seconds)
-            scoped_context = replace(context, deadline_monotonic=started + elapsed_limit)
+            scoped_context = replace(context, deadline_monotonic=tool_deadline)
             result = spec.handler(scoped_context, arguments)
-            elapsed = time.monotonic() - started
-            if elapsed > elapsed_limit:
+            if time.monotonic() > tool_deadline:
                 raise ToolFailure(ToolErrorCode.TIMEOUT, "工具超过允许时限；结果不用于自动判断")
             try:
                 normalized = result if isinstance(result, ToolResult) else ToolResult.model_validate(result)
@@ -299,9 +302,20 @@ def _validation_summary(exc: Exception) -> str:
     return type(exc).__name__
 
 
-def _canonical_arguments(tool_name: str, arguments: Mapping[str, Any]) -> bytes:
+def _canonical_arguments(tool_name: str, arguments: Mapping[str, Any],
+                         context: ToolContext) -> bytes:
     try:
-        return json.dumps({"tool": tool_name, "arguments": dict(arguments)},
+        scope = {
+            "actor": context.actor,
+            "task_id": context.task_id,
+            "subject_id": context.subject_id,
+            "run_id": context.run_id,
+            "rule_id": context.rule_id,
+            "simulation": context.simulation,
+            "allowed_scopes": sorted(context.allowed_scopes),
+        }
+        return json.dumps({"tool": tool_name, "scope": scope,
+                           "arguments": dict(arguments)},
                           ensure_ascii=False, sort_keys=True, separators=(",", ":"),
                           default=str).encode("utf-8")
     except Exception as exc:  # noqa: BLE001

@@ -22,12 +22,16 @@ from sqlalchemy.orm import Session
 
 from .. import storage
 from ..models import (
+    AuditEvent,
+    CheckRun,
     DECISION_ACCEPT_CURRENT,
     DeliverySnapshot,
     ExportJob,
     FileObject,
     ManualDecision,
     Revision,
+    RuleResult,
+    RUN_SUPERSEDED,
     Subject,
     Submission,
     Task,
@@ -181,6 +185,120 @@ def _build_csv(manifest: dict, tz_name: str = "Asia/Shanghai") -> bytes:
     return buf.getvalue().encode("utf-8-sig")
 
 
+def _build_delivery_readme(manifest: dict, tz_name: str = "Asia/Shanghai") -> str:
+    """Create a human-readable boundary note beside the machine-readable files."""
+    kind_label = "正式交付" if manifest.get("kind") == "formal" else "整理预览"
+    totals = manifest.get("totals") or {}
+    created_at = _local_display(manifest.get("created_at"), tz_name) or "未记录"
+    lines = [
+        "FormFlow 交付包",
+        "",
+        f"任务：{manifest.get('task_name') or '未命名任务'}（#{manifest.get('task_id') or '?'}）",
+        f"快照：{kind_label} · 蓝图版本 #{manifest.get('blueprint_version_id') or '?'}",
+        f"固定时间：{created_at}（任务时区：{tz_name or 'Asia/Shanghai'}）",
+        "",
+        "这份包由同一份不可变快照生成：summary.csv、材料文件和 manifest.json 的纳入范围一致。",
+        "固定快照之后的新提交、补交或人工决定不会静默改写这份包；需要最新范围时请重新固定快照。",
+        "CSV 的收件时间按任务时区显示；manifest.json 保留可供程序核对的 ISO 时间和文件摘要。",
+        "资格核实、材料检查和最终验收是分开的决定；只有快照中标记为纳入的正式版本才进入正式交付。",
+        "AI 或程序检查只提供证据，未完成、待人工或未验收的项目不会被包装成已通过。",
+        "",
+        f"主体总数：{totals.get('subjects', 0)}",
+        f"纳入材料：{totals.get('included', 0)}",
+        f"排除主体：{totals.get('excluded', 0)}",
+        "",
+        "文件说明：",
+        "- summary.csv：按主体列出版本、收件时间、纳入状态、排除原因和资格说明。",
+        "- manifest.json：固定快照的完整结构化清单，包含材料 SHA-256。",
+        "- agent_evidence.json：与快照版本绑定的脱敏检查运行摘要和工具调用元数据。",
+        "- original_names.json：ZIP 内稳定文件名与原始文件名的映射。",
+        "- 材料文件：已纳入主体的原始材料；文件名带主体 ID 和文件 ID 前缀。",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def _agent_evidence(db: Session, manifest: dict, snapshot_id: int) -> dict:
+    """Export version-bound Agent metadata without material content or prompts."""
+    entries = []
+    for entry in manifest.get("entries", []):
+        if not isinstance(entry, dict):
+            continue
+        revision_id = entry.get("revision_id")
+        run = None
+        if revision_id is not None:
+            run = db.scalar(select(CheckRun).where(
+                CheckRun.task_id == manifest.get("task_id"),
+                CheckRun.revision_id == revision_id,
+                CheckRun.status != RUN_SUPERSEDED,
+            ).order_by(CheckRun.id.desc()))
+        run_payload = None
+        if run is not None:
+            result_counts = {}
+            for result in db.scalars(select(RuleResult).where(
+                    RuleResult.run_id == run.id)).all():
+                key = str(result.result or "unknown")[:32]
+                result_counts[key] = result_counts.get(key, 0) + 1
+            try:
+                coverage = json.loads(run.coverage_json or "{}")
+            except (TypeError, ValueError):
+                coverage = {}
+            if not isinstance(coverage, dict):
+                coverage = {}
+            coverage_summary = {
+                "files": len(coverage),
+                "unread_pages": sum(int(v.get("unread", 0) or 0)
+                                     for v in coverage.values() if isinstance(v, dict)),
+                "failed_pages": sum(int(v.get("failed", 0) or 0)
+                                     for v in coverage.values() if isinstance(v, dict)),
+            }
+            trace = []
+            events = db.scalars(select(AuditEvent).where(
+                AuditEvent.task_id == manifest.get("task_id"),
+                AuditEvent.action == "agent.tool.invoked",
+            ).order_by(AuditEvent.id)).all()
+            for event in events:
+                try:
+                    raw = json.loads(event.payload_json or "{}")
+                except (TypeError, ValueError):
+                    continue
+                if raw.get("run_id") != run.id:
+                    continue
+                trace.append({key: raw.get(key) for key in (
+                    "tool", "tool_version", "sequence", "correlation_id",
+                    "status", "simulation", "error_code", "duration_ms")})
+            run_payload = {
+                "run_id": run.id,
+                "status": run.status,
+                "execution_mode": run.execution_mode,
+                "created_at": _utc(run.created_at),
+                "finished_at": _utc(run.finished_at),
+                "pages_read": run.pages_read or 0,
+                "llm_calls_used": run.llm_calls_used or 0,
+                "budget_exhausted": bool(run.budget_exhausted),
+                "coverage": coverage_summary,
+                "rule_results": result_counts,
+                "tool_trace": trace[-128:],
+            }
+        entries.append({
+            "subject_id": entry.get("subject_id"),
+            "revision_id": revision_id,
+            "revision": entry.get("revision"),
+            "included": bool(entry.get("included")),
+            "run": run_payload,
+        })
+    return {
+        "schema_version": 1,
+        "snapshot_id": snapshot_id,
+        "task_id": manifest.get("task_id"),
+        "generated_at": utcnow().isoformat(),
+        "privacy": {
+            "includes": ["run metadata", "rule result counts", "tool trace metadata"],
+            "excludes": ["material text", "prompts", "tool arguments", "hidden reasoning"],
+        },
+        "entries": entries,
+    }
+
+
 def _included_files(db: Session, manifest: dict) -> list[tuple[dict, dict, FileObject, Path]]:
     if not isinstance(manifest, dict) or not isinstance(manifest.get("entries"), list):
         raise ExportIntegrityError("快照清单无法读取，未生成交付文件")
@@ -206,12 +324,36 @@ def _included_files(db: Session, manifest: dict) -> list[tuple[dict, dict, FileO
     return files
 
 
+def _zip_datetime(entry: dict, source: Path) -> tuple[int, int, int, int, int, int]:
+    """Choose a useful, ZIP-compatible timestamp for a material entry."""
+    value = entry.get("formal_submitted_at")
+    dt: Optional[datetime] = None
+    if value:
+        try:
+            dt = datetime.fromisoformat(str(value))
+        except (TypeError, ValueError):
+            dt = None
+    if dt is None:
+        try:
+            dt = datetime.fromtimestamp(source.stat().st_mtime)
+        except OSError:
+            dt = datetime.now()
+    if dt.tzinfo is not None:
+        dt = dt.astimezone().replace(tzinfo=None)
+    # ZIP stores local timestamps with two-second precision and a 1980-2107 range.
+    year = min(2107, max(1980, dt.year))
+    second = dt.second - (dt.second % 2)
+    return year, dt.month, dt.day, dt.hour, dt.minute, second
+
+
 def _write_verified_file(zf: zipfile.ZipFile, source: Path, archive_name: str,
-                         item: dict, file_id: str) -> None:
+                         item: dict, file_id: str, entry: dict) -> None:
     digest = hashlib.sha256()
     size = 0
     try:
-        with source.open("rb") as src, zf.open(archive_name, "w") as dst:
+        info = zipfile.ZipInfo(archive_name, date_time=_zip_datetime(entry, source))
+        info.compress_type = zipfile.ZIP_DEFLATED
+        with source.open("rb") as src, zf.open(info, "w") as dst:
             while chunk := src.read(1024 * 1024):
                 size += len(chunk)
                 digest.update(chunk)
@@ -257,7 +399,8 @@ def run_export(db: Session, snapshot: DeliverySnapshot) -> ExportJob:
         zip_tmp = out_dir / f".{zip_path.name}.part"
         partial_paths = [csv_tmp, zip_tmp, csv_path, zip_path]
         task = db.get(Task, snapshot.task_id)
-        csv_tmp.write_bytes(_build_csv(manifest, getattr(task, "timezone", "") or "Asia/Shanghai"))
+        task_timezone = getattr(task, "timezone", "") or "Asia/Shanghai"
+        csv_tmp.write_bytes(_build_csv(manifest, task_timezone))
 
         name_map = {}
         with zipfile.ZipFile(zip_tmp, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -266,12 +409,15 @@ def run_export(db: Session, snapshot: DeliverySnapshot) -> ExportJob:
                 original_name = str(item.get("original_name") or file_id)
                 # 稳定 ID 前缀防同名覆盖；ZIP 使用快照中的原名。
                 arc = f"{entry['subject_id']:06d}_{file_id[:8]}_{storage.safe_name(original_name)}"
-                _write_verified_file(zf, source, arc, item, file_id)
+                _write_verified_file(zf, source, arc, item, file_id, entry)
                 name_map[arc] = {"original_name": original_name,
                                  "subject_id": entry["subject_id"],
                                  "sha256": item.get("sha256", "")}
             zf.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
+            zf.writestr("agent_evidence.json", json.dumps(
+                _agent_evidence(db, manifest, snapshot.id), ensure_ascii=False, indent=2))
             zf.writestr("original_names.json", json.dumps(name_map, ensure_ascii=False, indent=2))
+            zf.writestr("README.txt", _build_delivery_readme(manifest, task_timezone))
 
         csv_tmp.replace(csv_path)
         zip_tmp.replace(zip_path)

@@ -6,7 +6,7 @@
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import (
@@ -22,6 +22,11 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base
+
+
+def _utcnow_naive() -> datetime:
+    """Return UTC in the naive format used by existing DateTime columns."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 # ---------------------------------------------------------------- 状态常量
 # 任务生命周期（表 7）
@@ -50,6 +55,8 @@ RUN_RETRY_WAIT = "retry_wait"
 RUN_SUCCESS = "success"
 RUN_FAILED = "failed"
 RUN_SUPERSEDED = "superseded"
+RUN_EXECUTION_LIVE = "live"
+RUN_EXECUTION_OFFLINE_REPLAY = "offline_replay"
 
 # 规则结果（表 7）
 RESULT_SATISFIED = "satisfied"          # 满足
@@ -96,7 +103,7 @@ class Account(Base):
     username: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(128))
     password_salt: Mapped[str] = mapped_column(String(64), default="")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow_naive)
 
 
 class AuthSession(Base):
@@ -109,7 +116,7 @@ class AuthSession(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"), index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow_naive)
     expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     revoked: Mapped[bool] = mapped_column(Boolean, default=False)
 
@@ -129,10 +136,10 @@ class Task(Base):
     correction_deadline: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     status: Mapped[str] = mapped_column(String(16), default=TASK_DRAFT)
     current_blueprint_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("blueprint_versions.id"), nullable=True
+        ForeignKey("blueprint_versions.id", use_alter=True, name="fk_tasks_current_blueprint"), nullable=True
     )
     created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("accounts.id"), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow_naive)
 
 
 class BlueprintVersion(Base):
@@ -147,7 +154,7 @@ class BlueprintVersion(Base):
     source_text: Mapped[str] = mapped_column(Text, default="")  # 组织者原始输入汇总（V01：发布时复核规则来源，不暗加规则）
     status: Mapped[str] = mapped_column(String(16), default="draft")  # draft/published
     created_by_agent: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow_naive)
     published_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
 
@@ -160,7 +167,7 @@ class Subject(Base):
     kind: Mapped[str] = mapped_column(String(16), default="individual")
     display_name: Mapped[str] = mapped_column(String(200))
     eligibility: Mapped[str] = mapped_column(String(16), default=ELIG_NOT_ASSESSED)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow_naive)
     members: Mapped[list["Member"]] = relationship(back_populates="subject")
 
 
@@ -199,7 +206,7 @@ class Exemption(Base):
     new_deadline: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     reason: Mapped[str] = mapped_column(Text, default="")
     decided_by: Mapped[Optional[int]] = mapped_column(ForeignKey("accounts.id"), nullable=True)
-    decided_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    decided_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow_naive)
 
 
 class AccessGrant(Base):
@@ -212,7 +219,7 @@ class AccessGrant(Base):
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     revoked: Mapped[bool] = mapped_column(Boolean, default=False)
     expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow_naive)
 
 
 class Submission(Base):
@@ -228,10 +235,10 @@ class Submission(Base):
     # 未正式提交前的字段草稿；刷新/换设备后可恢复。正式版本仍只存于 Revision。
     draft_fields_json: Mapped[str] = mapped_column(Text, default="{}")
     current_revision_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("revisions.id"), nullable=True
+        ForeignKey("revisions.id", use_alter=True, name="fk_submissions_current_revision"), nullable=True
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime, default=_utcnow_naive, onupdate=_utcnow_naive
     )
 
 
@@ -260,7 +267,7 @@ class Revision(Base):
     payload_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     receipt: Mapped[str] = mapped_column(String(64), unique=True)  # 稳定回执号
     formal_submitted_at: Mapped[datetime] = mapped_column(DateTime)  # 服务端成功时刻
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow_naive)
 
 
 class FileObject(Base):
@@ -278,7 +285,7 @@ class FileObject(Base):
     mime: Mapped[str] = mapped_column(String(128), default="")
     status: Mapped[str] = mapped_column(String(16), default=FILE_RECEIVED)
     parse_error: Mapped[str] = mapped_column(Text, default="")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow_naive)
 
 
 class ParseIndex(Base):
@@ -294,7 +301,7 @@ class ParseIndex(Base):
     failed_pages: Mapped[int] = mapped_column(Integer, default=0)
     method: Mapped[str] = mapped_column(String(32), default="text")  # text/ocr/none
     text_path: Mapped[str] = mapped_column(String(512), default="")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow_naive)
 
 
 class CheckRun(Base):
@@ -306,13 +313,15 @@ class CheckRun(Base):
     revision_id: Mapped[int] = mapped_column(ForeignKey("revisions.id"), index=True)
     blueprint_version_id: Mapped[int] = mapped_column(ForeignKey("blueprint_versions.id"))
     status: Mapped[str] = mapped_column(String(16), default=RUN_QUEUED)
+    # 运行仍走同一队列与审计链；演示回放只替换受控的模型客户端。
+    execution_mode: Mapped[str] = mapped_column(String(24), default=RUN_EXECUTION_LIVE)
     llm_calls_used: Mapped[int] = mapped_column(Integer, default=0)
     pages_read: Mapped[int] = mapped_column(Integer, default=0)
     budget_exhausted: Mapped[bool] = mapped_column(Boolean, default=False)
     # V08 覆盖缺口：file_id -> {total,text,unread,failed,method,name}，供复核与提交者看到“哪些页没读到”
     coverage_json: Mapped[str] = mapped_column(Text, default="")
     error: Mapped[str] = mapped_column(Text, default="")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow_naive)
     finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
 
@@ -327,7 +336,7 @@ class RuleResult(Base):
     severity: Mapped[str] = mapped_column(String(16), default="blocking")  # blocking/advisory
     explanation: Mapped[str] = mapped_column(Text, default="")
     next_step: Mapped[str] = mapped_column(Text, default="")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow_naive)
 
 
 class Evidence(Base):
@@ -363,7 +372,7 @@ class ManualDecision(Base):
     revokes_decision_id: Mapped[Optional[int]] = mapped_column(ForeignKey("manual_decisions.id"), nullable=True)
     expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     revoked: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow_naive)
 
 
 class SubmitterNote(Base):
@@ -386,7 +395,7 @@ class SubmitterNote(Base):
     content: Mapped[str] = mapped_column(Text)
     idempotency_key: Mapped[str] = mapped_column(String(64), default="", index=True)
     status: Mapped[str] = mapped_column(String(16), default=NOTE_PENDING)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow_naive)
 
 
 class DeliverySnapshot(Base):
@@ -399,7 +408,7 @@ class DeliverySnapshot(Base):
     manifest_json: Mapped[str] = mapped_column(Text)
     kind: Mapped[str] = mapped_column(String(16), default="formal")  # formal/preview
     created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("accounts.id"), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow_naive)
 
 
 class ExportJob(Base):
@@ -412,7 +421,7 @@ class ExportJob(Base):
     csv_path: Mapped[str] = mapped_column(String(512), default="")
     zip_path: Mapped[str] = mapped_column(String(512), default="")
     error: Mapped[str] = mapped_column(Text, default="")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow_naive)
     finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
 
@@ -426,7 +435,7 @@ class NotificationIntent(Base):
     content: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[str] = mapped_column(String(16), default="copied")  # copied
     created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("accounts.id"), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow_naive)
 
 
 class AuditEvent(Base):
@@ -439,7 +448,7 @@ class AuditEvent(Base):
     action: Mapped[str] = mapped_column(String(64))
     entity: Mapped[str] = mapped_column(String(64), default="")
     payload_json: Mapped[str] = mapped_column(Text, default="{}")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow_naive)
 
 
 class AgentDraftRequest(Base):
@@ -458,6 +467,6 @@ class AgentDraftRequest(Base):
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     result_json: Mapped[str] = mapped_column(Text, default="")
     error: Mapped[str] = mapped_column(Text, default="")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow,
-                                                  onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow_naive)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow_naive,
+                                                  onupdate=_utcnow_naive)

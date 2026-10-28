@@ -22,7 +22,7 @@ from .. import storage
 from ..config import settings
 from ..timeutils import iso_utc
 from ..services.review_context import review_context
-from ..services.progress import demo_route_data, workbench_data, exempt_subject_ids
+from ..services.progress import demo_route_data, workbench_data, exempt_subject_ids, _review_run_failure
 from ..services.agent_runtime import agent_runtime_manifest
 from ..models import (
     EXEMPTION_ACTIVE,
@@ -41,6 +41,7 @@ from ..models import (
     NotificationIntent,
     RosterEntry,
     RUN_SUPERSEDED,
+    RUN_EXECUTION_OFFLINE_REPLAY,
     Revision,
     Submission,
     Subject,
@@ -86,6 +87,7 @@ from ..services import tasks as task_service
 from ..services.checks import (create_run, current_details, current_summary,
                                execute_run, retry_run, rule_details, review_rule_details,
                                run_coverage)
+from ..services.demo_seed import DEMO_TASK_NAME, DEMO_USERNAME
 from ..agents.requirements_agent import validate_blueprint
 from ..schemas import Blueprint
 from fastapi import APIRouter
@@ -139,6 +141,12 @@ def _run_retry_meta(db: Session, task_id: int, run_id: int) -> dict:
         attempt += 1
         cursor = parent
     return {"attempt": attempt, "retried_from": retried_from, "from_status": from_status}
+
+
+def _offline_replay_allowed(task: Task, acct: Account) -> bool:
+    """Only the seeded demo account/task may use the deterministic replay path."""
+    return (acct.username == DEMO_USERNAME and task.created_by == acct.id
+            and task.name == DEMO_TASK_NAME)
 
 # ---------------------------------------------------------------- 会话（DB 持久化）
 def current_account(
@@ -321,6 +329,7 @@ def enqueue_agent_draft(task_id: int, background_tasks: BackgroundTasks,
                         blueprint_version_id: Optional[int] = Form(None),
                         base_blueprint_id: int = Form(0),
                         answered: str = Form(""), instruction: str = Form(""),
+                        execution_mode: str = Form("live"),
                         db: Session = Depends(get_db), acct: Account = Depends(current_account)):
     """Queue a long design-Agent request so the editor can recover after disconnects."""
     task = _owned_task(db, acct, task_id)
@@ -328,6 +337,10 @@ def enqueue_agent_draft(task_id: int, background_tasks: BackgroundTasks,
         task_service.ensure_task_writable(task)
     except task_service.TaskNotWritable as exc:
         raise HTTPException(409, str(exc))
+    if execution_mode == "offline_replay" and not _offline_replay_allowed(task, acct):
+        # Keep the replay path useful for the showcase without making the
+        # deterministic stub available to ordinary organizer tasks.
+        raise HTTPException(404, "任务不存在或无权访问")
     try:
         answered_map = json.loads(answered) if answered.strip() else {}
     except json.JSONDecodeError:
@@ -337,7 +350,8 @@ def enqueue_agent_draft(task_id: int, background_tasks: BackgroundTasks,
     payload = {"kind": kind, "requirement": requirement, "template": template,
                "blueprint_version_id": blueprint_version_id,
                "base_blueprint_id": base_blueprint_id,
-               "answered": answered_map, "instruction": instruction}
+               "answered": answered_map, "instruction": instruction,
+               "execution_mode": execution_mode}
     from ..services import agent_requests
     try:
         job, should_schedule = agent_requests.enqueue(db, task, acct, request_id, payload)
@@ -463,6 +477,108 @@ def get_agent_runtime(task_id: int, db: Session = Depends(get_db),
     """Expose the task-scoped Agent boundary used by the organizer showcase."""
     return agent_runtime_manifest(db, _owned_task(db, acct, task_id))
 
+
+def _mcp_snapshot_payload(db: Session, task: Task, *, trigger: str) -> dict:
+    """Build the bounded MCP showcase payload from server-owned projections."""
+    workbench = workbench_data(db, task)
+    route = demo_route_data(db, task)
+    runtime = agent_runtime_manifest(db, task)
+    counts = workbench.get("counts", {})
+    if task.mode == "roster":
+        allowed_counts = (
+            "roster", "exempt", "required", "submitted", "unsubmitted",
+            "accepted", "eligibility_pending",
+        )
+    else:
+        allowed_counts = ("registered", "submitted", "accepted", "eligibility_pending")
+    projected_counts = {key: counts[key] for key in allowed_counts if key in counts}
+    current = route.get("current") or {}
+    next_step = route.get("next") or {}
+    skills = [skill.get("name") for skill in runtime.get("skills", [])
+              if isinstance(skill.get("name"), str)]
+    tools = [tool.get("name") for tool in runtime.get("tools", [])
+             if isinstance(tool.get("name"), str)]
+    mcp = runtime.get("mcp") or {}
+    adapters = []
+    for adapter in mcp.get("adapters", []):
+        if not isinstance(adapter, dict):
+            continue
+        adapters.append({
+            "name": adapter.get("name"),
+            "transport": adapter.get("transport"),
+            "tools": [name for name in adapter.get("tools", []) if isinstance(name, str)],
+        })
+    correlation_id = f"mcp-{secrets.token_hex(8)}"
+    calls = [
+        {"tool": "list_my_tasks", "status": "ok", "summary": "已授权任务列表", "task_count": 1},
+        {"tool": "get_task_collection_progress", "status": "ok", "counts": projected_counts},
+        {"tool": "get_task_next_step", "status": "ok", "current": {
+            "title": current.get("title"), "status": current.get("status")}, "next": {
+            "title": next_step.get("title"), "status": next_step.get("status")} if next_step else None},
+        {"tool": "get_task_agent_runtime", "status": "ok", "skills": skills,
+         "tool_count": len(tools), "model_mode": (runtime.get("model") or {}).get("mode")},
+    ]
+    for sequence, call in enumerate(calls, 1):
+        call.update({"sequence": sequence, "scope": "organizer_session", "duration_ms": 0})
+    replay = [
+        {"sequence": 1, "phase": "scope", "label": "确认任务范围",
+         "detail": "只读取当前组织者有权看到的任务索引", "tool": "list_my_tasks",
+         "status": "ok"},
+        {"sequence": 2, "phase": "aggregate", "label": "读取收集汇总",
+         "detail": "只返回阶段计数，不展开逐人名单", "tool": "get_task_collection_progress",
+         "status": "ok"},
+        {"sequence": 3, "phase": "route", "label": "定位下一步",
+         "detail": "根据当前任务状态决定展示路线焦点", "tool": "get_task_next_step",
+         "status": "ok"},
+        {"sequence": 4, "phase": "contract", "label": "读取运行合同",
+         "detail": "展示 Skill、工具白名单和 Harness 预算", "tool": "get_task_agent_runtime",
+         "status": "ok"},
+    ]
+    harness = runtime.get("harness") or {}
+    return {
+        "captured_at": iso_utc(utcnow()),
+        "source": "server_mcp_bridge",
+        "read_only": True,
+        "task": {"id": task.id, "name": task.name, "status": task.status, "mode": task.mode},
+        "intent": {"actor": "showcase_agent", "goal": "定位当前任务下一步并读取受限聚合进度",
+                   "allowed": ["task_navigation", "collection_aggregate", "runtime_contract"],
+                   "excluded": ["participant_rows", "material_body", "review_evidence", "session_token"]},
+        "execution": {"status": "completed", "trigger": trigger, "transport": "mcp_compatible",
+                       "mode": "server_readonly_bridge", "correlation_id": correlation_id,
+                       "token_forwarded_to_browser": False,
+                        "human_gate": "最终验收、补正处理和发布仍由组织者确认",
+                        "replay": replay,
+                        "replay_budget": {"tool_calls": len(replay),
+                                          "max_tool_calls": harness.get("max_invocations"),
+                                          "semantic_model_calls": harness.get("semantic_model_calls_per_run"),
+                                          "parsed_pages": harness.get("parsed_pages_per_run")}},
+        "calls": calls,
+        "runtime": {
+            "contract_version": runtime.get("contract_version"),
+            "skills": skills,
+            "tool_count": len(tools),
+            "harness": {key: (runtime.get("harness") or {}).get(key)
+                        for key in ("max_invocations", "semantic_model_calls_per_run",
+                                    "parsed_pages_per_run", "result_limit_bytes")},
+            "mcp": {"adapters": adapters, "boundary": mcp.get("boundary")},
+        },
+        "boundary": "只读任务导航、收集汇总和 runtime；不返回逐人名单、材料正文、审核证据或会话 token。",
+    }
+
+
+@router.get("/tasks/{task_id}/mcp-snapshot")
+def get_mcp_snapshot(task_id: int, db: Session = Depends(get_db),
+                     acct: Account = Depends(current_account)):
+    """Return a redacted, read-only MCP contract snapshot for the showcase."""
+    return _mcp_snapshot_payload(db, _owned_task(db, acct, task_id), trigger="page_load")
+
+
+@router.post("/tasks/{task_id}/mcp-demo")
+def run_mcp_demo(task_id: int, db: Session = Depends(get_db),
+                 acct: Account = Depends(current_account)):
+    """Run the deterministic server-side MCP bridge used in the presentation."""
+    return _mcp_snapshot_payload(db, _owned_task(db, acct, task_id), trigger="agent_request")
+
 @router.get("/tasks/{task_id}/blueprint")
 def get_blueprint(task_id: int, db: Session = Depends(get_db), acct: Account = Depends(current_account)):
     task = _owned_task(db, acct, task_id)
@@ -512,13 +628,17 @@ def issue_grant(task_id: int, subject_name: str = Form(...),
     同名主体按名复用提交空间（补发凭证场景），但只在响应中提示待核，不自动合并。
     """
     task = _owned_task(db, acct, task_id)
-    subject = task_service.ensure_subject(db, task, subject_name)
-    # 名册条目精确关联：从名单页发放时把该条目绑到主体，便于核对应交分母
+    entry = None
     if roster_entry_id is not None:
         entry = db.get(RosterEntry, roster_entry_id)
         if entry is None or entry.task_id != task.id:
             raise HTTPException(404, "名册条目不存在或不属于该任务")
-        if entry.subject_id is None:
+    subject = db.get(Subject, entry.subject_id) if entry and entry.subject_id else None
+    if subject is not None and subject.task_id != task.id:
+        raise HTTPException(409, "名册关联主体与任务不一致")
+    if subject is None:
+        subject = task_service.ensure_subject(db, task, subject_name)
+        if entry is not None:
             entry.subject_id = subject.id
             db.flush()
     added: list[str] = []
@@ -532,14 +652,24 @@ def issue_grant(task_id: int, subject_name: str = Form(...),
         if subject.kind == "team":
             added = task_service.add_members(db, subject, names)
     had_valid = task_service.has_valid_grant(db, subject)
+    if had_valid:
+        old_grants = db.scalars(select(AccessGrant).where(
+            AccessGrant.task_id == task.id,
+            AccessGrant.subject_id == subject.id,
+            AccessGrant.revoked.is_(False))).all()
+        for grant in old_grants:
+            grant.revoked = True
+        task_service.audit(db, "grant.revoke", "subject",
+                           {"subject_id": subject.id, "reason": "credential_reissued"},
+                           task.id)
     token = task_service.issue_grant(db, task, subject)
     db.commit()
     resp = {"subject_id": subject.id, "credential": token}
     if added:
         resp["members_added"] = added
     if had_valid:
-        resp["warning"] = ("该主体此前已有有效凭证（同名主体仅提示待核，不自动合并）；"
-                           "如非重发请核对主体 ID")
+        resp["warning"] = ("本次重发已使该主体此前的凭证失效。相同姓名不自动合并；"
+                           "如非重发，请核对主体 ID")
     return resp
 
 @router.get("/tasks/{task_id}/workbench")
@@ -547,7 +677,10 @@ def workbench(task_id: int, db: Session = Depends(get_db), acct: Account = Depen
     """任务工作台：谁没交、谁要改、谁等我决定。"""
     task = _owned_task(db, acct, task_id)
     return {"task": {"id": task.id, "name": task.name, "status": task.status,
-                     "mode": task.mode, "subject_kind": task.subject_kind},
+                     "mode": task.mode, "subject_kind": task.subject_kind,
+                     "timezone": task.timezone,
+                     "first_deadline": iso_utc(task.first_deadline),
+                     "correction_deadline": iso_utc(task.correction_deadline)},
             **workbench_data(db, task)}
 
 # ---------------------------------------------------------------- 提交者
@@ -848,6 +981,40 @@ def retry_check(task_id: int, subject_id: int, db: Session = Depends(get_db),
     return {"run_id": new_run.id, "status": new_run.status,
             "retried_from": run.id, "queued": True}
 
+
+@router.post("/tasks/{task_id}/subjects/{subject_id}/checks/offline-replay")
+def replay_check_offline(task_id: int, subject_id: int, db: Session = Depends(get_db),
+                         acct: Account = Depends(current_account)):
+    """Queue one explicitly labelled deterministic Agent replay for the demo."""
+    task = _owned_task(db, acct, task_id)
+    if not _offline_replay_allowed(task, acct):
+        raise HTTPException(404, "离线回放只对演示任务开放")
+    subject = db.get(Subject, subject_id)
+    if subject is None or subject.task_id != task.id:
+        raise HTTPException(404, "提交者不存在或不属于该任务")
+    submission = db.scalar(select(Submission).where(
+        Submission.task_id == task_id, Submission.subject_id == subject_id))
+    if submission is None or submission.current_revision_id is None:
+        raise HTTPException(422, "该主体没有正式提交，暂不能回放检查")
+    rev = db.get(Revision, submission.current_revision_id)
+    active = db.scalar(select(CheckRun).where(
+        CheckRun.revision_id == rev.id,
+        CheckRun.status.not_in([RUN_SUPERSEDED])).order_by(CheckRun.id.desc()))
+    if active is not None and active.status in {"queued", "running", "retry_wait"}:
+        raise HTTPException(409, "当前检查正在进行中，请等待本次运行结束")
+    try:
+        run = create_run(db, task, rev, execution_mode=RUN_EXECUTION_OFFLINE_REPLAY)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    task_service.audit(db, "check.offline_replay.queued", "check_run",
+                       {"run_id": run.id, "revision": rev.version,
+                        "execution_mode": RUN_EXECUTION_OFFLINE_REPLAY}, task.id,
+                       actor=f"account:{acct.id}")
+    db.commit()
+    return {"run_id": run.id, "status": run.status, "queued": True,
+            "execution_mode": RUN_EXECUTION_OFFLINE_REPLAY,
+            "label": "离线脚本回放"}
+
 @router.post("/tasks/{task_id}/subjects/{subject_id}/decisions")
 def make_decision(task_id: int, subject_id: int, decision: str = Form(...),
                   reason: str = Form(...), scope_rule_id: str = Form(""),
@@ -1061,10 +1228,17 @@ def findings(task_id: int, subject_id: int, db: Session = Depends(get_db),
                      .order_by(ManualDecision.id)).all()]
     from ..services.eligibility import eligibility_view
     qualification = eligibility_view(db, task, subject, submission.current_revision_id if submission else None)
+    replay_allowed = _offline_replay_allowed(task, acct)
+    replay_meta = {
+        "available": replay_allowed and submission is not None and submission.current_revision_id is not None,
+        "label": "离线脚本回放",
+        "detail": "使用演示脚本桩，不调用外部模型；结果只用于展示 Agent、Skill、Harness 与人工接手边界。",
+    }
     if submission is None or submission.current_revision_id is None:
         return {"review_context": context, "eligibility": qualification, "subject": {"id": subject.id, "name": subject.display_name},
                 "revision": None, "run": None, "rules": [], "tool_trace": [], "decisions": decisions,
                 "files": [], "revision_history": [],
+                "offline_replay": replay_meta,
                 "acceptance": {"ready": False, "accepted": False,
                                "blockers": ["没有正式提交版本"]},
                 "same_name_subjects": same_name, "same_name_hint": same_name_hint}
@@ -1151,6 +1325,7 @@ def findings(task_id: int, subject_id: int, db: Session = Depends(get_db),
             "revision": {"id": rev.id, "version": rev.version, "receipt": rev.receipt},
             "revision_history": _review_revision_history(db, submission, rev.id),
             "run": ({"id": run.id, "status": run.status,
+                      "execution_mode": run.execution_mode,
                       "created_at": _iso(run.created_at),
                       "finished_at": _iso(run.finished_at),
                       "duration_ms": _run_duration_ms(run),
@@ -1160,6 +1335,7 @@ def findings(task_id: int, subject_id: int, db: Session = Depends(get_db),
                      "pages_read": run.pages_read,
                      "llm_calls_used": run.llm_calls_used,
                      "budget_exhausted": run.budget_exhausted,
+                     "failure": _review_run_failure(run),
                       "budget": {
                           "pages": {"used": run.pages_read or 0,
                                     "limit": settings.max_pages_per_run},
@@ -1172,6 +1348,7 @@ def findings(task_id: int, subject_id: int, db: Session = Depends(get_db),
             "files": files,
             "acceptance": {"ready": not blockers and not accepted,
                            "accepted": accepted, "blockers": blockers},
+            "offline_replay": replay_meta,
             "notes": [appeal_service.to_dict(db, n)
                       for n in appeal_service.pending_notes(db, task)
                       if n.subject_id == subject.id],
@@ -1222,7 +1399,9 @@ def create_snapshot(task_id: int, kind: str = Form("formal"),
     except export_service.ExportIntegrityError as e:
         raise HTTPException(409, str(e))
     db.commit()
-    return {"snapshot_id": snap.id, "manifest": snap.manifest_json}
+    manifest = json.loads(snap.manifest_json)
+    return {"snapshot_id": snap.id, "manifest": snap.manifest_json,
+            "agent_evidence": export_service._agent_evidence(db, manifest, snap.id)}
 
 @router.get("/tasks/{task_id}/snapshots")
 def list_task_snapshots(task_id: int, limit: int = 20, offset: int = 0,
@@ -1274,8 +1453,13 @@ def get_snapshot(snapshot_id: int, db: Session = Depends(get_db),
     if snapshot is None:
         raise HTTPException(404, "快照不存在")
     _owned_task(db, acct, snapshot.task_id)
+    try:
+        manifest = json.loads(snapshot.manifest_json)
+    except (TypeError, ValueError):
+        manifest = {}
     return {"snapshot_id": snapshot.id, "kind": snapshot.kind,
-            "created_at": iso_utc(snapshot.created_at), "manifest": snapshot.manifest_json}
+            "created_at": iso_utc(snapshot.created_at), "manifest": snapshot.manifest_json,
+            "agent_evidence": export_service._agent_evidence(db, manifest, snapshot.id)}
 
 
 @router.post("/snapshots/{snapshot_id}/export")

@@ -1,0 +1,37 @@
+{
+  "review9999": {
+    "loadingTextStillVisible": true,
+    "errorVisible": true,
+    "buttons": [
+      "退出"
+    ]
+  },
+  "design9999": {
+    "sendDisabled": false,
+    "textareaDisabled": true,
+    "templateChips": [
+      {
+        "t": "团课报告",
+        "disabled": true
+      },
+      {
+        "t": "比赛报名",
+        "disabled": true
+      }
+    ]
+  },
+  "rosterImport": {
+    "value": "",
+    "placeholder": "张三,一班\n李四,一班\n王五,二班",
+    "color": "rgb(36, 39, 49)",
+    "lines": 0
+  },
+  "tasksPage": {
+    "pageHeight": 1958,
+    "viewportHeight": 950,
+    "scrollsToSeeEverything": true,
+    "taskLinks": 6,
+    "sectionCount": 7,
+    "bodyFontSize": "14px"
+  }
+}

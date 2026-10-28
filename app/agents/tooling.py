@@ -6,8 +6,8 @@ rule ID. There is no model-controlled filesystem, SQL, network or send tool.
 """
 from __future__ import annotations
 
-from dataclasses import replace
-from typing import Any
+from dataclasses import dataclass, replace
+from typing import Any, Callable, Mapping
 
 from sqlalchemy.orm import Session
 
@@ -41,31 +41,81 @@ RULE_REVIEW_SKILL = SkillSpec(
 )
 
 
+@dataclass(frozen=True)
+class ReviewToolContract:
+    name: str
+    description: str
+    required_scope: str
+    timeout_seconds: float
+    budget_cost: int = 1
+    max_argument_bytes: int = 8_192
+    max_result_bytes: int = 16_384
+    idempotent: bool = True
+    audit_entity: str = "rule_result"
+
+    def manifest_entry(self) -> dict[str, object]:
+        return {
+            "name": self.name,
+            "description": self.description,
+            "required_scope": self.required_scope,
+            "timeout_seconds": self.timeout_seconds,
+            "budget_cost": self.budget_cost,
+            "max_argument_bytes": self.max_argument_bytes,
+            "max_result_bytes": self.max_result_bytes,
+            "idempotent": self.idempotent,
+        }
+
+    def tool_spec(
+        self,
+        handler: Callable[[ToolContext, ReviewRuleInput], ToolResult | Mapping[str, Any]],
+    ) -> ToolSpec:
+        return ToolSpec(
+            name=self.name,
+            description=self.description,
+            input_model=ReviewRuleInput,
+            handler=handler,
+            required_scope=self.required_scope,
+            timeout_seconds=self.timeout_seconds,
+            budget_cost=self.budget_cost,
+            audit_entity=self.audit_entity,
+            max_argument_bytes=self.max_argument_bytes,
+            max_result_bytes=self.max_result_bytes,
+            idempotent=self.idempotent,
+        )
+
+
+def _review_tool_contracts() -> tuple[ReviewToolContract, ...]:
+    semantic_timeout = max(30.0, settings.llm_timeout_seconds * (settings.llm_max_retries + 1) + 10.0)
+    return (
+        ReviewToolContract(
+            name="review.deterministic_rule",
+            description="Run one allowlisted deterministic check from the current published blueprint.",
+            required_scope="review:deterministic",
+            timeout_seconds=5.0,
+        ),
+        ReviewToolContract(
+            name="review.semantic_rule",
+            description="Investigate one allowlisted semantic rule and verify quoted evidence against current parsed materials.",
+            required_scope="review:semantic",
+            timeout_seconds=semantic_timeout,
+        ),
+    )
+
+
 def review_tool_manifest() -> list[dict[str, object]]:
     """Expose the review tool contract without constructing a live runner."""
-    semantic_timeout = max(30.0, settings.llm_timeout_seconds * (settings.llm_max_retries + 1) + 10.0)
-    return [
-        {
-            "name": "review.deterministic_rule",
-            "description": "Run one allowlisted deterministic check from the current published blueprint.",
-            "required_scope": "review:deterministic",
-            "timeout_seconds": 5.0,
-            "budget_cost": 1,
-            "max_argument_bytes": 8_192,
-            "max_result_bytes": 16_384,
-            "idempotent": True,
-        },
-        {
-            "name": "review.semantic_rule",
-            "description": "Investigate one allowlisted semantic rule and verify quoted evidence against current parsed materials.",
-            "required_scope": "review:semantic",
-            "timeout_seconds": semantic_timeout,
-            "budget_cost": 1,
-            "max_argument_bytes": 8_192,
-            "max_result_bytes": 16_384,
-            "idempotent": True,
-        },
-    ]
+    return [contract.manifest_entry() for contract in _review_tool_contracts()]
+
+
+def review_harness_budget(deterministic_rules: int, semantic_rules: int) -> dict[str, int]:
+    """Compute invocation and cost limits from the same contracts used by the harness."""
+    contracts = {contract.name: contract for contract in _review_tool_contracts()}
+    invocations = deterministic_rules + semantic_rules
+    cost = (
+        deterministic_rules * contracts["review.deterministic_rule"].budget_cost
+        + semantic_rules * contracts["review.semantic_rule"].budget_cost
+    )
+    return {"max_invocations": max(1, invocations), "max_cost": max(1, cost)}
 
 
 def _tool_result(result: RuleResultOut) -> ToolResult:
@@ -90,40 +140,22 @@ def build_review_skill(ctx: CheckContext, *, client: LLMClient,
             raise ValueError("rule id is outside the deterministic review scope")
         return _tool_result(run_deterministic(rule, ctx))
 
-    def semantic_handler(_scope: ToolContext, args: ReviewRuleInput) -> ToolResult:
+    def semantic_handler(scope: ToolContext, args: ReviewRuleInput) -> ToolResult:
         rule = semantic.get(args.rule_id)
         if rule is None:
             raise ValueError("rule id is outside the semantic review scope")
-        return _tool_result(run_semantic_rule(rule, ctx, client))
+        return _tool_result(run_semantic_rule(
+            rule, ctx, client, deadline_monotonic=scope.deadline_monotonic))
 
-    registry.register(ToolSpec(
-        name="review.deterministic_rule",
-        description="Run one allowlisted deterministic check from the current published blueprint.",
-        input_model=ReviewRuleInput,
-        handler=deterministic_handler,
-        required_scope="review:deterministic",
-        timeout_seconds=5.0,
-        budget_cost=1,
-        audit_entity="rule_result",
-        max_result_bytes=16_384,
-    ))
-    semantic_timeout = max(30.0, settings.llm_timeout_seconds * (settings.llm_max_retries + 1) + 10.0)
-    registry.register(ToolSpec(
-        name="review.semantic_rule",
-        description="Investigate one allowlisted semantic rule and verify quoted evidence against current parsed materials.",
-        input_model=ReviewRuleInput,
-        handler=semantic_handler,
-        required_scope="review:semantic",
-        timeout_seconds=semantic_timeout,
-        budget_cost=1,
-        audit_entity="rule_result",
-        max_result_bytes=16_384,
-    ))
+    contracts = _review_tool_contracts()
+    registry.register(contracts[0].tool_spec(deterministic_handler))
+    registry.register(contracts[1].tool_spec(semantic_handler))
+    max_tool_timeout = max(contract.timeout_seconds for contract in contracts)
+    budget = review_harness_budget(len(deterministic), len(semantic))
     harness = AgentToolHarness(
         registry,
-        max_invocations=max(1, len(deterministic) + len(semantic)),
-        max_cost=max(1, len(deterministic) + len(semantic)),
-        default_timeout_seconds=max(semantic_timeout, 5.0),
+        **budget,
+        default_timeout_seconds=max_tool_timeout,
     )
     runner = SkillRunner(RULE_REVIEW_SKILL, harness)
     context = ToolContext(

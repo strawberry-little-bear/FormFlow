@@ -1,0 +1,39 @@
+{
+  "results": [
+    {
+      "label": "desktop",
+      "viewport": 1440,
+      "document": 1440,
+      "runtimeOpen": false,
+      "tourOpen": true,
+      "runtimeHeading": "运行时边界与安全护栏",
+      "runtimeSummaryHeight": 114,
+      "agentPairCount": 0,
+      "pageHeight": 1560
+    },
+    {
+      "label": "mobile-390",
+      "viewport": 390,
+      "document": 390,
+      "runtimeOpen": false,
+      "tourOpen": true,
+      "runtimeHeading": "运行时边界与安全护栏",
+      "runtimeSummaryHeight": 149,
+      "agentPairCount": 0,
+      "pageHeight": 2552
+    },
+    {
+      "label": "mobile-320",
+      "viewport": 320,
+      "document": 320,
+      "runtimeOpen": false,
+      "tourOpen": true,
+      "runtimeHeading": "运行时边界与安全护栏",
+      "runtimeSummaryHeight": 149,
+      "agentPairCount": 0,
+      "pageHeight": 2716
+    }
+  ],
+  "consoleErrors": [],
+  "badResponses": []
+}

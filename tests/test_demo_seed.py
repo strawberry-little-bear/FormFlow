@@ -6,11 +6,29 @@ import json
 from sqlalchemy import select
 
 from app.config import settings
-from app.models import AuditEvent, CheckRun, Subject
+from app.models import AuditEvent, CheckRun, Subject, RUN_FAILED
 from app.services import export as export_service
 from app.services.checks import current_summary
 from app.services.demo_seed import seed_demo
-from app.services.progress import _review_run_source, _review_run_trace, demo_route_data
+from app.services.progress import _review_run_failure, _review_run_source, _review_run_trace, demo_route_data
+
+
+def test_review_run_failure_is_safe_and_actionable():
+    budget = CheckRun(status=RUN_FAILED, budget_exhausted=True)
+    assert _review_run_failure(budget) == {
+        "code": "budget_exhausted",
+        "title": "运行预算已用完",
+        "detail": "未完成的项目保留为待确认，没有被当成通过。",
+        "action": "组织者可以重试，或直接打开复核页人工核对。",
+    }
+
+    model = CheckRun(status=RUN_FAILED, error="LLMError: gateway unavailable")
+    failure = _review_run_failure(model)
+    assert failure["code"] == "model_unavailable"
+    assert "gateway" not in str(failure).lower()
+
+    pending = CheckRun(status="success", error="LLMError: ignored")
+    assert _review_run_failure(pending) is None
 
 
 def test_seed_demo_state(db_session):
@@ -60,13 +78,14 @@ def test_demo_route_projection_follows_seed_lifecycle(db_session):
     ]
     assert route["current"]["title"] == "检查并接手"
     assert route["current"]["status"] == "current"
-    assert route["next"]["title"] == "检查并接手"
-    assert "已验收 1/4" in route["next"]["detail"]
-    assert route["next"]["href"] == f"#/review/{task.id}/2"
+    assert route["next"]["title"] == "固定交付"
+    assert route["next"]["status"] == "upcoming"
+    assert route["next"]["href"] == f"#/delivery/{task.id}"
     assert route["steps"][2]["href"] == f"#/review/{task.id}/2"
-    assert "李四" in route["next"]["detail"]
+    assert "李四" in route["current"]["detail"]
     signal = route["review_signal"]
     assert signal["subject_name"] == "李四"
+    assert signal["review_href"] == f"#/review/{task.id}/2"
     assert signal["run_id"] is not None
     assert signal["status"] == "success"
     assert signal["pages_read"] >= 1
@@ -120,5 +139,16 @@ def test_review_run_trace_is_compact_and_ordered(db_session):
     trace = _review_run_trace(db_session, task, run)
     assert trace
     assert [item["sequence"] for item in trace] == sorted(item["sequence"] for item in trace)
-    assert all(set(item) == {"tool", "sequence", "status", "simulation", "duration_ms"}
+    assert all(set(item) == {"tool", "tool_version", "sequence", "execution_attempt",
+                             "status", "simulation", "duration_ms"}
                for item in trace)
+    signal = route["review_signal"]
+    assert signal["revision_version"] > 0
+    assert signal["blueprint_version"] > 0
+    assert signal["retry"] == {"attempt": 1, "retried_from": None}
+    db_session.add(AuditEvent(task_id=task.id, action="check.retry",
+                              payload_json=json.dumps({"from_run": run.id - 1,
+                                                       "new_run": run.id})))
+    db_session.flush()
+    retried_signal = demo_route_data(db_session, task)["review_signal"]
+    assert retried_signal["retry"] == {"attempt": 2, "retried_from": run.id - 1}

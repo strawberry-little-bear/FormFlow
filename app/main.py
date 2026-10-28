@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .api.routes import router
 from .db import init_db
+from .services.agent_runtime import AGENT_RUNTIME_CONTRACT_VERSION
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -28,6 +29,16 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok"}
+
+
+@app.get("/api/health")
+def demo_health() -> dict:
+    """Identify the current app build contract for local demo readiness checks."""
+    return {
+        "status": "ok",
+        "service": "formflow",
+        "agent_runtime_contract_version": AGENT_RUNTIME_CONTRACT_VERSION,
+    }
 
 
 @app.get("/")

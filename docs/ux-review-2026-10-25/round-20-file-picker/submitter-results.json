@@ -1,0 +1,27 @@
+{
+  "base": "http://127.0.0.1:8001",
+  "generatedAt": "2026-10-25T11:51:19.502Z",
+  "path": [
+    "credential login",
+    "complete fields",
+    "upload file",
+    "save server draft",
+    "reload draft",
+    "verify guide skips uploaded material",
+    "formal submit",
+    "read receipt"
+  ],
+  "uploadStatus": 200,
+  "selectedFileVisible": "赵六_团课报告.txt",
+  "draftStatus": 200,
+  "restoredDraftSkipsUploadedSlot": true,
+  "submitStatus": 200,
+  "receiptVisible": true,
+  "mobile": {
+    "viewport": 390,
+    "document": 390
+  },
+  "consoleErrors": [],
+  "pageErrors": [],
+  "badResponses": []
+}

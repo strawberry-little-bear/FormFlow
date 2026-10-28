@@ -175,3 +175,7 @@ def test_api_revoke_rejects_wrong_subject_and_preserves_decision(db_session, ros
         view = client.get(f"/api/tasks/{task.id}/workbench", headers=h)
         assert view.status_code == 200
         assert view.json()["counts"]["exempt"] == 0
+        task_view = view.json()["task"]
+        assert task_view["timezone"] == task.timezone
+        assert task_view["first_deadline"] is None
+        assert task_view["correction_deadline"] is None

@@ -28,6 +28,7 @@ from ..models import (
     RESULT_SATISFIED,
     RESULT_UNKNOWN,
     RUN_FAILED,
+    RUN_EXECUTION_LIVE,
     RUN_QUEUED,
     RUN_RETRY_WAIT,
     RUN_RUNNING,
@@ -76,8 +77,11 @@ def _load_files(db: Session, revision: Revision) -> list[FileInfo]:
     return infos
 
 
-def create_run(db: Session, task: Task, revision: Revision) -> CheckRun:
+def create_run(db: Session, task: Task, revision: Revision,
+               *, execution_mode: str = RUN_EXECUTION_LIVE) -> CheckRun:
     """为当前正式版本创建检查运行；同一版本旧运行标记为被取代。"""
+    if execution_mode not in {RUN_EXECUTION_LIVE, "offline_replay"}:
+        raise ValueError("不支持的检查运行模式")
     task_service.ensure_task_writable(task)  # V24 readonly guard
     if task.current_blueprint_id is None:
         raise ValueError("任务尚未发布蓝图")
@@ -88,7 +92,8 @@ def create_run(db: Session, task: Task, revision: Revision) -> CheckRun:
     for r in old_runs:
         r.status = RUN_SUPERSEDED
     run = CheckRun(task_id=task.id, revision_id=revision.id,
-                   blueprint_version_id=task.current_blueprint_id, status=RUN_QUEUED)
+                   blueprint_version_id=task.current_blueprint_id, status=RUN_QUEUED,
+                   execution_mode=execution_mode)
     db.add(run)
     db.flush()
     return run
@@ -219,7 +224,7 @@ def retry_run(db: Session, run: CheckRun) -> CheckRun:
     old_status = run.status
     run.status = RUN_SUPERSEDED
     db.flush()
-    new_run = create_run(db, task, revision)
+    new_run = create_run(db, task, revision, execution_mode=run.execution_mode)
     task_service.audit(db, "check.retry", "check_run",
                        {"from_run": run.id, "from_status": old_status,
                         "new_run": new_run.id, "revision": revision.version},

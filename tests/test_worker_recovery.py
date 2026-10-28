@@ -27,6 +27,7 @@ from app.models import (
 )
 from app.schemas import Blueprint, FieldDef, RuleDef, SlotDef
 from app.services.checks import create_run, execute_run
+from app.services.progress import _review_run_trace
 from app.services.submissions import attach_file, formal_submit, get_or_create_draft
 from app.worker import recover_interrupted_runs, run_pending_once
 from tests.conftest import StubLLM, make_task, publish_blueprint
@@ -121,6 +122,25 @@ def test_interrupted_run_recovered_without_duplicate_results(db_session, monkeyp
         assert "check.recovered" in actions
     finally:
         s2.close()
+
+
+def test_recovered_tool_trace_identifies_execution_attempt(db_session, monkeypatch):
+    """A replay after worker recovery stays visible as a second execution attempt."""
+    _stub_execute(monkeypatch)
+    task, subject = _setup(db_session)
+    rev = _submit(db_session, task, subject, "k-w-replay")
+    run = create_run(db_session, task, rev)
+    db_session.commit()
+
+    assert run_pending_once(db_session) == 1
+    run.status = RUN_RUNNING
+    db_session.commit()
+    assert recover_interrupted_runs(db_session) == 1
+    db_session.commit()
+    assert run_pending_once(db_session) == 1
+
+    trace = _review_run_trace(db_session, task, run)
+    assert [item["execution_attempt"] for item in trace] == [1, 2]
 
 
 def test_history_runtimes_untouched_by_recovery(db_session):

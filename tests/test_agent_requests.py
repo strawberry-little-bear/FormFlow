@@ -137,6 +137,32 @@ def test_design_agent_timeout_keeps_original_payload_and_can_retry_same_id(
     assert job.attempts == 2
 
 
+def test_missing_model_key_explains_template_and_manual_path_without_retry_copy(
+        client, db_session, monkeypatch):
+    headers = _register(client, "agent-request-no-key")
+    account = db_session.scalar(select(Account).where(Account.username == "agent-request-no-key"))
+    task = _task(db_session, account.id)
+    monkeypatch.setattr(agent_requests, "draft_blueprint", lambda *_args, **_kwargs: DraftResult(
+        blueprint=Blueprint(), warnings=[
+            "需求 Agent 暂不可用（未配置 FORMFLOW_LLM_API_KEY）。已保留当前草案。",
+        ],
+    ))
+    form = {"request_id": "request-no-model-key-0001", "kind": "agent",
+            "base_blueprint_id": "0", "requirement": "收集学生姓名"}
+
+    accepted = client.post(f"/api/tasks/{task.id}/draft/agent-requests", headers=headers, data=form)
+    assert accepted.status_code == 202
+    status = client.get(
+        f"/api/tasks/{task.id}/draft/agent-requests/{form['request_id']}", headers=headers).json()
+
+    assert status["status"] == "failed"
+    assert "未配置模型密钥" in status["error"]
+    assert "模板" in status["error"] and "手动编辑" in status["error"]
+    assert "重试" not in status["error"]
+    assert db_session.scalars(select(BlueprintVersion).where(
+        BlueprintVersion.task_id == task.id)).all() == []
+
+
 def test_request_id_payload_conflict_and_cross_account_status_are_rejected(client, db_session,
                                                                             monkeypatch):
     headers1 = _register(client, "agent-request-a")

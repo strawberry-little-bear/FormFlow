@@ -69,14 +69,54 @@ class LLMClient:
     def configured(self) -> bool:
         return bool(self.api_key)
 
-    def _post_with(self, payload: dict, timeout: float, max_retries: int) -> dict:
+    def _post_with(self, payload: dict, timeout: float, max_retries: int,
+                   deadline_monotonic: float | None = None) -> dict:
         """以指定时限/重试执行一次 _post（供主模型快速失败后切换降级模型）。"""
-        old_t, old_r = self.timeout, self.max_retries
-        self.timeout, self.max_retries = timeout, max_retries
-        try:
-            return self._post(payload)
-        finally:
-            self.timeout, self.max_retries = old_t, old_r
+        if deadline_monotonic is None:
+            old_t, old_r = self.timeout, self.max_retries
+            self.timeout, self.max_retries = timeout, max_retries
+            try:
+                return self._post(payload)
+            finally:
+                self.timeout, self.max_retries = old_t, old_r
+        return self._post_until(payload, timeout, max_retries, deadline_monotonic)
+
+    def _post_until(self, payload: dict, timeout: float, max_retries: int,
+                    deadline_monotonic: float) -> dict:
+        headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
+        last_exc: Exception | None = None
+        for attempt in range(max_retries + 1):
+            remaining = deadline_monotonic - time.monotonic()
+            if remaining <= 0:
+                raise LLMUnavailable("审核工具剩余时限已耗尽，模型请求未完成")
+            try:
+                with httpx.Client(timeout=min(timeout, remaining)) as client:
+                    resp = client.post(
+                        f"{self.base_url}/chat/completions",
+                        json=payload,
+                        headers=headers,
+                    )
+                if resp.status_code >= 500:
+                    raise LLMUnavailable(f"gateway {resp.status_code}: {resp.text[:200]}")
+                if resp.status_code in (401, 403):
+                    raise LLMError(f"gateway authentication failed {resp.status_code}")
+                if resp.status_code == 429:
+                    raise LLMUnavailable("gateway rate limited (429)")
+                resp.raise_for_status()
+                return resp.json()
+            except LLMUnavailable:
+                raise
+            except (httpx.TimeoutException, httpx.TransportError) as e:
+                last_exc = e
+                if attempt >= max_retries:
+                    raise LLMUnavailable(f"gateway connection failed: {e}") from e
+                delay = min(2 ** attempt, max(0.0, deadline_monotonic - time.monotonic()))
+                if delay <= 0:
+                    raise LLMUnavailable("审核工具剩余时限已耗尽，未继续重试") from e
+                time.sleep(delay)
+            except httpx.HTTPStatusError as e:
+                raise LLMError(f"gateway HTTP error: {e}") from e
+        raise LLMUnavailable(f"gateway retries exhausted: {last_exc}")
 
     def _post(self, payload: dict) -> dict:
         headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
@@ -109,7 +149,8 @@ class LLMClient:
                 raise LLMError(f"网关 HTTP 错误: {e}") from e
         raise LLMUnavailable(f"网关重试后仍不可用: {last_exc}")
 
-    def chat(self, messages: list[dict], temperature: float = 0.2) -> str:
+    def chat(self, messages: list[dict], temperature: float = 0.2,
+             deadline_monotonic: float | None = None) -> str:
         if not self.configured:
             raise LLMUnavailable("未配置 FORMFLOW_LLM_API_KEY")
         payload = {
@@ -119,14 +160,16 @@ class LLMClient:
         }
         try:
             data = self._post_with(payload, self.primary_timeout,
-                                   0 if self.fallback_model else self.max_retries)
+                                   0 if self.fallback_model else self.max_retries,
+                                   deadline_monotonic)
         except LLMUnavailable:
             # 主模型不可用：按配置的降级模型重试一次（glm-5.3 等慢/不稳定模型的保底路径）
             if not self.fallback_model or self.fallback_model == self.model:
                 raise
             try:
                 data = self._post_with(dict(payload, model=self.fallback_model),
-                                       self.timeout, self.max_retries)
+                                       self.timeout, self.max_retries,
+                                       deadline_monotonic)
                 self.fallback_used = True
             except LLMUnavailable:
                 raise  # 降级也不可用：向上抛，由上层按"检查未完成"转人工
@@ -140,9 +183,11 @@ class LLMClient:
                 "请调整模型/参数后重试或转人工复核")
         return content
 
-    def chat_json(self, messages: list[dict], temperature: float = 0.1) -> Any:
+    def chat_json(self, messages: list[dict], temperature: float = 0.1,
+                  deadline_monotonic: float | None = None) -> Any:
         """要求模型返回 JSON；容忍 ```json 代码块包裹。解析失败抛 LLMError。"""
-        content = self.chat(messages, temperature=temperature)
+        content = self.chat(messages, temperature=temperature,
+                            deadline_monotonic=deadline_monotonic)
         text = content.strip()
         if text.startswith("```"):
             text = text.strip("`")

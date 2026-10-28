@@ -7,9 +7,10 @@ import json
 import zipfile
 
 import pytest
+from sqlalchemy import select
 
 from app import storage
-from app.models import Subject
+from app.models import AuditEvent, CheckRun, Subject
 from app.services import decisions as dec
 from app.services import export as export_service
 from app.services.checks import create_run, execute_run
@@ -90,11 +91,47 @@ def test_export_zip_and_csv_share_snapshot(db_session, stub_llm):
     _formal_with_file(db_session, task, s2, "k2", content=b"%PDF-1.4 content-two")
     dec.record_decision(db_session, task, s1, decision="accept_current", reason="ok")
     snap = export_service.create_snapshot(db_session, task, kind="formal")
+
+    run = db_session.scalar(select(CheckRun).where(CheckRun.revision_id ==
+                                                    json.loads(snap.manifest_json)["entries"][0]["revision_id"]))
+    db_session.add(AuditEvent(
+        task_id=task.id,
+        actor="review_agent",
+        action="agent.tool.invoked",
+        entity="agent_tool",
+        payload_json=json.dumps({
+            "run_id": run.id,
+            "tool": "review.deterministic_rule",
+            "tool_version": "v1",
+            "sequence": 1,
+            "correlation_id": "review-run:test",
+            "status": "succeeded",
+            "simulation": False,
+            "duration_ms": 12,
+            "arguments": {"secret": "must not export"},
+            "result": {"quote": "must not export"},
+        }),
+    ))
+    db_session.flush()
     job = export_service.run_export(db_session, snap)
 
     with zipfile.ZipFile(job.zip_path) as zf:
         names = zf.namelist()
-        assert "manifest.json" in names and "original_names.json" in names
+        assert {"manifest.json", "agent_evidence.json", "original_names.json", "README.txt"}.issubset(names)
+        readme = zf.read("README.txt").decode("utf-8")
+        assert "FormFlow 交付包" in readme
+        assert "固定快照之后的新提交、补交或人工决定不会静默改写这份包" in readme
+        assert "纳入材料：1" in readme
+        evidence = json.loads(zf.read("agent_evidence.json"))
+        assert evidence["snapshot_id"] == snap.id
+        assert "prompts" in evidence["privacy"]["excludes"]
+        included = next(item for item in evidence["entries"] if item["included"])
+        assert "name" not in included
+        assert included["run"]["run_id"] == run.id
+        trace = included["run"]["tool_trace"]
+        assert trace[0]["tool"] == "review.deterministic_rule"
+        assert "arguments" not in trace[0]
+        assert "result" not in trace[0]
         arcs = [n for n in names if n.endswith(".pdf")]
         assert len(arcs) == 1  # 只有已验收的张三
         assert arcs[0].startswith(f"{s1.id:06d}_")  # 稳定 ID 前缀防同名覆盖
@@ -102,8 +139,10 @@ def test_export_zip_and_csv_share_snapshot(db_session, stub_llm):
         assert list(mapping.values())[0]["original_name"] == "报告.pdf"
         # 原件不改写
         assert zf.read(arcs[0]) == b"%PDF-1.4 content-one"
+        assert zf.getinfo(arcs[0]).date_time[0] != 1980
 
-    csv_text = open(job.csv_path, "rb").read().decode("utf-8-sig")
+    with open(job.csv_path, "rb") as csv_file:
+        csv_text = csv_file.read().decode("utf-8-sig")
     rows = list(csv.reader(io.StringIO(csv_text)))
     assert rows[0][0] == "主体ID"
     assert any("李四" in ",".join(r) for r in rows)
@@ -116,6 +155,13 @@ def test_csv_formula_injection_protected():
     assert _csv_safe("=1+1") == "'=1+1"
     assert _csv_safe("@SUM") == "'@SUM"
     assert _csv_safe("正常") == "正常"
+
+
+def test_csv_receive_time_uses_task_timezone_and_falls_back_to_utc():
+    utc_value = "2026-10-22T16:01:43.633021+00:00"
+
+    assert export_service._local_display(utc_value, "Asia/Shanghai") == "2026-10-23 00:01"
+    assert export_service._local_display(utc_value, "Invalid/TaskZone") == "2026-10-22 16:01 UTC"
 
 
 def test_snapshot_is_fixed_after_new_submission(db_session, stub_llm):
@@ -132,7 +178,8 @@ def test_snapshot_is_fixed_after_new_submission(db_session, stub_llm):
     # 重跑同一快照的导出仍读同一快照
     entries = json.loads(snap.manifest_json)["entries"]
     job2 = export_service.run_export(db_session, snap)
-    csv_text = open(job2.csv_path, "rb").read().decode("utf-8-sig")
+    with open(job2.csv_path, "rb") as csv_file:
+        csv_text = csv_file.read().decode("utf-8-sig")
     rows = list(csv.reader(io.StringIO(csv_text)))
     assert len(rows) == len(entries) + 1  # 表头 + 快照内主体数，不随后续提交变化
     li_row = next(r for r in rows[1:] if "李四" in ",".join(r))

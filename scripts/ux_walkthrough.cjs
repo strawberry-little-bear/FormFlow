@@ -2,13 +2,14 @@
  * 用 Playwright 直接走查 FormFlow 界面并截图。
  * 规避 agent-browser daemon 在 Windows 上的 about:blank 问题。
  */
-const { chromium } = require('C:/Users/18428/.workbuddy-ai/binaries/node/workspace/node_modules/playwright-core');
+const { launchChromium } = require('./ux_browser.cjs');
 const fs = require('fs');
 const path = require('path');
 
-const BASE = 'http://127.0.0.1:8000';
-const OUT = 'E:/FormFlow/docs/ux-review-2026-10-23';
-const EXEC = 'C:/Users/18428/AppData/Local/ms-playwright/chromium-1248/chrome-win64/chrome.exe';
+const BASE = process.env.FORMFLOW_WALKTHROUGH_BASE || 'http://127.0.0.1:8000';
+const OUT = process.env.FORMFLOW_WALKTHROUGH_OUT
+  ? path.resolve(process.env.FORMFLOW_WALKTHROUGH_OUT)
+  : path.resolve(__dirname, '../docs/ux-review-2026-10-23');
 
 fs.mkdirSync(OUT, { recursive: true });
 
@@ -19,7 +20,7 @@ async function shot(page, name, full = true) {
 }
 
 (async () => {
-  const browser = await chromium.launch({ executablePath: EXEC, headless: true });
+  const browser = await launchChromium({ headless: true });
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const page = await ctx.newPage();
 

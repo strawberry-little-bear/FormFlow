@@ -1,0 +1,52 @@
+{
+  "base": "http://127.0.0.1:8010",
+  "generatedAt": "2026-10-25T21:13:25.446Z",
+  "entryPath": "首页 -> 体验演示环境 -> #/tasks",
+  "results": [
+    {
+      "label": "desktop",
+      "viewport": 1440,
+      "document": 1440,
+      "cueVisible": true,
+      "cueText": "现场讲解\n\n沿着当前路线查看状态、证据和人工确认边界。\n\n复制讲解",
+      "buttonText": "复制讲解",
+      "buttonWidth": 91,
+      "cueWidth": 1248,
+      "overflow": false
+    },
+    {
+      "label": "mobile-390",
+      "viewport": 390,
+      "document": 390,
+      "cueVisible": true,
+      "cueText": "现场讲解\n\n沿着当前路线查看状态、证据和人工确认边界。\n\n复制讲解",
+      "buttonText": "复制讲解",
+      "buttonWidth": 91,
+      "cueWidth": 289,
+      "overflow": false
+    },
+    {
+      "label": "mobile-320",
+      "viewport": 320,
+      "document": 320,
+      "cueVisible": true,
+      "cueText": "现场讲解\n\n沿着当前路线查看状态、证据和人工确认边界。\n\n复制讲解",
+      "buttonText": "复制讲解",
+      "buttonWidth": 91,
+      "cueWidth": 226,
+      "overflow": false
+    }
+  ],
+  "copy": {
+    "before": "复制讲解",
+    "after": "已复制",
+    "copied": {
+      "text": "已复制",
+      "cue": "沿着当前路线查看状态、证据和人工确认边界。"
+    }
+  },
+  "consoleErrors": [],
+  "pageErrors": [],
+  "badResponses": [],
+  "horizontalOverflow": []
+}

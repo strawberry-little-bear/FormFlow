@@ -1,7 +1,7 @@
 "use strict";
 /* 收齐啦 FormFlow 前端（P01–P05）。纯静态 SPA，直接调用 /api。 */
 const ORG_KEY = "ff_org_token", SUB_KEY = "ff_sub_token", PRESENTATION_KEY = "ff_tasks_presentation", DEMO_ENTRY_KEY = "ff_demo_entry";
-const state = { taskId: null, chat: [], bpId: null, draft: null, requirement: "", answeredDone: false, files: {}, filesMeta: {}, draftVersion: null, me: null, lastJob: null, roster: {}, designEpoch: 0, agentBusy: false, agentRequest: null, agentRequestPollTimer: 0, agentResumeStarted: false, agentRequestDisplayedId: null, draftStatus: "draft", draftVersionId: null, designTab: "preview", tasks: [], llmConfigured: null, agentRuntime: null, designBlocking: [], designAdvisories: [], designVersions: [], designHistory: [], viewingVersion: null, viewingPublished: null, viewingImpact: null, wbRows: [], wbFilter: "all", reviewRule: null, reviewFilter: "all", reviewTraceFilter: "all", presentationMode: false, presentationStartAligned: false };
+const state = { taskId: null, chat: [], bpId: null, draft: null, requirement: "", answeredDone: false, files: {}, filesMeta: {}, draftVersion: null, me: null, lastJob: null, roster: {}, rosterEntries: [], rosterFilter: "all", designEpoch: 0, agentBusy: false, agentRequest: null, agentRequestPollTimer: 0, agentResumeStarted: false, agentRequestDisplayedId: null, draftStatus: "draft", draftVersionId: null, designTab: "preview", tasks: [], llmConfigured: null, agentRuntime: null, mcpSnapshot: null, mcpSnapshotLoading: false, mcpSnapshotRunning: false, mcpReplayIndex: null, mcpReplayTimer: 0, demoTaskId: null, designBlocking: [], designAdvisories: [], designVersions: [], designHistory: [], viewingVersion: null, viewingPublished: null, viewingImpact: null, wbRows: [], wbFilter: "all", reviewRule: null, reviewFilter: "all", reviewTraceFilter: "all", presentationMode: false, presentationStartAligned: false };
 
 const orgToken = () => localStorage.getItem(ORG_KEY) || "";
 const subToken = () => localStorage.getItem(SUB_KEY) || "";
@@ -13,8 +13,13 @@ function fmtTime(s, timeZone = "Asia/Shanghai") {
   const raw = String(s);
   const d = new Date(/(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw) ? raw : raw + "Z");
   if (isNaN(d)) return raw;
-  return new Intl.DateTimeFormat("sv-SE", { timeZone, year: "numeric", month: "2-digit",
-    day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(d) + " " + timeZone;
+  const options = { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" };
+  try {
+    return new Intl.DateTimeFormat("sv-SE", { ...options, timeZone }).format(d) + " " + timeZone;
+  } catch (error) {
+    if (error?.name !== "RangeError") throw error;
+    return new Intl.DateTimeFormat("sv-SE", { ...options, timeZone: "UTC" }).format(d) + " UTC";
+  }
 }
 /* 时区已在页面上单独标注时，日期就不再重复带一遍时区后缀 */
 function fmtTimeShort(s, timeZone = "Asia/Shanghai") {
@@ -30,13 +35,25 @@ function designReadinessHtml(bp, draft, blocking = [], advisories = [], viewing 
   const mode = scope.mode === "open" ? "开放报名" : "固定名册";
   const subject = scope.subject_kind === "team" ? "团队提交" : "个人提交";
   const delivery = bp?.delivery || {}, governance = bp?.governance || {};
-  const purpose = governance.purpose || governance.use || "按任务用途整理材料";
-  const retention = governance.retention || governance.retention_policy || "由组织者按约定留存";
-  const model = governance.model_processing || governance.ai_processing || (semantic ? "只对需要理解的规则做语义审核" : "本版本没有语义审核");
-  const status = blocking.length ? "待处理" : advisories.length ? "可发布 · 有提醒" : "可发布";
-  const statusTone = blocking.length ? "warn" : advisories.length ? "info" : "ok";
+  const purpose = governance.purpose || governance.use || "";
+  const retention = governance.retention || governance.retention_policy || "";
+  const model = governance.model_processing || governance.ai_processing || "";
+  const disclosureGaps = [
+    !delivery.group_by && "确认交付分组与命名",
+    !purpose && "补充收集用途",
+    semantic > 0 && !model && "说明语义规则的模型处理范围",
+    !retention && "补充留存与删除安排",
+  ].filter(Boolean);
+  const readinessAdvisories = [...new Set([...advisories, ...disclosureGaps])];
+  const status = blocking.length ? "待处理" : readinessAdvisories.length ? "可发布 · 有提醒" : "可发布";
+  const statusTone = blocking.length ? "warn" : readinessAdvisories.length ? "info" : "ok";
   const summary = (draft?.publish_summary || []).filter(Boolean).slice(0, 4);
   const item = (label, value, note = "") => `<div class="readiness-item"><span>${esc(label)}</span><b>${esc(value)}</b>${note ? `<small>${esc(note)}</small>` : ""}</div>`;
+  const boundary = (label, value, fallback) => `<p class="readiness-boundary"><span>${esc(label)}</span><b class="${value ? "" : "readiness-missing"}">${esc(value || fallback)}</b></p>`;
+  const modelFallback = semantic ? `未填写模型处理说明（${semantic} 条语义审核规则）` : "本版本没有语义审核规则，不会调用语义模型";
+  const deliverySummary = delivery.group_by
+    ? `按${delivery.group_by}整理，命名规则 ${delivery.naming || "由系统生成"}。`
+    : "";
   return `<section class="design-readiness ${viewing ? "readonly" : ""}" aria-label="发布前核对">
     <div class="readiness-head"><div><div class="eyebrow">PUBLISH READINESS</div><h2>发布前核对</h2><p>把提交者要做的事、系统会检查的范围和你要确认的边界放在一张清单里。</p></div><span class="badge ${statusTone}">${esc(status)}</span></div>
     <div class="readiness-grid">
@@ -45,8 +62,29 @@ function designReadinessHtml(bp, draft, blocking = [], advisories = [], viewing 
       <div class="readiness-group"><span class="readiness-label">什么时候交</span>${item("首次截止", fmtTimeShort(tp.first_deadline, tp.timezone), tp.timezone || "Asia/Shanghai")}${item("补正截止", fmtTimeShort(tp.correction_deadline, tp.timezone), "仅已正式提交者可用")}</div>
       <div class="readiness-group"><span class="readiness-label">怎么核对</span>${item("规则分工", `${deterministic} 程序 · ${semantic} 语义 · ${human} 人工`, "不确定或失败会停在待处理")}${item("最终验收", bp.manual_acceptance ? "组织者人工确认" : "按规则处理", bp.eligibility_required ? "另需单独核对资格" : "未启用独立资格")}</div>
     </div>
-    <div class="readiness-foot"><div><span class="readiness-label">交付与数据边界</span><p>${esc(delivery.group_by ? `按${delivery.group_by}整理，命名规则 ${delivery.naming || "由系统生成"}。` : "发布后可固定快照并导出清单。")}</p><p>${esc(purpose)}；${esc(model)}；${esc(retention)}。</p></div>${summary.length ? `<div class="readiness-summary"><span class="readiness-label">这次整理摘要</span><ul>${summary.map(x => `<li>${esc(x)}</li>`).join("")}</ul></div>` : ""}</div>
-    ${blocking.length ? `<div class="readiness-alert warn"><b>发布前要处理 ${blocking.length} 项</b><span>${esc(blocking[0])}${blocking.length > 1 ? `，另有 ${blocking.length - 1} 项` : ""}</span></div>` : advisories.length ? `<div class="readiness-alert info"><b>发布前建议看一眼</b><span>${esc(advisories[0])}${advisories.length > 1 ? `，另有 ${advisories.length - 1} 项提醒` : ""}</span></div>` : ""}
+    <div class="readiness-foot"><div><span class="readiness-label">交付与数据边界</span>${boundary("交付安排", deliverySummary, "未设置分组与命名；发布后仍可固定快照并导出清单。")}${boundary("收集用途", purpose, "未填写用途")}${boundary("模型处理", model, modelFallback)}${boundary("留存与删除", retention, "未填写留存与删除安排")}</div>${summary.length ? `<div class="readiness-summary"><span class="readiness-label">这次整理摘要</span><ul>${summary.map(x => `<li>${esc(x)}</li>`).join("")}</ul></div>` : ""}</div>
+    ${blocking.length ? `<div class="readiness-alert warn"><b>发布前要处理 ${blocking.length} 项</b><span>${esc(blocking[0])}${blocking.length > 1 ? `，另有 ${blocking.length - 1} 项` : ""}</span></div>` : readinessAdvisories.length ? `<div class="readiness-alert info"><b>发布前建议看一眼</b><span>${esc(readinessAdvisories[0])}${readinessAdvisories.length > 1 ? `，另有 ${readinessAdvisories.length - 1} 项提醒` : ""}</span></div>` : ""}
+  </section>`;
+}
+function publishGovernanceHtml(bp) {
+  const governance = bp?.governance || {}, delivery = bp?.delivery || {};
+  const semanticRules = (bp?.rules || []).filter(rule => ["semantic", "cross_material"].includes(rule.executor)).length;
+  const item = (label, value, fallback) => `<div class="publish-governance-item"><b>${esc(label)}</b><p class="${value ? "" : "publish-disclosure-missing"}">${esc(value || fallback)}</p></div>`;
+  const modelFallback = semanticRules
+    ? `未填写。此蓝图有 ${semanticRules} 条语义审核规则；请说明送入模型的内容和部署使用的模型服务。`
+    : "当前版本没有语义审核规则，材料核对不会调用语义模型。";
+  const deliveryText = delivery.group_by
+    ? `按${delivery.group_by}整理；命名规则：${delivery.naming || "系统生成"}。`
+    : "发布后可生成固定快照并导出清单；未填写分组与命名方式。";
+  return `<section class="publish-group publish-governance" aria-label="数据用途与处理说明">
+    <div class="eyebrow">用途与数据处理</div>
+    <div class="publish-governance-grid">
+      ${item("收集用途", governance.purpose || governance.use, "未填写。请说明收集这些信息的具体用途。")}
+      ${item("模型处理", governance.model_processing || governance.ai_processing, modelFallback)}
+      ${item("留存与删除", governance.retention || governance.retention_policy, "未填写留存期限或删除安排。请按实际处理方式补充。")}
+      <div class="publish-governance-item"><b>交付安排</b><p>${esc(deliveryText)}</p></div>
+    </div>
+    <p class="field-help">以上为当前蓝图中保存的说明；“未填写”不代表系统替你设定了处理政策。请按部署环境和实际约定核对后再发布。</p>
   </section>`;
 }
 function navigate(hash) {
@@ -55,12 +93,20 @@ function navigate(hash) {
 function readPresentationMode() {
   try { return sessionStorage.getItem(PRESENTATION_KEY) === "1"; } catch (e) { return false; }
 }
+function showcaseReturnHtml(label = "当前页面") {
+  if (!readPresentationMode() || !orgToken()) return "";
+  return `<div class="showcase-context-bar" role="status"><div><span class="eyebrow">SHOWCASE PATH</span><strong>正在查看 ${esc(label)}</strong><small>沿证据链继续讲解，或回到展示路线选择下一站。</small></div><a class="ghost sm" href="#/tasks">回到展示路线 ${icon("arrow")}</a></div>`;
+}
 function syncPresentationDetails(details, active) {
   if (!details) return;
   const summary = details.querySelector?.("summary");
-  if (active && !details.open) {
-    details.open = true;
-    if (details.dataset) details.dataset.presentationOpened = "1";
+  const compactViewport = document.documentElement?.clientWidth <= 600;
+  // The showcase starts with its summary rail visible; full Agent evidence is on demand.
+  // Keep an explicitly opened walkthrough open across viewport changes, but close only
+  // an auto-expanded state from older sessions when leaving presentation mode.
+  if (active && compactViewport && details.dataset?.presentationOpened === "1") {
+    details.open = false;
+    if (details.dataset) delete details.dataset.presentationOpened;
   } else if (!active && details.dataset?.presentationOpened === "1") {
     details.open = false;
     if (details.dataset) delete details.dataset.presentationOpened;
@@ -74,9 +120,9 @@ function syncPresentationDetails(details, active) {
 function applyPresentationMode(focus = false) {
   const active = !!state.presentationMode && document.body?.dataset?.page === "tasks";
   document.body?.classList?.toggle("presentation-mode", active);
+  paintTaskHomeHeading();
   const button = document.getElementById("presentation-toggle");
-  [".agent-tour details", ".demo-route-signal", ".demo-route-trace"]
-    .forEach(selector => syncPresentationDetails(document.querySelector?.(selector), active));
+  syncPresentationDetails(document.querySelector?.(".agent-tour details"), active);
   if (!button) return;
   button.setAttribute("aria-pressed", String(active));
   button.setAttribute("aria-label", active ? "退出展示视图" : "进入展示视图");
@@ -102,11 +148,114 @@ function setPresentationMode(on, persist = true) {
   applyPresentationMode(true);
 }
 function togglePresentationMode() { setPresentationMode(!state.presentationMode); }
+function showTaskListFromPresentation() {
+  setPresentationMode(false);
+  const target = document.querySelector?.('.task-section');
+  if (!target) return;
+  const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+  requestAnimationFrame?.(() => target.scrollIntoView?.({behavior: reduceMotion ? 'auto' : 'smooth', block: 'start'}));
+}
+function openDemoEvidenceFold() {
+  const details = document.querySelector?.(".demo-route-evidence-fold");
+  if (!details) return;
+  details.open = true;
+  details.querySelector?.("summary")?.setAttribute?.("aria-expanded", "true");
+}
+document.addEventListener?.("toggle", event => {
+  const details = event.target?.matches?.(".demo-route-evidence-fold") ? event.target : null;
+  if (!details) return;
+  details.querySelector?.("summary")?.setAttribute?.("aria-expanded", String(details.open));
+  const mark = details.querySelector?.(".demo-route-evidence-fold-mark");
+  if (mark) mark.firstChild.textContent = details.open ? "已展开" : "展开";
+}, true);
+function paintTaskHomeHeading() {
+  if (document.body?.dataset?.page !== "tasks") return;
+  const presentationHeading = !!state.presentationMode;
+  const pageEyebrow = presentationHeading ? "FORMFLOW / 评委展示" : "WORKSPACE / 任务管理";
+  const pageTitle = presentationHeading ? "从要求到有证据的交付" : "我的任务";
+  const pageLead = presentationHeading
+    ? "受限 Agent 负责整理与取证，人工确认后才进入可交付快照。"
+    : "从需求到交付，把每一次收集安排妥当。";
+  const eyebrow = document.getElementById("task-home-eyebrow");
+  const title = document.getElementById("task-home-title");
+  const lead = document.getElementById("task-home-lead");
+  if (eyebrow) eyebrow.textContent = pageEyebrow;
+  if (title) title.innerHTML = `${pageTitle}<span class="heading-dot">.</span>`;
+  if (lead) lead.textContent = pageLead;
+}
+function jumpToAgentTour() {
+  openDemoEvidenceFold();
+  const section = document.querySelector?.(".agent-tour");
+  if (!section) return;
+  const details = section.querySelector?.("details");
+  if (details) {
+    details.open = true;
+    details.querySelector?.("summary")?.setAttribute?.("aria-expanded", "true");
+  }
+  section.tabIndex = -1;
+  const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+  section.scrollIntoView?.({behavior: reduceMotion ? "auto" : "smooth", block: "start"});
+  section.focus?.({preventScroll: true});
+}
+function jumpToMcpSnapshot() {
+  openDemoEvidenceFold();
+  const target = document.querySelector?.(".mcp-snapshot");
+  if (!target) return;
+  const details = target.closest?.("details");
+  if (details) {
+    details.open = true;
+    details.querySelector?.("summary")?.setAttribute?.("aria-expanded", "true");
+  }
+  target.tabIndex = -1;
+  const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+  target.scrollIntoView?.({behavior: reduceMotion ? "auto" : "smooth", block: "start"});
+  target.focus?.({preventScroll: true});
+}
+function jumpToRunStage(stage) {
+  openDemoEvidenceFold();
+  const signal = (demoRouteTask(state.tasks)?.demo_route || demoRouteTask(state.tasks)?.route)?.review_signal || null;
+  const evidence = document.querySelector?.(".demo-route-signal");
+  const stageDetail = document.querySelector?.("#demo-route-stage-detail");
+  const tour = document.querySelector?.(".agent-tour");
+  const reviewAction = stage === "human" ? evidence?.querySelector?.(".demo-route-signal-action") : null;
+  const target = stageDetail || reviewAction || evidence || tour;
+  if (!target) return;
+  const detailHtml = runStageReplayHtml(stage, signal);
+  if (stageDetail && detailHtml) stageDetail.innerHTML = detailHtml;
+  document.querySelectorAll?.("[data-run-stage]")?.forEach?.(button => {
+    const selected = button.dataset?.runStage === stage;
+    button.setAttribute?.("aria-current", selected ? "step" : "false");
+    button.closest?.("li")?.classList?.toggle?.("selected", selected);
+  });
+  const details = evidence?.closest?.("details");
+  if (details) {
+    details.open = true;
+    details.querySelector?.("summary")?.setAttribute?.("aria-expanded", "true");
+  }
+  target.tabIndex = -1;
+  const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+  target.scrollIntoView?.({behavior: reduceMotion ? "auto" : "smooth", block: "center"});
+  target.focus?.({preventScroll: true});
+  if (!signal && stage === "human") tour?.querySelector?.("summary")?.focus?.();
+}
+function jumpToDesignSection(id) {
+  const target = document.getElementById(id);
+  if (!target) return;
+  const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+  target.scrollIntoView?.({behavior: reduceMotion ? "auto" : "smooth", block: "start"});
+}
 window.addEventListener("keydown", event => {
   if (event.key === "Escape" && state.presentationMode && document.body?.dataset?.page === "tasks") {
     event.preventDefault();
     setPresentationMode(false);
   }
+});
+window.addEventListener("resize", () => {
+  if (state.presentationMode && document.body?.dataset?.page === "tasks") applyPresentationMode();
+});
+window.addEventListener("online", () => {
+  if (state.agentRequest?.status === "checking") return checkAgentRequestNow();
+  if (state.me?.subject && subToken() && location.hash.startsWith("#/submit")) return loadMyResults();
 });
 async function api(path, opts = {}) {
   const headers = {};
@@ -238,6 +387,20 @@ function openDialog(id, opener = document.activeElement) {
 async function guard(fn, isCurrent = () => true) {
   try { await fn(); } catch (e) { if (isCurrent()) setFlash(e.message || String(e)); }
 }
+function isSubmitterNetworkFailure(error) {
+  return (typeof navigator !== "undefined" && navigator.onLine === false)
+    || (!error?.status && /failed to fetch|networkerror|network request failed|load failed|fetch failed/i.test(error?.message || ""));
+}
+function submitterNetworkError(error, action) {
+  if (!isSubmitterNetworkFailure(error)) return error;
+  const messages = {
+    load: "网络连接暂时不可用。提交空间没有重新加载；恢复连接后可重试，不需要重新登录。",
+    upload: "网络已断开，尚未确认上传成功。已选文件仍保留在本页，恢复联网后可以重试。",
+    draft: "网络已断开，服务器草稿尚未确认保存。填写仍在本标签页暂存，恢复联网后可以再次保存。",
+    submit: "网络已断开，提交结果尚未确认。填写仍在本标签页暂存；恢复联网后再次提交会复用同一请求编号。",
+  };
+  return new Error(messages[action] || "网络已断开，请恢复连接后重试。");
+}
 
 /* 规则结果徽标与规则卡片：P03 与 P04 共用同一渲染，避免两端说法不一致 */
 const RESULT_BADGE = {
@@ -245,7 +408,7 @@ const RESULT_BADGE = {
   issue: '<span class="badge bad">问题</span>',
   unknown: '<span class="badge warn">待确认</span>',
   not_applicable: '<span class="badge">不适用</span>',
-  failed: '<span class="badge bad">失败</span>',
+  failed: '<span class="badge info">检查未完成</span>',
   manual_pending: '<span class="badge info">人工核对</span>',
 };
 const resultBadge = (r) => RESULT_BADGE[r] || esc(r);
@@ -295,23 +458,39 @@ const agentRunCard = (run, rules, toolTrace = [], taskId = null, subjectId = nul
     ? Number(semanticBudget.limit) : Math.max(1, counts.semantic + counts.cross_material);
   const pageUsage = `${Number(pageBudget.used ?? run.pages_read ?? 0)}${pageLimit ? ` / ${pageLimit}` : ""} 页`;
   const semanticUsage = `${Number(semanticBudget.used ?? run.llm_calls_used ?? 0)} / ${semanticLimit} 次`;
-  const resultSummary = Object.keys(run.result_summary || {}).length
-    ? run.result_summary
-    : (rules || []).reduce((out, rule) => {
-      const key = rule.result || "unknown"; out[key] = (out[key] || 0) + 1; return out;
-    }, {});
+  // Keep this summary aligned with the effective review state after a human
+  // decision. The stored run summary only contains the machine's first pass.
+  const resultSummary = (rules || []).length
+    ? (rules || []).reduce((out, rule) => {
+      const key = rule.decision?.resolves
+        ? "satisfied"
+        : rule.decision?.decision === "confirm_issue"
+          ? "issue"
+          : rule.result || "unknown";
+      out[key] = (out[key] || 0) + 1;
+      return out;
+    }, {})
+    : (Object.keys(run.result_summary || {}).length ? run.result_summary : {});
   const resultLabels = {satisfied: "已满足", issue: "需处理", unknown: "待人工", failed: "未完成", manual_pending: "人工项", not_applicable: "不适用"};
   const resultHtml = Object.entries(resultLabels)
     .filter(([key]) => Number(resultSummary[key]) > 0)
-    .map(([key, label]) => `<span class="agent-result-chip ${key === "satisfied" || key === "not_applicable" ? "ok" : key === "issue" || key === "failed" ? "warn" : "info"}">${label} <b>${Number(resultSummary[key])}</b></span>`).join("")
+    .map(([key, label]) => `<span class="agent-result-chip ${key === "satisfied" || key === "not_applicable" ? "ok" : key === "issue" ? "warn" : "info"}">${label} <b>${Number(resultSummary[key])}</b></span>`).join("")
     || `<span class="agent-result-empty">${["queued", "running", "retry_wait"].includes(run.status) ? "结果将在运行完成后出现" : "暂无逐规则结果"}</span>`;
-  const runMeta = `<div class="agent-run-meta" aria-label="检查运行摘要">
+  const runMeta = `<div class="agent-run-meta" role="group" aria-label="检查运行摘要">
     <div><span>运行编号</span><b>#${esc(run.id ?? "—")}</b></div>
     <div><span>正式版本</span><b>${run.revision_version ? `v${esc(run.revision_version)}` : "未记录"}</b></div>
     <div><span>耗时</span><b>${esc(duration)}</b></div>
     <div><span>运行关系</span><b>${esc(origin)}</b></div>
     <div class="agent-run-result"><span>结果摘要</span><div>${resultHtml}</div></div>
   </div>`;
+  const failure = run.failure || null;
+  const failureHtml = run.status === "failed" && failure
+    ? `<div class="agent-run-failure" role="alert"><b>${esc(failure.title || "这次检查没有完成")}</b><span>${esc(failure.detail || "系统没有形成可靠的完整结论。")}</span><strong>下一步：${esc(failure.action || "组织者可以重试或人工核对。")}</strong></div>`
+    : "";
+  const numericTaskId = Number(taskId), numericSubjectId = Number(subjectId);
+  const failureActions = run.status === "failed" && Number.isInteger(numericTaskId) && Number.isInteger(numericSubjectId)
+    ? `<div class="agent-run-failure-actions"><button class="ghost sm" type="button" onclick="retryCheck(${numericTaskId},${numericSubjectId},'review')">重新排队检查 ${icon("arrow")}</button><a class="ghost sm" href="#/review/${numericTaskId}/${numericSubjectId}">进入人工复核 ${icon("arrow")}</a></div>`
+    : "";
   const stages = [
     {label: "读取材料", detail: files.length ? `${files.length} 份材料${methods.length ? ` · ${methods.join(" / ")}` : ""}` : "尚无可读取材料", count: files.length ? `${run.pages_read ?? 0} 页` : "—", tone: files.length ? "ok" : "neutral"},
     {label: "程序核验", detail: counts.deterministic ? "格式、必填项等确定性检查" : "本版本没有程序规则", count: `${counts.deterministic} 项`, tone: "tool"},
@@ -381,11 +560,13 @@ const agentRunCard = (run, rules, toolTrace = [], taskId = null, subjectId = nul
   const traceHtml = traceItems.length
     ? `<details class="agent-trace"><summary>本次运行记录（${traceSummary}）</summary><div class="agent-trace-filters" role="group" aria-label="运行记录筛选">${traceFilterHtml}</div>${traceRows ? `<ol>${traceRows}</ol>` : '<p class="agent-trace-empty">当前筛选没有匹配的运行步骤。</p>'}<p>记录绑定当前检查运行和版本；这里只展示工具类别与结果摘要，不包含隐藏推理内容。关联编号用于把同一运行的调用串起来。</p>${traceSimulation ? '<div class="agent-simulation-note">演示模式：语义结果由离线脚本按样例生成，没有调用实时模型；真实任务会按当前配置调用模型。</div>' : ''}${traceModeUnknown ? '<div class="agent-simulation-note">这次历史记录没有保存语义检查模式，无法判断是否使用实时模型。</div>' : ''}</details>`
     : `<p class="agent-trace-empty">这次检查没有逐项工具记录（例如升级前的历史运行）；现有检查结论和证据仍可照常查看。</p>`;
-  const runOpen = run.status === "success" && traceItems.length ? " open" : "";
+  const runOpen = run.status === "failed" || (run.status === "success" && traceItems.length) ? " open" : "";
   return `<details class="card agent-run-card"${runOpen}>
     <summary><span><span class="eyebrow">检查是怎么完成的</span><b>按规则分工，不让模型包办</b><small class="agent-run-hint">展开查看程序、Agent 与人工的分工</small></span><span class="badge ${runState}">${esc(status)}</span></summary>
     <p class="agent-run-intro">程序先处理能明确判断的规则，需要理解材料时才调用语义审核。每个判断都回到原文证据，资格和最终验收由人来把关。</p>
     ${runMeta}
+    ${failureHtml}
+    ${failureActions}
     <ol class="agent-run-steps">${stages.map((s, i) => `<li class="${esc(s.tone)}"><span class="agent-step-index">0${i + 1}</span><div><b>${esc(s.label)}</b><span>${esc(s.detail)}</span></div><em>${esc(s.count)}</em></li>`).join("")}</ol>
     <p class="agent-run-foot">${run.budget_exhausted ? "这次模型检查的预算用完了，没完成的项会保留为待处理，不会当成通过。" : "模型不可用或证据不足时会停下来转人工，检查结果不会自行发布、认定资格或完成验收。"}</p>
     ${runtimeHtml}
@@ -447,7 +628,7 @@ function submitterSummary(value) {
     "未正式提交": "还没有正式提交",
   })[value] || value || "正在更新进度";
 }
-function submitterNextStepHtml({formal = false, readOnly = false, issues = [], summary = "", buckets = {}, runStatus = "", revision = null} = {}) {
+function submitterNextStepHtml({formal = false, readOnly = false, issues = [], summary = "", buckets = {}, runStatus = "", revision = null, resultsUnavailable = false} = {}) {
   const pendingJobs = (buckets.pending_jobs || []).length || ["queued", "running", "retry_wait"].includes(runStatus);
   const blocking = (buckets.blocking || []).length;
   const human = (buckets.unknown || []).length + (buckets.human || []).length;
@@ -465,6 +646,10 @@ function submitterNextStepHtml({formal = false, readOnly = false, issues = [], s
     tone = "ok"; kicker = "下一步"; title = "核对内容后正式提交";
     detail = "当前填写和材料已具备提交条件；点击“提交材料并开始核对”后才会生成正式版本。";
     badge = "可以提交";
+  } else if (resultsUnavailable) {
+    tone = "warn"; kicker = "暂时无法更新"; title = "当前核对结果暂时读不到";
+    detail = "回执和已提交材料仍保留；恢复联网后会自动重试，也可以点下方按钮重新加载结果。";
+    badge = "等待恢复";
   } else if (summary === "已验收") {
     tone = "ok"; kicker = "已完成"; title = "这份提交已经验收";
     detail = "当前正式版本已完成组织者验收；如需查看文件或回执，可在下方展开。"; badge = "已验收";
@@ -550,7 +735,12 @@ function route() {
   }
   const app = document.getElementById("app");
   const render = result => { setTimeout(focusPageHeading, 0); return result; };
-  if (parts[0] === "login") return render(viewLogin(query.get("role") === "sub" ? "sub" : "org"));
+  if (parts[0] === "login") return render(viewLogin(
+    query.get("role") === "sub" ? "sub" : "org",
+    query.get("notice") === "credential-expired"
+      ? "当前提交凭证已失效，请联系组织者重新发放，再用新凭证登录。"
+      : ""
+  ));
   if (parts[0] === "tasks") return render(viewTasks());
   if (parts[0] === "design") return render(viewDesign(+parts[1]));
   if (parts[0] === "workbench") return render(viewWorkbench(+parts[1]));
@@ -572,6 +762,7 @@ const ICONS = {
   plus: '<path d="M12 5v14M5 12h14"/>',
   search: '<circle cx="10" cy="10" r="6"/><path d="m15 15 6 6"/>',
   check: '<path d="m5 12 4 4L19 6"/>',
+  copy: '<rect x="8" y="8" width="11" height="11" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/>',
   review: '<path d="M4 4h11l5 5v11H4z"/><path d="M15 4v5h5"/><path d="m8.5 14.5 2 2 4-4"/>',
   expand: '<path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/>',
   collapse: '<path d="M9 3v6H3M15 3v6h6M9 21v-6H3M15 21v-6h6"/>',
@@ -613,7 +804,7 @@ function logout() {
 }
 
 /* ---------------------------------------------------------------- 登录 */
-function viewLogin(initialTab = "org") {
+function viewLogin(initialTab = "org", notice = "") {
   const submitterTab = initialTab === "sub";
   document.getElementById("app").innerHTML = `
   <div class="login-wrap">
@@ -621,7 +812,7 @@ function viewLogin(initialTab = "org") {
       <div class="logo"><span class="mark">齐</span><span style="font-size:17px">收齐啦 FormFlow</span></div>
       <h1>材料收集，<br>终于有条不紊。</h1>
       <p class="tag">从一句收集要求，到最后一份材料。<br>把反复催交和核对，留给更清晰的工作流。</p>
-      <div class="hero-flow" aria-label="FormFlow Agent 工作边界">
+      <div class="hero-flow" role="group" aria-label="FormFlow Agent 工作边界">
         <div class="hero-flow-head"><span class="eyebrow">CONTROLLED AGENT FLOW</span><span>人始终在回路中</span></div>
         <div class="hero-flow-steps">
           <span><b>01</b><strong>原始要求</strong><em>你说清楚要收什么</em></span>
@@ -634,8 +825,8 @@ function viewLogin(initialTab = "org") {
         </div>
         <p class="hero-flow-note">模型负责整理与取证；发布、资格和最终验收不会自动完成。</p>
       </div>
-      <div class="feat"><div class="ic">${icon("design")}</div><div><b>聊几句就能出表</b>
-        <span>告诉助手你想收什么，字段、材料要求与检查规则自动生成</span></div></div>
+      <div class="feat"><div class="ic">${icon("design")}</div><div><b>智能起草，先确认再发布</b>
+        <span>配置模型密钥后，助手可将收集要求整理为字段、材料要求与检查规则；发布前由组织者确认</span></div></div>
       <div class="feat"><div class="ic">${icon("search")}</div><div><b>交上来逐条核对</b>
         <span>每处问题都带原文位置和改法，不把「没读到」说成「确认缺失」</span></div></div>
       <div class="feat"><div class="ic">${icon("delivery")}</div><div><b>按正确版本交付</b>
@@ -668,10 +859,11 @@ function viewLogin(initialTab = "org") {
         <textarea id="lg-cred" placeholder="粘贴组织者发放的提交凭证（形如 v9MhIdcn_1_EUt...）"
           oninput="cacheSubmissionDraft()" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();doSubLogin()}"></textarea>
         <button onclick="doSubLogin()" style="width:100%">进入我的提交空间</button>
-        <p class="kv" style="margin-top:10px">找不到凭证了？联系组织者重新发一份就好，旧的会自动失效。</p>
+        <p class="kv" style="margin-top:10px">找不到凭证了？联系组织者重新发一份；新凭证发出后，旧凭证会失效。</p>
       </div>
     </div>
   </div>`;
+  if (notice) loginErr(notice);
   checkDemoUser();
 }
 function switchLoginTab(which) {
@@ -744,7 +936,7 @@ async function doSubLogin() {
     await api("/api/me", { sub: true, token: cred });   // 校验本次输入，而不是上次保存的凭证
     localStorage.setItem(SUB_KEY, cred);
     navigate("#/submit");
-  } catch (e) { loginErr("凭证无效或已失效：" + (e.message || "")); }
+  } catch (e) { loginErr((e.message || "").trim() || "凭证无效或已失效"); }
 }
 
 /* ---------------------------------------------------------------- 任务列表 */
@@ -752,54 +944,317 @@ const TASK_STATUS = { draft: "草稿", collecting: "收集中", closed: "已关�
 function runtimeToolNames(runtime, skill = null) {
   const allowed = skill?.allowed_tools;
   return (runtime?.tools || []).filter(tool => !Array.isArray(allowed) || allowed.includes(tool.name))
-    .map(tool => `<code>${esc(tool.name)}</code>`).join(" ") || '<span class="muted">当前 Skill 不直接调用工具</span>';
+    .map(tool => `<code>${esc(tool.name).replace(/\./g, ".<wbr>")}</code>`).join(" ") || '<span class="muted">当前 Skill 不直接调用工具</span>';
+}
+const AGENT_RUNTIME_CONTRACT_VERSION = 1;
+let agentRuntimeContractWarning = "";
+function agentRuntimeContractIssue(runtime) {
+  return runtime?.contract_version === AGENT_RUNTIME_CONTRACT_VERSION
+    ? ""
+    : "\u670d\u52a1\u7aef API \u4e0e\u5f53\u524d\u9875\u9762\u7248\u672c\u4e0d\u4e00\u81f4\uff1b\u8bf7\u91cd\u542f API \u670d\u52a1\u540e\u5237\u65b0\u9875\u9762\u3002\u8fd0\u884c\u65f6\u6e05\u5355\u672a\u52a0\u8f7d\uff0c\u4ee5\u4e0b\u4e3a\u9759\u6001\u8bf4\u660e\u3002";
+}
+function paintAgentRuntimeContractIssue(issue) {
+  agentRuntimeContractWarning = issue || "";
+  if (!agentRuntimeContractWarning) return;
+  for (const id of ["workspace-agent-status", "agent-runtime-status"]) {
+    const status = document.getElementById(id);
+    if (status) status.textContent = agentRuntimeContractWarning;
+  }
+  const tourStatus = document.getElementById("agent-tour-availability");
+  if (tourStatus) tourStatus.textContent = "运行时清单版本不匹配，架构说明使用静态内容。";
+  for (const id of ["workspace-agent-mode", "agent-tour-mode", "agent-runtime-mode"]) {
+    const mode = document.getElementById(id);
+    if (mode) {
+      mode.className = "runtime-mode warning";
+      mode.textContent = "\u7248\u672c\u4e0d\u5339\u914d";
+    }
+  }
 }
 function runtimeReviewSkill(runtime) {
   return (runtime?.skills || []).find(skill => skill.name === "review_one_submission") || {};
+}
+function runtimeSelfTestSummary(runtime) {
+  const test = runtime?.contract_self_test;
+  if (!test) return "合同自测未加载";
+  const passed = Number(test.passed) || 0;
+  const total = Number(test.total) || 0;
+  return `合同自测 ${passed}/${total} ${test.status === "passed" ? "通过" : "需关注"}`;
+}
+function runtimeSelfTestHtml(runtime = null) {
+  const test = runtime?.contract_self_test;
+  if (!test) {
+    return `<details class="runtime-self-test runtime-self-test-missing"><summary><span><b>合同自测未加载</b><small>服务端未返回逐项运行合同检查</small></span><span class="runtime-self-test-toggle">查看说明 ${icon("arrow")}</span></summary><p class="runtime-self-test-empty">运行时清单恢复后会显示 Skill、工具边界、预算、人工接手和 MCP 只读范围的检查结果。</p></details>`;
+  }
+  const passed = Number(test.passed) || 0;
+  const total = Number(test.total) || 0;
+  const checks = Array.isArray(test.checks) ? test.checks : [];
+  const tone = test.status === "passed" ? "passed" : "attention";
+  const rows = checks.map(check => {
+    const ok = check?.passed === true;
+    return `<li class="${ok ? "passed" : "attention"}"><span class="runtime-self-test-mark" aria-label="${ok ? "通过" : "需关注"}">${icon(ok ? "check" : "close")}</span><span><b>${esc(check?.label || check?.id || "合同检查")}</b><small>${esc(check?.detail || "服务端未提供说明")}</small></span></li>`;
+  }).join("");
+  return `<details class="runtime-self-test ${tone}"><summary><span><b>${esc(runtimeSelfTestSummary(runtime))}</b><small>只验证运行合同，不调用模型</small></span><span class="runtime-self-test-toggle">查看 ${checks.length || total} 项 ${icon("arrow")}</span></summary>${rows ? `<ul class="runtime-self-test-list" aria-label="Agent 运行合同检查">${rows}</ul>` : `<p class="runtime-self-test-empty">服务端未返回逐项检查。</p>`}<p class="runtime-self-test-foot">${esc(test.note || "这些检查不读取材料，也不代表模型准确率。")}</p></details>`;
+}
+const MCP_TOOL_META = {
+  list_my_tasks: {label: "任务索引", detail: "确认组织者可见的任务范围", icon: "tasks"},
+  get_task_collection_progress: {label: "收集进度", detail: "读取阶段聚合计数", icon: "workbench"},
+  get_task_next_step: {label: "流程下一步", detail: "定位当前展示路线", icon: "arrow"},
+  get_task_agent_runtime: {label: "Agent runtime", detail: "读取 Skill 与工具合同", icon: "sparkle"},
+};
+function mcpSnapshotHtml(snapshot = state.mcpSnapshot) {
+  const loading = state.mcpSnapshotLoading;
+  const running = state.mcpSnapshotRunning;
+  if (snapshot?.error) {
+    return `<div class="mcp-snapshot-body"><div class="mcp-snapshot-state error" role="alert"><b>只读快照暂时没有读到</b><p class="mcp-snapshot-error">${esc(snapshot.error)}</p><small>这不会阻塞任务路线；重新读取只读快照即可再次确认 Agent 边界。</small></div><button class="ghost sm" type="button" onclick="loadMcpSnapshot()">重新读取</button></div>`;
+  }
+  if (!snapshot) {
+    return `<div class="mcp-snapshot-body"><div class="mcp-snapshot-state pending" role="status"><b>${loading ? "正在读取只读快照" : "还没有读取只读快照"}</b><p>只展示当前组织者账号有权看到的聚合结果，不展开逐人名单、材料正文或审核证据。</p></div><button class="ghost sm" type="button" onclick="loadMcpSnapshot()"${loading ? " disabled" : ""}>${loading ? "读取中…" : "读取只读快照"}</button></div>`;
+  }
+  const replay = snapshot.execution?.replay || [];
+  const replayActive = Number.isInteger(state.mcpReplayIndex) && state.mcpReplayIndex >= 0;
+  const visibleCount = replayActive ? Math.min(state.mcpReplayIndex, (snapshot.calls || []).length) : (snapshot.calls || []).length;
+  const calls = (snapshot.calls || []).slice(0, visibleCount).map((call, index) => {
+    const meta = MCP_TOOL_META[call.tool] || {label: "只读工具", detail: "返回受限聚合结果", icon: "check"};
+    const detail = call.tool === "get_task_collection_progress"
+      ? Object.entries(call.counts || {}).map(([key, value]) => `${key} ${value}`).join(" · ")
+      : call.tool === "get_task_next_step"
+        ? `${call.current?.title || "无当前步骤"} → ${call.next?.title || "已到末站"}`
+        : call.tool === "get_task_agent_runtime"
+          ? `${(call.skills || []).join("、") || "无 Skill"} · 工具 ${call.tool_count ?? 0} 项`
+          : `${call.task_count ?? 0} 个任务`;
+    const status = call.status || "ok";
+    const statusLabel = status === "ok" ? "已返回" : status;
+    return `<li><span class="mcp-call-index">${String(index + 1).padStart(2, "0")}</span><span class="mcp-call-icon">${icon(meta.icon)}</span><div class="mcp-call-copy"><div class="mcp-call-head"><b>${esc(meta.label)}</b><span class="mcp-call-status ${status === "ok" ? "ok" : "warn"}">${esc(statusLabel)}</span></div><code>${esc(call.tool)}</code><small>${esc(call.summary || detail || meta.detail)}</small>${call.summary ? `<em>${esc(detail || meta.detail)}</em>` : ""}</div></li>`;
+  }).join("");
+  const runtime = snapshot.runtime || {};
+  const captured = snapshot.captured_at ? fmtTimeShort(snapshot.captured_at) : "刚刚";
+  const execution = snapshot.execution || {};
+  const intent = snapshot.intent || {};
+  const executionStatus = replayActive && running
+    ? `回放中 · ${visibleCount}/${replay.length || (snapshot.calls || []).length}`
+    : execution.status === "completed" ? "已完成" : (execution.status || "待运行");
+  const executionTone = replayActive && running ? "warn" : execution.status === "completed" ? "ok" : "warn";
+  const replayNote = replayActive && replay[visibleCount]
+    ? `<div class="mcp-replay-note" role="status"><span class="mcp-replay-dot"></span><b>下一步：${esc(replay[visibleCount].label || replay[visibleCount].tool)}</b><span>${esc(replay[visibleCount].detail || "受限工具调用")}</span></div>`
+    : replayActive && visibleCount >= (replay.length || (snapshot.calls || []).length)
+      ? `<div class="mcp-replay-note complete" role="status"><span class="mcp-replay-dot"></span><b>回放完成</b><span>四项只读调用已返回，人工确认仍是最后一道门。</span></div>`
+      : "";
+  const budget = execution.replay_budget || {};
+  const budgetText = budget.max_tool_calls ? `工具 ${budget.tool_calls ?? 0}/${budget.max_tool_calls} · 语义模型 ${budget.semantic_model_calls ?? 0} 次上限 · 材料 ${budget.parsed_pages ?? 0} 页上限` : "工具调用按 Harness 预算执行";
+  const refreshNote = loading ? `<div class="mcp-snapshot-refresh" role="status"><span class="mcp-replay-dot"></span><b>正在刷新只读快照</b><span>上一次结果仍保留在这里。</span></div>` : "";
+  return `<div class="mcp-snapshot-body"><div class="mcp-snapshot-meta"><span>任务 #${esc(snapshot.task?.id)} · ${esc(snapshot.task?.name || "当前任务")}</span><time>${esc(captured)}</time></div>${refreshNote}<div class="mcp-run-summary"><div><b>Agent 只读意图</b><span>${esc(intent.goal || "定位当前任务下一步并读取受限聚合进度")}</span></div><div><b>运行状态</b><span class="mcp-run-status ${executionTone}">${esc(executionStatus)}</span></div>${execution.correlation_id ? `<div><b>correlation id</b><code>${esc(execution.correlation_id)}</code></div>` : ""}</div>${replayNote}<ol class="mcp-snapshot-calls" aria-label="MCP 工具调用账本">${calls || `<li class="mcp-call-pending"><span class="mcp-replay-dot"></span><div><b>等待第一项只读调用</b><small>Agent 先确认任务范围，再逐步读取聚合信息。</small></div></li>`}</ol><div class="mcp-snapshot-foot"><span>只读 · 服务端脱敏投影 · 合同 v${esc(runtime.contract_version ?? "—")} · ${esc(budgetText)}</span><span class="mcp-snapshot-actions"><button class="ghost sm" type="button" onclick="runMcpDemo()"${running ? " disabled" : ""}>${running ? "回放中…" : "运行 Agent 导览"}</button><button class="ghost sm" type="button" onclick="loadMcpSnapshot()"${loading || running ? " disabled" : ""}>${loading ? "读取中…" : "刷新快照"}</button></span></div><p class="mcp-snapshot-boundary">${esc(execution.human_gate || snapshot.boundary || "不返回逐人名单、材料正文、审核证据或会话 token")}</p></div>`;
+}
+function paintMcpSnapshot() {
+  const body = document.getElementById("mcp-snapshot-body");
+  if (body) body.innerHTML = mcpSnapshotHtml(state.mcpSnapshot).replace(/^<div class="mcp-snapshot-body">|<\/div>$/g, "");
+  paintAgentArchitecture();
+  paintAgentShowcase();
+}
+async function loadMcpSnapshot(taskId = state.demoTaskId) {
+  if (!Number.isFinite(Number(taskId))) return;
+  clearMcpReplay();
+  state.mcpReplayIndex = null;
+  state.demoTaskId = Number(taskId);
+  state.mcpSnapshotLoading = true;
+  paintMcpSnapshot();
+  try {
+    state.mcpSnapshot = await api(`/api/tasks/${state.demoTaskId}/mcp-snapshot`);
+  } catch (error) {
+    state.mcpSnapshot = {error: error.message || "MCP 快照暂时不可用，请确认组织者会话仍有效。"};
+  } finally {
+    state.mcpSnapshotLoading = false;
+    paintMcpSnapshot();
+  }
+}
+function clearMcpReplay() {
+  if (state.mcpReplayTimer) clearTimeout(state.mcpReplayTimer);
+  state.mcpReplayTimer = 0;
+}
+function scheduleMcpReplay(snapshot) {
+  clearMcpReplay();
+  const total = (snapshot?.execution?.replay || snapshot?.calls || []).length;
+  state.mcpReplayIndex = 0;
+  const advance = () => {
+    state.mcpReplayIndex = Math.min(total, (state.mcpReplayIndex || 0) + 1);
+    paintMcpSnapshot();
+    if (state.mcpReplayIndex < total) {
+      state.mcpReplayTimer = setTimeout(advance, 520);
+      return;
+    }
+    state.mcpReplayTimer = setTimeout(() => {
+      state.mcpReplayIndex = null;
+      state.mcpSnapshotRunning = false;
+      paintMcpSnapshot();
+      clearMcpReplay();
+    }, 760);
+  };
+  paintMcpSnapshot();
+  state.mcpReplayTimer = setTimeout(advance, 280);
+}
+async function runMcpDemo() {
+  if (!Number.isFinite(Number(state.demoTaskId)) || state.mcpSnapshotRunning) return;
+  clearMcpReplay();
+  state.mcpSnapshotRunning = true;
+  paintMcpSnapshot();
+  try {
+    state.mcpSnapshot = await api(`/api/tasks/${state.demoTaskId}/mcp-demo`, {method: "POST"});
+    scheduleMcpReplay(state.mcpSnapshot);
+  } catch (error) {
+    state.mcpSnapshot = {error: error.message || "Agent 导览暂时不可用，请确认组织者会话仍有效。"};
+    state.mcpSnapshotRunning = false;
+    paintMcpSnapshot();
+  } finally {
+    if (state.mcpSnapshot?.error) {
+      state.mcpSnapshotRunning = false;
+      state.mcpReplayIndex = null;
+      clearMcpReplay();
+      paintMcpSnapshot();
+    }
+  }
+}
+function agentTourRuntimeHtml(runtime = null) {
+  if (!runtime) return `<div id="agent-tour-runtime-contract"><div class="agent-tour-guardrail"><b>审核 Agent · Harness 工具护栏</b><span><code>review_one_submission</code> 的工具调用受白名单、任务范围、运行预算、幂等键和结果上限约束；<code>requirements_draft</code> 由应用服务处理，按任务、账号和请求编号恢复，并在版本冲突时拒绝写入。</span></div>${runtimeSelfTestHtml()}<div class="agent-tour-boundary" aria-label="工具、MCP 与人工决策边界"><div class="agent-boundary-tools"><b>网页内工具</b><span><code>review.deterministic_rule</code><code>review.semantic_rule</code><br>网页 Agent 只通过当前任务白名单访问工具。</span></div><div class="agent-boundary-mcp"><b>独立只读 MCP sidecar</b><span><code>list_my_tasks</code><code>get_task_collection_progress</code><code>get_task_next_step</code><code>get_task_agent_runtime</code><br>需组织者会话授权；仅返回任务导航、适用的收集阶段聚合计数和 Agent runtime，不读取逐人名单、材料正文或审核结果，也不供网页 Agent 调用。</span></div><div class="agent-boundary-human"><b>组织者确认</b><span>蓝图发布、补正处理和最终验收由组织者决定；证据不足时 Agent 停在待确认。</span></div></div>${mcpSnapshotPanelHtml()}</div>`;
+  const reviewSkill = runtimeReviewSkill(runtime);
+  const requirements = (runtime?.skills || []).find(skill => skill.name === "requirements_draft") || {};
+  const harness = runtime?.harness;
+  const tools = runtimeToolNames(runtime, reviewSkill);
+  const budget = harness
+    ? `最多 ${harness.max_invocations} 次工具调用 · ${harness.semantic_model_calls_per_run} 次语义模型调用 · ${harness.parsed_pages_per_run} 页材料 · 单结果 ≤${harness.result_limit_bytes} B`
+    : "白名单、任务范围、运行预算、幂等键和结果上限共同约束调用";
+  const requirementBoundary = requirements.request_idempotency
+    ? `由应用服务处理，按 ${requirements.request_idempotency === "task_account_request_id" ? "任务、账号和请求编号" : requirements.request_idempotency} 恢复；版本冲突 ${requirements.version_conflict === "fail_closed" ? "拒绝写入" : "按服务端策略处理"}，${requirements.human_gate || "由组织者确认后生效"}`
+    : "由应用服务处理并等待组织者确认，不直接发布规则或时间策略";
+  const mcp = runtime?.mcp;
+  const mcpTools = (mcp?.adapters || []).flatMap(adapter => adapter.tools || []);
+  const mcpBoundary = mcp?.boundary || "网页内置 Agent 不调用外部 MCP；独立 sidecar 仅提供组织者只读能力。";
+  const mcpToolList = mcpTools.map(name => `<code>${esc(name)}</code>`).join("");
+  const human = (runtime?.human_control || []).map(item => esc(item)).join("；") || "蓝图发布、补正处理和最终验收由组织者决定";
+  return `<div id="agent-tour-runtime-contract"><div class="agent-tour-guardrail"><b>审核 Agent · Harness 工具护栏</b><span><code>${esc(reviewSkill.name || "review_one_submission")}</code> · ${esc(budget)}；需求 Agent ${esc(requirementBoundary)}。</span></div>${runtimeSelfTestHtml(runtime)}<div class="agent-tour-boundary" aria-label="工具、MCP 与人工决策边界"><div class="agent-boundary-tools"><b>网页内工具白名单</b><span>${tools}</span></div><div class="agent-boundary-mcp"><b>独立只读 MCP sidecar</b><span>${mcpToolList}${mcpToolList ? "<br>" : ""}${esc(mcpBoundary)}</span></div><div class="agent-boundary-human"><b>组织者最终决定</b><span>${human}</span></div></div>${mcpSnapshotPanelHtml()}</div>`;
+}
+function mcpSnapshotPanelHtml() {
+  return `<section class="mcp-snapshot" aria-label="MCP 只读快照"><div class="mcp-snapshot-head"><div><span class="eyebrow">LIVE MCP EVIDENCE</span><b>Agent → MCP 只读导览</b><small>由服务端桥接执行四个白名单读取；浏览器不会接触 MCP 会话 token。</small></div><span class="badge brand">4 个工具</span></div><div id="mcp-snapshot-body">${mcpSnapshotHtml()}</div></section>`;
 }
 function taskRuntimeHtml(runtime = null) {
   const skill = runtimeReviewSkill(runtime);
   const mode = runtime?.model?.label || "读取任务边界…";
   const scope = runtime?.scope || {};
   const tools = runtimeToolNames(runtime, skill);
-  const mcp = runtime?.mcp?.boundary || "正在读取外部工具边界。";
+  const mcp = runtime?.mcp?.boundary || "可选 stdio sidecar 提供任务列表、收集汇总、流程下一步和 Agent runtime，不读取逐人名单或材料。";
   const budget = runtime?.harness ? `工具 ${runtime.harness.max_invocations} 次 · 语义模型 ${runtime.harness.semantic_model_calls_per_run} 次 · 材料 ${runtime.harness.parsed_pages_per_run} 页 · 单结果 ≤${runtime.harness.result_limit_bytes} B` : "按当前蓝图和运行配置计算";
-  return `<section id="workspace-agent-runtime" class="workspace-runtime-strip" aria-label="FormFlow Agent runtime"><div class="runtime-strip-lead"><div class="runtime-strip-head"><div class="eyebrow">FORMFLOW AGENT RUNTIME</div><span id="workspace-agent-mode" class="runtime-mode">${esc(mode)}</span></div><h2>助手负责整理与取证，关键决定留给人</h2><p id="workspace-agent-status" role="status" aria-live="polite">${runtime ? `当前任务 ${scope.published_blueprint ? "已发布蓝图" : "尚未发布蓝图"}；运行时边界由服务端清单提供。` : "正在读取当前任务的运行时边界；已有任务和程序流程仍可查看。"}</p></div><div class="runtime-strip-grid"><div class="runtime-skill"><span class="runtime-strip-icon">${icon("sparkle")}</span><b>Skill</b><span><code>${esc(skill.name || "review_one_submission")}</code> 按当前规则逐条取证</span></div><div class="runtime-tools"><span class="runtime-strip-icon">${icon("tasks")}</span><b>工具白名单</b><span>${tools}</span></div><div class="runtime-harness"><span class="runtime-strip-icon">${icon("review")}</span><b>Harness</b><span>scope、预算、幂等键、结果上限与审计 · ${esc(budget)}</span></div><div class="runtime-mcp"><span class="runtime-strip-icon">${icon("expand")}</span><b>MCP 边界</b><span>${esc(mcp)}</span></div><div class="runtime-human"><span class="runtime-strip-icon">${icon("workbench")}</span><b>人来决定</b><span>${esc((runtime?.human_control || ["不确定、失败与最终验收交给组织者"])[0])}</span></div></div></section>`;
+  return `<section id="workspace-agent-runtime" class="workspace-runtime-strip" aria-label="FormFlow Agent runtime">
+    <details>
+      <summary>
+        <div class="runtime-strip-lead">
+          <div class="runtime-strip-head"><div class="eyebrow">FORMFLOW AGENT RUNTIME</div><span id="workspace-agent-mode" class="runtime-mode">${esc(mode)}</span></div>
+          <h2>运行时边界与安全护栏</h2>
+          <p id="workspace-agent-status" role="status" aria-live="polite">${runtime ? `当前任务 ${scope.published_blueprint ? "已发布蓝图" : "尚未发布蓝图"}；运行时边界由服务端清单提供。` : "正在读取当前任务的运行时边界；已有任务和程序流程仍可查看。"}</p>
+          <p class="runtime-agent-roles">需求 Agent 整理待确认蓝图；审核 Agent 按规则逐条取证。</p>
+        </div>
+        <span class="runtime-strip-expand">查看工具与安全边界 ${icon("arrow")}</span>
+      </summary>
+      <div class="runtime-strip-grid">
+        <div class="runtime-skill"><span class="runtime-strip-icon">${icon("sparkle")}</span><b>审核 Skill</b><span><code>${esc(skill.name || "review_one_submission")}</code> 按当前规则逐条取证</span></div>
+        <div class="runtime-tools"><span class="runtime-strip-icon">${icon("tasks")}</span><b>工具白名单</b><span>${tools}</span></div>
+        <div class="runtime-harness"><span class="runtime-strip-icon">${icon("review")}</span><b>Harness</b><span>scope、预算、幂等键、结果上限与审计 · ${esc(budget)}</span>${runtimeSelfTestHtml(runtime)}</div>
+        <div class="runtime-mcp"><span class="runtime-strip-icon">${icon("expand")}</span><b>MCP 边界</b><span>${esc(mcp)}</span></div>
+        <div class="runtime-human"><span class="runtime-strip-icon">${icon("workbench")}</span><b>人来决定</b><span>${esc((runtime?.human_control || ["不确定、失败与最终验收交给组织者"])[0])}</span></div>
+      </div>
+    </details>
+  </section>`;
 }
 function designRuntimeHtml(runtime = null) {
   const mode = runtime?.model?.label || "受限运行时";
   const skill = (runtime?.skills || []).find(item => item.name === "requirements_draft") || {};
   const tools = runtimeToolNames(runtime, skill);
-  const mcp = runtime?.mcp?.boundary || "没有外部 adapter；模型不能访问网络、文件系统或任意 SQL";
+  const mcp = runtime?.mcp?.boundary || "网页内置 Agent 不调用外部 MCP；只读 sidecar 提供任务列表、收集汇总、流程下一步和 Agent runtime，不读取逐人名单或材料。";
   const execution = skill.request_idempotency
     ? "持久请求队列 · 同请求幂等恢复 · 版本冲突拒绝"
     : "scope、预算、幂等键、结果上限与审计在边界内检查";
-  return `<section id="design-agent-runtime" class="agent-runtime-card" aria-label="智能协作边界"><div class="runtime-card-head"><div><div class="eyebrow">AGENT RUNTIME</div><h3>小齐的协作边界</h3></div><span class="runtime-mode" id="agent-runtime-mode">${esc(mode)}</span></div><div class="runtime-card-grid"><div class="runtime-card-item runtime-skill"><span class="runtime-card-icon">${icon("sparkle")}</span><div><b>Skill · 需求整理</b><span><code>${esc(skill.name || "requirements_draft")}</code> ${esc(skill.description || "把原始要求整理成待确认草案")}</span></div></div><div class="runtime-card-item runtime-tools"><span class="runtime-card-icon">${icon("tasks")}</span><div><b>工具边界</b><span>${tools}</span></div></div><div class="runtime-card-item runtime-harness"><span class="runtime-card-icon">${icon("review")}</span><div><b>执行与恢复</b><span>${execution} · 发布需组织者确认</span></div></div><div class="runtime-card-item runtime-mcp"><span class="runtime-card-icon">${icon("expand")}</span><div><b>MCP 边界</b><span>${esc(mcp)}</span></div></div><div class="runtime-card-item runtime-human"><span class="runtime-card-icon">${icon("workbench")}</span><div><b>人工确认</b><span>${esc((runtime?.human_control || ["不确定内容、材料门槛和最终发布由组织者决定"])[2] || "发布前必须由组织者确认")}</span></div></div></div><p class="runtime-card-foot" id="agent-runtime-status">${runtime ? "这份边界来自当前任务的服务端运行时清单。" : "正在读取当前任务的服务端运行时清单。"}</p></section>`;
+  return `<details id="design-agent-runtime" class="agent-runtime-card" aria-label="智能协作边界">
+    <summary class="runtime-card-summary">
+      <span class="runtime-card-summary-main"><span class="eyebrow">AGENT RUNTIME</span><b>小齐的协作边界</b><small>Skill 需求整理 · 受限工具与预算 · 发布由组织者确认</small></span>
+      <span class="runtime-mode" id="agent-runtime-mode">${esc(mode)}</span>
+      <span class="runtime-card-toggle">查看运行边界 ${icon("arrow")}</span>
+    </summary>
+    <div class="runtime-card-content">
+      <div class="runtime-card-grid">
+        <div class="runtime-card-item runtime-skill"><span class="runtime-card-icon">${icon("sparkle")}</span><div><b>Skill · 需求整理</b><span><code>${esc(skill.name || "requirements_draft")}</code> ${esc(skill.description || "把原始要求整理成待确认草案")}</span></div></div>
+        <div class="runtime-card-item runtime-tools"><span class="runtime-card-icon">${icon("tasks")}</span><div><b>工具边界</b><span>${tools}</span></div></div>
+        <div class="runtime-card-item runtime-harness"><span class="runtime-card-icon">${icon("review")}</span><div><b>执行与恢复</b><span>${execution} · 发布需组织者确认</span>${runtimeSelfTestHtml(runtime)}</div></div>
+        <div class="runtime-card-item runtime-mcp"><span class="runtime-card-icon">${icon("expand")}</span><div><b>MCP 边界</b><span>${esc(mcp)}</span></div></div>
+        <div class="runtime-card-item runtime-human"><span class="runtime-card-icon">${icon("workbench")}</span><div><b>人工确认</b><span>${esc((runtime?.human_control || ["不确定内容、材料门槛和最终发布由组织者决定"])[2] || "发布前必须由组织者确认")}</span></div></div>
+      </div>
+      <p class="runtime-card-foot" id="agent-runtime-status">${runtime ? "这份边界来自当前任务的服务端运行时清单。" : "正在读取当前任务的服务端运行时清单。"}</p>
+      <div id="offline-replay-action"></div>
+    </div>
+  </details>`;
+}
+function designProgressHtml() {
+  // `designPublished` is also the comparison baseline for newer drafts. It can
+  // remain populated while the currently selected draft is still unpublished.
+  const published = state.draftStatus === "published";
+  const hasDraft = !!state.bpId;
+  const clarificationCount = (state.designQuestions || []).length;
+  const blockingCount = (state.designBlocking || []).length;
+  const publishReady = canPublishDesign();
+  const modelOffline = state.llmConfigured === false;
+  const steps = [
+    {number:"01", label:"描述需求", tone:hasDraft ? "done" : "current", text:hasDraft ? "已有一份可继续核对的蓝图" : "先写下要收什么、交什么"},
+    {number:"02", label:"核对与澄清", tone:!hasDraft ? "pending" : clarificationCount || blockingCount ? "current" : "done", text:!hasDraft ? "生成草案后会出现在这里" : clarificationCount ? `${clarificationCount} 项待补充说明` : blockingCount ? `${blockingCount} 项需要先处理` : "字段、材料和规则已具备"},
+    {number:"03", label:"确认发布", tone:published ? "done" : publishReady ? "ready" : "pending", text:published ? `当前版本 v${state.draftVersionId || "—"} 已发布` : publishReady ? "组织者确认后才会生效" : "发布按钮会在核对完成后开放"},
+  ];
+  const status = published ? "已发布" : state.agentBusy ? "Agent 正在整理" : modelOffline ? "离线可演示" : blockingCount ? "需要处理" : clarificationCount ? "等待澄清" : publishReady ? "等待确认" : "准备中";
+  return `<section id="design-progress" class="design-progress" aria-label="需求设计进度">
+    <div class="design-progress-head"><div><span class="eyebrow">CURRENT RUN</span><b>这份需求现在走到哪一步</b></div><span class="badge ${published ? "ok" : blockingCount || modelOffline ? "warn" : "brand"}">${status}</span></div>
+    <ol class="design-progress-steps">${steps.map(step => `<li class="${step.tone}"><span class="design-progress-index">${step.number}</span><div><b>${step.label}</b><span>${step.text}</span></div></li>`).join("")}</ol>
+    <p class="design-progress-boundary"><span>${icon("workbench")}</span>${published ? "发布后的字段和规则已冻结；后续修改会形成新版本。" : "Agent 只整理和取证，字段生效、发布与最终责任仍由组织者确认。"}</p>
+  </section>`;
+}
+function paintDesignProgress() {
+  const box = document.getElementById("design-progress");
+  if (box) box.outerHTML = designProgressHtml();
 }
 async function loadAgentRuntime(taskId) {
   if (!Number.isFinite(Number(taskId))) return;
   try {
     const runtime = await api(`/api/tasks/${taskId}/agent-runtime`);
+    const contractIssue = agentRuntimeContractIssue(runtime);
+    if (contractIssue) {
+      state.agentRuntime = null;
+      paintAgentRuntimeContractIssue(contractIssue);
+      return;
+    }
     state.agentRuntime = runtime;
     const taskStrip = document.getElementById("workspace-agent-runtime");
     if (taskStrip) taskStrip.outerHTML = taskRuntimeHtml(runtime);
+    const tourContract = document.getElementById("agent-tour-runtime-contract");
+    if (tourContract) tourContract.outerHTML = agentTourRuntimeHtml(runtime);
+    const harnessNote = document.querySelector("#workspace-agent-runtime .runtime-harness > span:last-child");
+    if (harnessNote) {
+      const recoveryNote = runtime.harness?.recovery_note;
+      if (recoveryNote) harnessNote.textContent = `${harnessNote.textContent} · ${recoveryNote}`;
+    }
     const designCard = document.getElementById("design-agent-runtime");
     if (designCard) designCard.outerHTML = designRuntimeHtml(runtime);
     paintWorkspaceAgentStatus();
     paintAgentRuntime();
+    paintAgentArchitecture();
+    paintAgentShowcase();
   } catch (e) {
     // The existing static fallback remains usable if the read-only manifest is unavailable.
   }
 }
 async function viewTasks() {
+  const presentationHeading = state.presentationMode;
+  const pageEyebrow = presentationHeading ? "FORMFLOW / 评委展示" : "WORKSPACE / 任务管理";
+  const pageTitle = presentationHeading ? "从要求到有证据的交付" : "我的任务";
+  const pageLead = presentationHeading
+    ? "受限 Agent 负责整理与取证，人工确认后才进入可交付快照。"
+    : "从需求到交付，把每一次收集安排妥当。";
   document.getElementById("app").innerHTML = `
-    <div class="page-heading"><div><div class="eyebrow">WORKSPACE / 任务管理</div><h1>我的任务<span class="heading-dot">.</span></h1><p>从需求到交付，把每一次收集安排妥当。</p></div>
-      <div class="page-heading-actions"><button id="presentation-toggle" class="ghost presentation-toggle" aria-pressed="false" onclick="togglePresentationMode()">${icon("expand")} 进入展示视图</button><button onclick="openDialog('create-dialog', this)">${icon("plus")} 新建收集任务</button></div></div>
+    <div class="page-heading"><div><div id="task-home-eyebrow" class="eyebrow">${pageEyebrow}</div><h1 id="task-home-title">${pageTitle}<span class="heading-dot">.</span></h1><p id="task-home-lead">${pageLead}</p></div>
+      <div class="page-heading-actions"><button class="ghost presentation-agent-jump" onclick="jumpToAgentTour()">${icon("sparkle")} 查看 Agent 架构</button><button id="presentation-toggle" class="ghost presentation-toggle" aria-pressed="false" onclick="togglePresentationMode()">${icon("expand")} 进入展示视图</button><button onclick="openDialog('create-dialog', this)">${icon("plus")} 新建收集任务</button></div></div>
     <div id="flash" role="status"></div>
-    <div id="demo-route" aria-live="polite"></div>
-    <section class="workspace-intro"><div class="intro-symbol">${icon("design")}</div><div><h2>不用从一张空表单开始</h2><p>告诉小齐要收什么，一起确认字段、材料和规则，再交给提交者。</p></div><span class="intro-note">你确认，才发布 ${icon("arrow")}</span></section>
-    ${taskRuntimeHtml()}
-    ${agentTourHtml()}
     <div id="task-stats" class="overview-stats"></div>
     <section class="card task-section"><div class="section-toolbar"><div class="task-filters" role="group" aria-label="任务状态筛选">
       <button class="filter active" data-filter="all" onclick="filterTasks('all')">全部任务</button>
@@ -809,6 +1264,10 @@ async function viewTasks() {
       <label class="search-box">${icon("search")}<input id="task-search" aria-label="搜索任务" placeholder="搜索任务名称…" oninput="paintTasks()"></label></div>
       <div id="task-list" aria-live="polite"><p class="empty">正在读取任务…</p></div></section>
     <p class="workspace-note">${icon("delivery")} 正式提交保留版本记录，交付时按固定快照整理。</p>
+    <div id="demo-route" aria-live="polite"></div>
+    <section class="workspace-intro"><div class="intro-symbol">${icon("design")}</div><div><h2>不用从一张空表单开始</h2><p>告诉小齐要收什么，一起确认字段、材料和规则，再交给提交者。</p></div><span class="intro-note">你确认，才发布 ${icon("arrow")}</span></section>
+    ${taskRuntimeHtml()}
+    ${agentTourHtml()}
     <dialog id="create-dialog"><form onsubmit="event.preventDefault();createTask()">
       <div class="dialog-heading"><div><div class="eyebrow">NEW COLLECTION</div><h2>开始一次新的收集</h2></div><button type="button" class="ghost icon-only" aria-label="关闭新建任务" title="关闭新建任务" onclick="this.closest('dialog').close()">${icon("close")}</button></div>
       <p class="muted">先起个名字，具体材料和检查要求下一步与小齐一起确认。</p>
@@ -823,15 +1282,23 @@ async function viewTasks() {
     const { tasks } = await api("/api/tasks");
     if (document.body.dataset.page !== "tasks") return;
     state.tasks = tasks; state.taskFilter = "all";
+    setEmptyTaskHome(tasks.length === 0);
     checkWorkspaceLLMStatus();
     renderDemoRoute(tasks);
     const routeTask = demoRouteTask(tasks);
-    if (routeTask) loadDemoRoute(routeTask);
-    if (routeTask) loadAgentRuntime(routeTask.id);
+    if (routeTask) {
+      state.demoTaskId = routeTask.id;
+      loadDemoRoute(routeTask);
+      loadAgentRuntime(routeTask.id);
+      loadMcpSnapshot(routeTask.id);
+    }
     const n = status => tasks.filter(t => t.status === status).length;
     document.getElementById("task-stats").innerHTML = [["全部任务", tasks.length, "tasks"], ["正在收集", n("collecting"), "workbench"], ["待完善草稿", n("draft"), "design"], ["已经归档", n("archived"), "delivery"]].map(([label, value, ic]) => `<div class="overview-stat"><span>${label}</span><strong>${value.toString().padStart(2,"0")}</strong><i>${icon(ic)}</i></div>`).join("");
     paintTasks();
   } catch (e) { setFlash(e.message); document.getElementById("task-list").innerHTML = '<div class="empty">暂时无法读取任务。<button class="link" onclick="viewTasks()">重新加载</button></div>'; }
+}
+function setEmptyTaskHome(isEmpty) {
+  document.getElementById("app")?.classList.toggle("task-home-empty", isEmpty);
 }
 function demoRouteTask(tasks = []) {
   return tasks.find(t => t.status === "collecting")
@@ -849,16 +1316,53 @@ function agentTourHtml(llmConfigured = state.llmConfigured) {
       ? "当前已配置模型密钥；语义审核仍受工具白名单、预算和证据约束。"
       : "正在读取模型配置；已有任务和程序流程仍可查看。";
   const steps = [
-    ["输入", "从一句要求或一份正式提交开始", "先锁定当前任务、发布蓝图和提交版本，Agent 不自行扩大范围。", "scope"],
-    ["Skill", "review_one_submission", "按规则逐条取证，把程序核验、语义审核和人工事项分开。", "skill"],
-    ["Harness", "受限工具运行时", "检查工具名、参数、授权范围、调用预算、幂等键和结果上限。", "harness"],
-    ["证据", "回到原文位置", "每条结果保留工具 trace、关联编号和覆盖范围；证据不足就停在待确认。", "evidence"],
-    ["接手", "组织者做最终决定", "资格、补正和最终验收由人确认，模型不会自行发布或认定通过。", "human"],
+    ["输入", "从一句要求开始", "先锁定任务和收集范围，原始要求保留供组织者核对。", "input"],
+    ["需求 Skill", "requirements_draft", "整理有来源的待确认蓝图，不直接发布规则或时间策略。", "skill"],
+    ["蓝图确认", "组织者核对并发布", "确认字段、规则与时间策略后冻结版本，再进入正式收件。", "approval"],
+    ["审核 Skill", "review_one_submission", "基于已发布规则逐条检查，整理证据引用与材料覆盖情况。", "review"],
+    ["人工接手", "组织者做最终决定", "处理不确定项、补正和最终验收；模型不会自行认定通过。", "human"],
   ];
-  return `<section class="agent-tour" aria-label="Agent 工作导览"><details><summary aria-expanded="false"><span><span class="eyebrow">现场演示 · AGENT WALKTHROUGH</span><b>一次运行怎样从要求走到可交付证据</b><small>展开查看 skill、harness、工具边界与人工接手点</small></span><span class="agent-tour-summary"><span id="agent-tour-mode" class="runtime-mode ${modeClass}">${esc(mode)}</span><span class="agent-tour-chevron">${icon("arrow")}</span></span></summary><div class="agent-tour-body"><div class="agent-tour-intro"><p id="agent-tour-availability">${esc(availability)}</p><span>每一步都可以在复核页的运行记录中回看</span></div><ol class="agent-tour-flow">${steps.map(([label, title, detail, tone], i) => `<li class="agent-tour-step ${tone}"><span class="agent-tour-index">0${i + 1}</span><div><b>${esc(label)}</b><strong>${esc(title)}</strong><span>${esc(detail)}</span></div></li>`).join("")}</ol><div class="agent-tour-boundary"><div><b>允许使用</b><span><code>review.deterministic_rule</code><code>review.semantic_rule</code></span></div><div><b>明确不做</b><span>当前未连接外部 MCP adapter；模型不能访问网络、文件系统或任意 SQL。</span></div></div></div></details></section>`;
+  return `<section class="agent-tour" aria-label="Agent 工作导览"><details><summary aria-expanded="false"><span><span class="eyebrow">现场演示 · AGENT WALKTHROUGH</span><b>两个 Agent 怎样从要求走到可交付证据</b><small>按需展开蓝图确认、审核 Skill、执行护栏与人工接手点</small></span><span class="agent-tour-summary"><span id="agent-tour-mode" class="runtime-mode ${modeClass}">${esc(mode)}</span><span class="agent-tour-chevron">${icon("arrow")}</span></span></summary><div class="agent-tour-body"><div class="agent-tour-intro"><p id="agent-tour-availability">${esc(availability)}</p><span>审核运行可在复核页查看证据和工具记录</span></div><ol class="agent-tour-flow" aria-label="需求整理与审核的五个业务阶段">${steps.map(([label, title, detail, tone], i) => `<li class="agent-tour-step ${tone}"><span class="agent-tour-index">0${i + 1}</span><div><b>${esc(label)}</b><strong>${esc(title)}</strong><span>${esc(detail)}</span></div></li>`).join("")}</ol>${agentTourRuntimeHtml(state.agentRuntime)}</div></details></section>`;
 }
 const DEMO_ROUTE_STATUS = {done: "已完成", current: "现在处理", upcoming: "下一步", blocked: "先完成前置"};
 const DEMO_ROUTE_ICONS = {design: "design", roster: "roster", review: "review", delivery: "delivery"};
+const DEMO_ROUTE_TALK_TRACK = {
+  design: "先看一句自然语言如何变成可核对蓝图；发布前仍由组织者确认，Agent 不会替人发布规则。",
+  roster: "这里展示权限边界：凭证只把人带到自己的提交空间，保存草稿和正式提交是两件事。",
+  review: "这里看证据链：程序规则、语义检查和人工判断分开，缺证据就停在待处理。",
+  delivery: "最后只从已验收的正式快照生成 CSV 和 ZIP，交付不会覆盖过程记录。",
+};
+const DEMO_ROUTE_STAGE_META = {
+  design: {boundary: "组织者确认", evidence: "原始要求 + 蓝图", finish: "规则和时间策略已冻结", goal: "冻结字段、材料与验收规则"},
+  roster: {boundary: "程序执行", evidence: "名单 + 凭证记录", finish: "提交者进入自己的空间", goal: "让每位提交者拿到独立且可撤销的入口"},
+  review: {boundary: "Agent 取证 · 人确认", evidence: "规则结论 + 原文位置", finish: "不确定项停在人工处理", goal: "把每条结论落到原文证据，未完成就转人工"},
+  delivery: {boundary: "程序快照", evidence: "验收结果 + 正式版本", finish: "只导出已验收材料", goal: "只从已验收正式快照生成可追溯交付包"},
+};
+function demoRouteStageMeta(step) {
+  const key = step?.key || "";
+  if (DEMO_ROUTE_STAGE_META[key]) return DEMO_ROUTE_STAGE_META[key];
+  const title = step?.title || "";
+  if (title.includes("要求")) return DEMO_ROUTE_STAGE_META.design;
+  if (title.includes("凭证")) return DEMO_ROUTE_STAGE_META.roster;
+  if (title.includes("检查") || title.includes("复核")) return DEMO_ROUTE_STAGE_META.review;
+  if (title.includes("交付")) return DEMO_ROUTE_STAGE_META.delivery;
+  return {boundary: "按当前流程确认", evidence: "当前站的授权记录", finish: "完成后进入下一站", goal: "完成当前站的授权动作并留下可回看的记录"};
+}
+const DEMO_ROUTE_EVIDENCE = {
+  design: {label: "打开蓝图", suffix: "design"},
+  roster: {label: "打开名单与凭证", suffix: "roster"},
+  review: {label: "打开规则证据", suffix: "review"},
+  delivery: {label: "打开验收快照", suffix: "delivery"},
+};
+function demoRouteEvidence(step, taskId) {
+  const key = step?.key || "";
+  const fallback = DEMO_ROUTE_EVIDENCE[key];
+  if (!fallback || taskId == null) return null;
+  return {
+    label: fallback.label,
+    href: key === "review" && step?.href ? step.href : `#/${fallback.suffix}/${encodeURIComponent(taskId)}`,
+  };
+}
 const REVIEW_RUN_STATUS = {queued: "排队中", running: "检查中", retry_wait: "等待重试", success: "检查完成", failed: "运行失败", superseded: "已被新运行取代"};
 const REVIEW_RUN_SOURCE = {
   simulation: {label: "离线演示结果", detail: "本次语义结论由演示脚本生成，没有调用实时模型。", tone: "offline"},
@@ -876,6 +1380,7 @@ function demoRouteSignalHtml(signal) {
     : `${signal.coverage_gaps || 0} 页未读或失败，结论会停在待确认`;
   const run = signal.run_id ? `运行 #${signal.run_id}` : "检查已排队";
   const source = REVIEW_RUN_SOURCE[signal.run_source] || REVIEW_RUN_SOURCE.unknown;
+  const failure = signal.failure || null;
   const budget = signal.budget || {};
   const pageBudget = budget.pages || {};
   const semanticBudget = budget.semantic_calls || {};
@@ -910,19 +1415,272 @@ function demoRouteSignalHtml(signal) {
       : "语义步骤";
     const tone = ["issue", "failed"].includes(item.status) ? "warn"
       : item.status === "unknown" ? "info" : "ok";
-    const duration = Number(item.duration_ms) < 10 ? "即时"
+    const duration = Number(item.duration_ms) < 10 ? "<10 毫秒"
       : Number(item.duration_ms) < 1000 ? `${Number(item.duration_ms)} ms`
       : `${(Number(item.duration_ms) / 1000).toFixed(1)} s`;
     const step = Number(item.sequence) > 0 ? `0${item.sequence}`.slice(-2) : "·";
-    return `<li class="demo-route-trace-row"><span class="demo-route-trace-index">${esc(step)}</span><span class="demo-route-trace-kind ${tone}">${esc(tool)}</span><span class="demo-route-trace-status">${esc(traceStatus[item.status] || "已记录")} · ${esc(duration)}</span></li>`;
+    const attempt = Number(item.execution_attempt) > 1 ? ` · 第 ${Number(item.execution_attempt)} 次` : "";
+    const version = item.tool_version ? ` · ${esc(item.tool_version)}` : "";
+    return `<li class="demo-route-trace-row"><span class="demo-route-trace-index">${esc(step)}${esc(attempt)}</span><span class="demo-route-trace-kind ${tone}">${esc(tool)}${version}</span><span class="demo-route-trace-status">${esc(traceStatus[item.status] || "已记录")} · ${esc(duration)}</span></li>`;
   }).join("");
+  const retry = signal.retry || {};
+  const runContext = [
+    signal.blueprint_version ? `蓝图 v${signal.blueprint_version}` : "",
+    signal.revision_version ? `提交 v${signal.revision_version}` : "",
+    Number(retry.attempt) > 1 ? `第 ${retry.attempt} 次运行 · 由 #${retry.retried_from} 重试` : "首次运行",
+  ].filter(Boolean).join(" · ");
+  const recovered = trace.some(item => Number(item.execution_attempt) > 1);
   const traceHtml = trace.length
-    ? `<details class="demo-route-trace"><summary><span><b>运行回放</b><small>skill / harness 已记录 ${trace.length} 步</small></span><span>${esc(source.label)}</span></summary><ol>${traceRows}</ol><p>展示工具类别、状态和耗时；原文、参数与结果仍只在授权的复核页查看。</p></details>`
+    ? `<details class="demo-route-trace"><summary><span><b>运行回放</b><small>skill / harness 已记录 ${trace.length} 步</small></span><span>${esc(source.label)}</span></summary><ol>${traceRows}</ol><p>展示工具类别、状态和耗时；原文、参数与结果仍只在授权的复核页查看。</p>${recovered ? '<p class="agent-simulation-note">Worker 恢复后重新执行过未完成检查；崩溃前已发出的模型请求可能重复，幂等缓存不跨进程保留。</p>' : ''}</details>`
     : "";
   const focusHtml = focus
     ? `<div class="demo-route-signal-focus"><span class="eyebrow">建议先处理</span><strong>${esc(focus.statement || focus.rule_id || "待处理规则")}</strong><span>${esc(focus.status || "待确认")}${focus.executor ? ` · ${esc(EXECUTOR_LABEL[focus.executor] || focus.executor)}` : ""}</span></div>`
     : "";
-  return `<details class="demo-route-signal" aria-label="真实复核运行摘要"><summary class="demo-route-signal-summary"><span class="demo-route-signal-head"><span><span class="eyebrow">真实复核运行</span><strong>${esc(run)} · ${esc(signal.subject_name || "当前主体")}</strong></span></span><span class="demo-route-signal-summary-side"><span class="runtime-mode ${tone}">${esc(status)}</span><span class="demo-route-signal-toggle">查看运行详情 ${icon("arrow")}</span></span></summary><div class="demo-route-signal-body"><div class="demo-route-signal-provenance"><span class="eyebrow">本次运行来源</span><strong class="runtime-mode ${esc(source.tone)}">${esc(source.label)}</strong><span>${esc(source.detail)}</span></div><p class="demo-route-signal-origin">摘要来自当前正式提交的检查运行；完整证据和原文位置只在授权的复核页查看。</p><div class="demo-route-signal-chain" aria-label="复核执行链">${chainHtml}</div>${budgetHtml}<p>${esc(coverage)} · 程序 ${signal.deterministic_rules || 0} · 语义 ${signal.semantic_rules || 0}${signal.llm_calls_used ? ` · 语义调用 ${signal.llm_calls_used} 次` : ""}</p>${traceHtml}${focusHtml}</div></details>`;
+  const failureHtml = signal.status === "failed" && failure
+    ? `<div class="demo-route-signal-failure" role="alert"><b>${esc(failure.title || "这次检查没有完成")}</b><span>${esc(failure.detail || "系统没有形成可靠的完整结论。")}</span><strong>下一步：${esc(failure.action || "组织者可以重试或人工核对。")}</strong></div>`
+    : "";
+  const reviewAction = signal.review_href
+    ? `<a class="demo-route-signal-action" href="${esc(signal.review_href)}" aria-label="打开${esc(signal.subject_name || "当前主体")}的证据复核">打开本次证据复核 ${icon("arrow")}</a>`
+    : "";
+  return `<details class="demo-route-signal" aria-label="最近复核运行摘要"><summary class="demo-route-signal-summary"><span class="demo-route-signal-head"><span><span class="eyebrow">最近复核运行</span><strong>${esc(run)} · ${esc(signal.subject_name || "当前主体")}</strong></span></span><span class="demo-route-signal-summary-side"><span class="runtime-mode ${tone}">${esc(status)}</span><span class="demo-route-signal-toggle">查看运行详情 ${icon("arrow")}</span></span></summary><div class="demo-route-signal-body"><div class="demo-route-signal-provenance"><span class="eyebrow">本次运行来源</span><strong class="runtime-mode ${esc(source.tone)}">${esc(source.label)}</strong><span>${esc(source.detail)}</span><small>${esc(runContext)}</small></div>${failureHtml}<p class="demo-route-signal-origin">摘要来自当前正式提交的检查运行；完整证据和原文位置只在授权的复核页查看。</p>${reviewAction}<div class="demo-route-signal-chain" aria-label="复核执行链">${chainHtml}</div>${budgetHtml}<p>${esc(coverage)} · 程序 ${signal.deterministic_rules || 0} · 语义 ${signal.semantic_rules || 0}${signal.llm_calls_used ? ` · 语义调用 ${signal.llm_calls_used} 次` : ""}</p>${traceHtml}${focusHtml}</div></details>`;
+}
+function demoRouteCueHtml(step) {
+  const cue = step?.talk_track || DEMO_ROUTE_TALK_TRACK[step?.key] || "沿着当前路线查看状态、证据和人工确认边界。";
+  return `<div class="demo-route-cue"><div><span class="eyebrow">现场讲解</span><p>${esc(cue)}</p></div><button class="ghost sm" type="button" data-cue="${esc(cue)}" onclick="copyDemoRouteCue(this)">${icon("copy")}<span>复制讲解</span></button></div>`;
+}
+function agentArchitectureNodeState(task = null) {
+  const runtime = state.agentRuntime;
+  const skills = Array.isArray(runtime?.skills) ? runtime.skills : [];
+  const hasSkill = name => skills.some(skill => skill?.name === name);
+  const signal = task?.demo_route?.review_signal || task?.route?.review_signal || null;
+  const snapshot = state.mcpSnapshot;
+  return {
+    requirements: runtime
+      ? hasSkill("requirements_draft")
+        ? {label: "已登记", tone: "ok", detail: "服务端 Skill 清单"}
+        : {label: "未登记", tone: "warn", detail: "服务端清单未提供"}
+      : {label: "读取中", tone: "info", detail: "等待 runtime 清单"},
+    review: signal?.review_href
+      ? {label: "证据已授权", tone: "ok", detail: "主体复核入口已返回"}
+      : runtime && hasSkill("review_one_submission")
+        ? {label: "等待提交", tone: "warn", detail: "有提交后才生成主体入口"}
+        : {label: "读取中", tone: "info", detail: "等待 Skill 清单"},
+    harness: runtime?.harness
+      ? {label: `${runtime.harness.max_invocations ?? "—"} 次上限`, tone: "ok", detail: "预算来自服务端清单"}
+      : {label: "读取中", tone: "info", detail: "等待 Harness 清单"},
+    mcp: snapshot?.error
+      ? {label: "需重试", tone: "warn", detail: "只读快照暂时不可用"}
+      : snapshot?.execution?.status === "completed"
+        ? {label: "已回放", tone: "ok", detail: "四项只读调用已返回"}
+        : snapshot
+          ? {label: "已读取", tone: "info", detail: "服务端脱敏投影"}
+          : {label: "读取中", tone: "info", detail: "等待只读快照"},
+  };
+}
+function paintAgentArchitecture(task = demoRouteTask(state.tasks)) {
+  const statuses = agentArchitectureNodeState(task);
+  for (const [key, node] of Object.entries(statuses)) {
+    const status = document.getElementById(`architecture-${key}-status`);
+    const detail = document.getElementById(`architecture-${key}-state`);
+    if (status) {
+      status.className = `demo-route-architecture-status ${node.tone}`;
+      status.textContent = node.label;
+    }
+    if (detail) detail.textContent = node.detail;
+  }
+}
+function agentArchitectureRailHtml(task = null) {
+  const mode = state.llmConfigured === false ? "离线演示" : state.llmConfigured === true ? "模型已接入" : "受限运行时";
+  const dataBoundary = state.llmConfigured === false
+    ? "当前走离线演示路径，不调用实时模型。网页显示服务端脱敏投影；外部 MCP sidecar 需在终端单独授权，浏览器不持有 sidecar token。"
+    : "网页显示服务端脱敏投影；外部 MCP sidecar 需在终端单独授权，浏览器不持有 sidecar token。材料正文和最终决定仍留在授权复核路径。";
+  const taskId = task?.id;
+  const reviewSignal = task?.demo_route?.review_signal || task?.route?.review_signal || null;
+  const designHref = taskId == null ? "#" : `#/design/${encodeURIComponent(taskId)}`;
+  const workbenchHref = taskId == null ? "#" : `#/workbench/${encodeURIComponent(taskId)}`;
+  const nodeStates = agentArchitectureNodeState(task);
+  const items = [
+    ["01", "需求 Skill", "requirements_draft", "先整理，再让人确认", "skill", "requirements", `<a href="${esc(designHref)}">打开需求设计 ${icon("arrow")}</a>`],
+    ["02", "审核 Skill", "review_one_submission", reviewSignal?.review_href ? "逐条取证，不替人验收" : "等待授权提交后进入主体复核", "review", "review", reviewSignal?.review_href
+    ? `<a href="${esc(reviewSignal.review_href)}">打开证据复核 ${icon("arrow")}</a>`
+      : `<a href="${esc(workbenchHref)}">等待授权提交 ${icon("arrow")}</a>`],
+    ["03", "Harness", "scope · budget · replay", "失败停下，结果可追溯", "harness", "harness", `<button type="button" onclick="jumpToAgentTour()">查看运行边界 ${icon("arrow")}</button>`],
+    ["04", "MCP sidecar", "4 read-only tools", "终端单独调用，只读导航与聚合快照", "mcp", "mcp", `<button type="button" onclick="jumpToMcpSnapshot()">查看只读回放 ${icon("arrow")}</button>`],
+  ];
+  const flow = items.map(([index, label, code, detail, tone, key, action]) => `<li class="demo-route-architecture-step ${tone}"><span class="demo-route-architecture-index">${index}</span><div><b>${esc(label)}</b><code>${esc(code)}</code><small>${esc(detail)}</small><span id="architecture-${key}-status" class="demo-route-architecture-status ${nodeStates[key].tone}">${esc(nodeStates[key].label)}</span><small id="architecture-${key}-state" class="demo-route-architecture-state">${esc(nodeStates[key].detail)}</small>${action}</div></li>`).join("");
+  return `<div class="demo-route-architecture" role="group" aria-label="Agent 架构信号"><div class="demo-route-architecture-lead"><span class="eyebrow">AGENT CONTROL PLANE</span><strong>一条证据链，四个边界</strong><small>从自然语言到固定交付，每一步都有可见的 Skill、工具和人工接手点。</small></div><ol class="demo-route-architecture-flow">${flow}</ol><span class="runtime-mode ${state.llmConfigured === false ? "offline" : "info"}">${esc(mode)}</span><div class="demo-route-architecture-foot"><span class="eyebrow">数据边界</span><span>${esc(dataBoundary)}</span></div></div>`;
+}
+function agentShowcaseState(task, current) {
+  const contract = state.agentRuntime?.contract_self_test;
+  const contractPassed = contract?.status === "passed" && Number.isFinite(Number(contract.passed)) && Number.isFinite(Number(contract.total))
+    ? (Number(contract.passed) + "/" + Number(contract.total) + " 合同通过")
+    : "";
+  const runtimeLabel = state.llmConfigured === false ? (contractPassed || "离线可演示")
+    : state.llmConfigured === true ? "模型已接入" : "读取中";
+  const runtimeTone = state.llmConfigured === false ? "offline" : state.llmConfigured === true ? "online" : "info";
+  const runtimeDetail = state.llmConfigured === false
+    ? (contractPassed ? "离线演示 · 不调用实时模型" : "模板、程序规则与已有结果可继续演示")
+    : state.llmConfigured === true ? "语义审核仍受 Harness 与证据约束" : "正在确认当前模型配置";
+  const execution = state.mcpSnapshot?.execution || {};
+  const mcpLabel = state.mcpSnapshotRunning ? "回放中"
+    : state.mcpSnapshot?.error ? "需重试"
+      : execution.status === "completed" ? "已完成" : state.mcpSnapshot ? "已读取" : "读取中";
+  const mcpTone = state.mcpSnapshotRunning ? "warn" : state.mcpSnapshot?.error ? "warn" : execution.status === "completed" ? "ok" : "info";
+  const mcpDetail = state.mcpSnapshotRunning
+    ? `只读调用 ${Math.min(state.mcpReplayIndex || 0, 4)}/4`
+    : state.mcpSnapshot?.error ? "组织者只读快照暂时不可用" : execution.status === "completed" ? "四个工具调用已回放" : "服务端脱敏投影";
+  const route = task?.demo_route || task?.route;
+  const routeLabel = route?.completed === route?.total ? "闭环完成" : (current?.title || "准备进入路线");
+  const routeDetail = route?.completed === route?.total ? "四站均已走过，可回看任一证据" : `完成后进入${(route?.next?.title || "下一站")}`;
+  return {
+    runtimeLabel, runtimeTone, runtimeDetail, mcpLabel, mcpTone, mcpDetail,
+    routeLabel, routeDetail,
+    humanLabel: "组织者确认", humanDetail: "发布、补正与最终验收停在人手中",
+  };
+}
+function runStageReplayHtml(stage, signal) {
+  const current = signal || {};
+  const source = REVIEW_RUN_SOURCE[current.run_source] || REVIEW_RUN_SOURCE.unknown;
+  const status = REVIEW_RUN_STATUS[current.status] || (signal ? "状态未知" : "尚未运行");
+  const trace = Array.isArray(current.trace) ? current.trace : [];
+  const deterministicTrace = trace.filter(item => String(item?.step || item?.tool || "").includes("deterministic")).length;
+  const semanticTrace = trace.filter(item => String(item?.step || item?.tool || "").includes("semantic")).length;
+  const pages = Number(current.pages_read) || 0;
+  const gaps = Number(current.coverage_gaps) || 0;
+  const pending = Number(current.pending_rules) || 0;
+  const content = {
+    materials: {
+      label: "读取材料",
+      title: pages ? `${pages} 页材料已进入检查范围` : signal ? "本次没有形成可用材料覆盖" : "等待读取运行摘要",
+      detail: current.coverage_complete ? "覆盖完整，后续规则只引用已读材料。" : gaps ? `${gaps} 页未读或失败，系统不会把未读内容猜成通过。` : "先确认页数和覆盖状态，再进入程序核验。",
+      next: current.coverage_complete ? "下一步：程序核验格式与必填项。" : "下一步：组织者补齐材料或转人工确认。",
+    },
+    deterministic: {
+      label: "程序核验",
+      title: `${Number(current.deterministic_rules) || 0} 项确定性规则已记录`,
+      detail: `工具记录 ${deterministicTrace} 步；只检查格式、必填项和可计算条件，不替语义审核下结论。`,
+      next: "下一步：把需要理解原文的规则交给语义审核或人工接手。",
+    },
+    semantic: {
+      label: "语义审核",
+      title: `${Number(current.semantic_rules) || 0} 项语义规则已记录`,
+      detail: `${source.label}；工具记录 ${semanticTrace} 步，模型调用次数以运行账本为准。`,
+      next: current.status === "success" ? "下一步：打开主体复核，逐条查看原文位置。" : "下一步：等待运行完成，或由组织者进入人工复核。",
+    },
+    human: {
+      label: "人工接手",
+      title: pending ? `${pending} 项需要组织者决定` : current.status === "failed" ? "本次运行需要人工接手" : "组织者保留最终决定权",
+      detail: current.failure?.detail || (pending ? "待处理规则不会被自动标成通过。" : "发布、补正和最终验收始终由组织者确认。"),
+      next: current.failure?.action || "下一步：进入证据复核，确认后再固定交付快照。",
+    },
+  }[stage] || {
+    label: "运行阶段",
+    title: status,
+    detail: "当前阶段没有可用摘要。",
+    next: "下一步：回到运行证据查看最近一次结果。",
+  };
+  return `<div class="demo-route-stage-replay-inner"><div><span class="eyebrow">${esc(content.label)} · ${esc(status)}</span><strong>${esc(content.title)}</strong><p>${esc(content.detail)}</p></div><span class="demo-route-stage-replay-next">${esc(content.next)}</span></div>`;
+}
+function agentQuickReadHtml(task, current, followUp) {
+  const s = agentShowcaseState(task, current);
+  const currentHref = current?.href || "#/tasks";
+  const nextTitle = followUp?.title || current?.title || "当前路线";
+  const nextDetail = followUp?.detail || "从当前站继续";
+  const item = (step, tone, label, value, detail, id, action = "") => `<div class="demo-route-quick-item ${tone} ${id}"><span class="demo-route-quick-index" aria-hidden="true">${step}</span><span class="eyebrow">${esc(label)}</span><strong id="${id}-value">${esc(value)}</strong><small id="${id}-detail">${esc(detail)}</small>${action}</div>`;
+  const runtimeAction = `<button class="demo-route-quick-link" type="button" onclick="jumpToAgentTour()">查看 Skill 与 Harness ${icon("arrow")}</button>`;
+  const mcpAction = `<button class="demo-route-quick-link" type="button" onclick="jumpToMcpSnapshot()">查看只读账本 ${icon("arrow")}</button>`;
+  return `<div class="demo-route-quick-read" role="group" aria-label="首屏快速读"><div class="demo-route-quick-lead"><span class="eyebrow">FIRST LOOK</span><strong>现在看什么</strong><small>按 01 → 04 读四个信号，再进入对应证据。</small></div>${item("01", "route", "当前焦点", s.routeLabel, s.routeDetail, "quick-route")}${item("02", s.runtimeTone, "Agent runtime", s.runtimeLabel, s.runtimeDetail, "quick-runtime", runtimeAction)}${item("03", s.mcpTone, "MCP 回放", s.mcpLabel, s.mcpDetail, "quick-mcp", mcpAction)}<div class="demo-route-quick-next"><span class="demo-route-quick-index" aria-hidden="true">04</span><span class="eyebrow">下一步</span><strong>${esc(nextTitle)}</strong><small>${esc(nextDetail)}</small><a href="${esc(currentHref)}">进入${esc(current?.title || nextTitle)} ${icon("arrow")}</a></div></div>`;
+}
+function demoRouteRoleSummaryHtml(id) {
+  const path = (items) => items.map((label, i) => `${i ? `<i aria-hidden="true">${icon("arrow")}</i>` : ""}<span>${esc(label)}</span>`).join("");
+  return `<div class="demo-route-role-summary" role="group" aria-label="双角色快速路径"><div class="demo-route-role-summary-head"><span class="eyebrow">两条体验路径</span><strong>评委可以先看哪一条？</strong><small>推荐顺序：先看组织者工作台，再回到这里看 Agent 运行证据，最后打开提交者回执。</small></div><div class="demo-route-role-summary-grid"><a class="demo-route-role-card organizer" href="#/workbench/${id}" aria-label="组织者工作台路径"><span class="demo-route-role-card-main"><span class="demo-route-role-icon">${icon("workbench")}</span><span><b>组织者</b><small>从要求到交付</small></span></span><span class="demo-route-role-path" aria-label="组织者路径">${path(["设计", "发凭证", "复核", "交付"])}</span><span class="demo-route-role-open">打开工作台 ${icon("arrow")}</span></a><a class="demo-route-role-card submitter" href="#/login?role=sub" aria-label="提交者入口路径"><span class="demo-route-role-card-main"><span class="demo-route-role-icon">${icon("roster")}</span><span><b>提交者</b><small>从登录到回执</small></span></span><span class="demo-route-role-path" aria-label="提交者路径">${path(["登录", "填写", "正式提交", "核对"])}</span><span class="demo-route-role-open">打开提交者入口 ${icon("arrow")}</span></a></div></div>`;
+}
+function agentShowcaseHtml(task, current) {
+  const s = agentShowcaseState(task, current);
+  const signal = (task?.demo_route || task?.route)?.review_signal || null;
+  const signalSource = REVIEW_RUN_SOURCE[signal?.run_source] || REVIEW_RUN_SOURCE.unknown;
+  const signalStatus = REVIEW_RUN_STATUS[signal?.status] || (signal ? "状态未知" : "等待读取");
+  const signalTone = signal?.status === "success" ? "ok" : signal?.status && ["failed", "retry_wait"].includes(signal.status) ? "warn" : "info";
+  const failure = signal?.failure || null;
+  const traceCount = Array.isArray(signal?.trace) ? signal.trace.length : 0;
+  const runValue = signal?.run_id ? `运行 #${signal.run_id}` : "尚未形成运行";
+  const runDetail = signal
+    ? `${signalStatus} · ${failure?.title || signal.subject_name || "当前主体"}`
+    : "等待服务端提供最近运行摘要";
+  const sourceValue = signal ? signalSource.label : "尚未读取";
+  const sourceDetail = signal ? signalSource.detail : "展示页不会根据配置状态猜测运行来源";
+  const traceValue = signal ? `${traceCount} 步工具记录` : "等待工具记录";
+  const traceDetail = signal
+    ? `程序 ${signal.deterministic_rules || 0} · 语义 ${signal.semantic_rules || 0} · 待人工 ${signal.pending_rules || 0}`
+    : "Skill / Harness 状态将在运行摘要到达后显示";
+  const reviewAction = signal?.review_href
+    ? `<a class="demo-route-live-proof-action" href="${esc(signal.review_href)}">${signal.status === "success" ? "打开" : signal.status === "failed" ? "进入人工复核" : "查看"}${signal.status === "failed" ? "" : esc(signal.subject_name || "当前主体")}${signal.status === "success" ? "复核" : signal.status === "failed" ? "" : "运行状态"} ${icon("arrow")}</a>`
+    : `<span class="demo-route-live-proof-empty">主体级入口将在有授权提交后出现</span>`;
+  const currentHref = current?.href || "#/tasks";
+  const item = (step, tone, iconName, label, value, detail, id, action = "") => `<div class="demo-route-live-item ${tone}"><span class="demo-route-live-step" aria-hidden="true">${step}</span><span class="demo-route-live-icon">${icon(iconName)}</span><div><span class="eyebrow">${esc(label)}</span><strong id="${id}-value">${esc(value)}</strong><small id="${id}-detail">${esc(detail)}</small>${action}</div></div>`;
+  const routeAction = `<a class="demo-route-live-action" href="${esc(currentHref)}">进入当前站 ${icon("arrow")}</a>`;
+  const runtimeAction = `<button class="demo-route-live-action" type="button" onclick="jumpToAgentTour()">查看运行边界 ${icon("arrow")}</button>`;
+  const mcpAction = `<button class="demo-route-live-action" type="button" onclick="jumpToMcpSnapshot()">查看回放 ${icon("arrow")}</button>`;
+  const humanAction = `<button class="demo-route-live-action" type="button" onclick="jumpToAgentTour()">查看接管边界 ${icon("arrow")}</button>`;
+  const chain = [
+    ["01", "route", "arrow", "当前路线", s.routeLabel, s.routeDetail, "showcase-route", routeAction],
+    ["02", s.runtimeTone, "sparkle", "Agent runtime", s.runtimeLabel, s.runtimeDetail, "showcase-runtime", runtimeAction],
+    ["03", s.mcpTone, "expand", "MCP 只读回放", s.mcpLabel, s.mcpDetail, "showcase-mcp", mcpAction],
+    ["04", "human", "workbench", "人工接管", s.humanLabel, s.humanDetail, "showcase-human", humanAction],
+  ];
+  const activeRun = ["queued", "running", "retry_wait"].includes(signal?.status);
+  const failedRun = signal?.status === "failed";
+  const stageAction = signal?.status === "success" ? "查看对应证据" : failedRun ? "查看失败详情" : "查看运行状态";
+  const stageAria = signal?.status === "success" ? "查看对应证据" : failedRun ? "查看失败详情" : "查看运行状态";
+  const runStages = signal ? [
+    {key: "materials", label: "读取材料", value: signal.pages_read ? `${signal.pages_read} 页已读` : activeRun ? (signal.status === "retry_wait" ? "等待重试" : "排队中") : failedRun ? "未完成" : "尚未读取", tone: signal.pages_read ? "done" : failedRun ? "failed" : "waiting", detail: signal.coverage_complete && signal.status === "success" ? "覆盖完整" : signal.coverage_gaps ? `${signal.coverage_gaps} 页待确认` : activeRun ? "运行摘要尚未到达" : "没有可用覆盖摘要"},
+    {key: "deterministic", label: "程序核验", value: signal.deterministic_rules ? `${signal.deterministic_rules} 项已记` : activeRun ? "等待运行" : "无程序规则", tone: signal.deterministic_rules ? "done" : failedRun ? "failed" : "waiting", detail: activeRun ? "运行完成后确认格式与必填项" : "格式与必填项"},
+    {key: "semantic", label: "语义审核", value: signal.semantic_rules ? `${signal.semantic_rules} 项已记` : activeRun ? (signal.status === "retry_wait" ? "等待重试" : "等待运行") : failedRun ? "未完成" : "尚未执行", tone: signal.semantic_rules ? (signalSource.tone === "offline" ? "offline" : "done") : failedRun ? "failed" : "waiting", detail: signal.semantic_rules ? signalSource.label : activeRun ? "Skill 尚未返回语义结果" : failedRun ? "本次运行没有完成" : "等待 Skill 运行"},
+    {key: "human", label: "人工接手", value: signal.pending_rules ? `${signal.pending_rules} 项待处理` : activeRun ? "运行结束后确认" : failedRun ? "先处理运行失败" : "可继续交付", tone: signal.pending_rules ? "handoff" : activeRun || failedRun ? "waiting" : "done", detail: signal.pending_rules ? "结论停在人手中" : activeRun ? "运行完成后再决定是否交付" : failedRun ? (failure?.action || "组织者决定重试或进入复核") : "没有未决规则"},
+  ] : [
+    {key: "materials", label: "读取材料", value: "等待运行", tone: "waiting", detail: "服务端摘要到达后显示"},
+    {key: "deterministic", label: "程序核验", value: "等待运行", tone: "waiting", detail: "服务端摘要到达后显示"},
+    {key: "semantic", label: "语义审核", value: "等待运行", tone: "waiting", detail: "不根据配置猜测结果"},
+    {key: "human", label: "人工接手", value: "由组织者决定", tone: "handoff", detail: "发布与验收始终在人手中"},
+  ];
+  const initialStage = signal?.status === "failed" ? "human" : "materials";
+  const timeline = `<div class="demo-route-live-timeline" role="group" aria-label="当前复核运行阶段"><div class="demo-route-live-timeline-head"><span class="eyebrow">RUN STAGES</span><small>${signal ? esc(`${signalStatus} · 四段执行链`) : "等待最近运行摘要"}</small></div><ol>${runStages.map((stage, index) => `<li class="${stage.tone}${stage.key === initialStage ? " selected" : ""}"><button type="button" data-run-stage="${esc(stage.key)}" onclick="jumpToRunStage('${stage.key}')" aria-current="${stage.key === initialStage ? "step" : "false"}" aria-label="${esc(stageAria)}：${esc(stage.label)}"><span class="demo-route-live-timeline-index">0${index + 1}</span><span class="demo-route-live-timeline-copy"><b>${esc(stage.label)}</b><strong>${esc(stage.value)}</strong><small>${esc(stage.detail)}</small><span class="demo-route-live-timeline-action">${esc(stageAction)} ${icon("arrow")}</span></span></button></li>`).join("")}</ol><div id="demo-route-stage-detail" class="demo-route-stage-replay" role="status" aria-live="polite" data-stage="${initialStage}">${runStageReplayHtml(initialStage, signal)}</div></div>`;
+  const proof = `<div class="demo-route-live-proof" role="group" aria-label="当前运行证据"><div class="demo-route-live-proof-lead"><span class="eyebrow">RUN EVIDENCE PULSE</span><strong>真实运行证据</strong><small>只读聚合当前服务端摘要；原文和参数仍留在授权复核页。</small></div><div class="demo-route-live-proof-cell ${signalTone}"><span>当前 run</span><b>${esc(runValue)}</b><small>${esc(runDetail)}</small></div><div class="demo-route-live-proof-cell"><span>来源</span><b>${esc(sourceValue)}</b><small>${esc(sourceDetail)}</small></div><div class="demo-route-live-proof-cell"><span>Skill / Harness</span><b>${esc(traceValue)}</b><small>${esc(traceDetail)}</small></div><div class="demo-route-live-proof-cell action"><span>证据入口</span>${reviewAction}</div></div>`;
+  return `<section class="demo-route-live" aria-label="现场 Agent 运行链"><div class="demo-route-live-head"><span class="eyebrow">LIVE SHOWCASE STATE</span><strong>一条运行链</strong><button class="link" type="button" onclick="jumpToAgentTour()">展开 Agent 导览 ${icon("arrow")}</button></div><div class="demo-route-live-grid">${chain.map(args => item(...args)).join("")}</div>${timeline}${proof}</section>`;
+}
+function paintAgentShowcase() {
+  const task = demoRouteTask(state.tasks);
+  const route = task?.demo_route || task?.route;
+  const steps = route?.steps || [];
+  const current = route?.current || steps.find(s => s.status === "current") || steps.find(s => s.status !== "done") || steps[0];
+  const s = agentShowcaseState(task, current);
+  const values = {
+    "showcase-route": [s.routeLabel, s.routeDetail],
+    "showcase-runtime": [s.runtimeLabel, s.runtimeDetail],
+    "showcase-mcp": [s.mcpLabel, s.mcpDetail],
+    "showcase-human": [s.humanLabel, s.humanDetail],
+  };
+  for (const [id, [value, detail]] of Object.entries(values)) {
+    const valueEl = document.getElementById(`${id}-value`);
+    const detailEl = document.getElementById(`${id}-detail`);
+    if (valueEl) valueEl.textContent = value;
+    if (detailEl) detailEl.textContent = detail;
+  }
+  const quickValues = {
+    "quick-route": [s.routeLabel, s.routeDetail],
+    "quick-runtime": [s.runtimeLabel, s.runtimeDetail],
+    "quick-mcp": [s.mcpLabel, s.mcpDetail],
+  };
+  for (const [id, [value, detail]] of Object.entries(quickValues)) {
+    const valueEl = document.getElementById(`${id}-value`);
+    const detailEl = document.getElementById(`${id}-detail`);
+    if (valueEl) valueEl.textContent = value;
+    if (detailEl) detailEl.textContent = detail;
+  }
+  const quickTone = document.querySelector?.(".demo-route-quick-item.quick-runtime");
+  if (quickTone) quickTone.className = `demo-route-quick-item quick-runtime ${s.runtimeTone}`;
+  const quickMcpTone = document.querySelector?.(".demo-route-quick-item.quick-mcp");
+  if (quickMcpTone) quickMcpTone.className = `demo-route-quick-item quick-mcp ${s.mcpTone}`;
 }
 function demoRouteHtml(task) {
   if (!task || task.id == null) return "";
@@ -941,7 +1699,10 @@ function demoRouteHtml(task) {
     tone: s.tone || `route-${s.key}`, status: s.status || "upcoming"}));
   const routeProgress = route ? `${route.completed}/${route.total} 站已完成` : "按顺序查看四站";
   const next = route?.next || steps.find(s => s.status !== "done") || steps[0];
-  const current = route?.current || steps.find(s => s.status === "current") || next;
+  const routeCurrent = route?.current;
+  const current = routeCurrent
+    ? {...routeCurrent, key: routeCurrent.key || steps.find(s => s.href === routeCurrent.href || s.title === routeCurrent.title)?.key}
+    : steps.find(s => s.status === "current") || next;
   const followUp = steps.find(s => s.status === "upcoming") || steps.find(s => s.status === "blocked") || current;
   const completed = route ? Math.max(0, Math.min(Number(route.completed) || 0, Number(route.total) || steps.length)) : 0;
   const total = route ? Math.max(1, Number(route.total) || steps.length) : steps.length;
@@ -950,15 +1711,25 @@ function demoRouteHtml(task) {
   const fallbackNotice = task.demo_route_source === "fallback"
     ? `<div class="demo-route-notice" role="status"><span>${esc(task.demo_route_error || "实时路线状态暂时不可用，下面保留已加载的展示路径。")}</span><button class="link" type="button" onclick="viewTasks()">重新读取状态</button></div>`
     : "";
-  const audienceHtml = `<div class="demo-route-audience" aria-label="双角色体验"><div class="demo-route-audience-head"><span class="eyebrow">双角色体验</span><strong>同一任务，两个入口</strong><span>组织者看状态与证据，提交者完成材料与回执。</span></div><div class="demo-route-lanes"><article class="demo-route-lane organizer"><div class="demo-route-lane-top"><span class="demo-route-lane-icon">${icon("workbench")}</span><span class="demo-route-lane-kicker">组织者</span></div><strong>从要求到交付</strong><p>设计蓝图、发放凭证、复核证据，最后固定 CSV + ZIP。</p><span class="demo-route-lane-flow">设计 → 凭证 → 复核 → 交付</span><a href="#/workbench/${id}">回到组织者工作台 ${icon("arrow")}</a></article><article class="demo-route-lane submitter"><div class="demo-route-lane-top"><span class="demo-route-lane-icon">${icon("roster")}</span><span class="demo-route-lane-kicker">提交者</span></div><strong>从凭证到回执</strong><p>打开提交空间，保存草稿，正式提交后查看回执和补正。</p><span class="demo-route-lane-flow">登录 → 填写 → 提交 → 核对</span><a href="#/login?role=sub">打开提交者入口 ${icon("arrow")}</a></article></div></div>`;
-  const focusHtml = `<div class="demo-route-focus"><div class="demo-route-focus-main"><span class="eyebrow">从这里开始 · 当前焦点</span><strong>${esc(current.title)}</strong><p>${esc(current.detail || "从这里继续查看任务状态")}</p></div><div class="demo-route-focus-next"><span class="eyebrow">完成后</span><strong>${esc(followUp.title)}</strong><span>${esc(followUp.detail || "继续下一站")}</span></div><a class="button-link" href="${current.href}" aria-label="进入${esc(current.title)}">进入${esc(current.title)} ${icon("arrow")}</a></div>`;
-  const stepsHtml = `<div class="demo-route-steps">${steps.map((s, i) => `<a class="demo-route-step ${s.tone} ${s.status}" href="${s.href}" aria-current="${s.status === "current" ? "step" : "false"}" aria-label="${esc(s.title)}：${esc(DEMO_ROUTE_STATUS[s.status] || s.status)}，${esc(s.owner || "流程")}"><span class="demo-route-index">${String(i + 1).padStart(2, "0")}</span><span class="demo-route-icon">${s.status === "done" ? icon("check") : icon(s.icon)}</span><span class="demo-route-copy"><b>${esc(s.title)} <em>${esc(DEMO_ROUTE_STATUS[s.status] || s.status)}</em></b><span>${esc(s.detail)}</span><small class="demo-route-owner ${esc(s.ownerTone || "system")}">${esc(s.owner || "流程")}</small></span><span class="demo-route-arrow">${icon("arrow")}</span></a>`).join("")}</div>`;
-  return `<section class="demo-route" aria-label="展示路线"><div class="demo-route-head"><div><div class="eyebrow">DEMO ROUTE · 4 STOPS</div><h2>三分钟看懂一次收集</h2><p>按顺序点过四站，就能看到 FormFlow 如何把要求、证据和交付串起来。</p></div><span class="badge brand" title="${esc(task.name)}">${esc(task.name)} · ${esc(TASK_STATUS[task.status] || task.status)}</span></div>${fallbackNotice}<div class="demo-route-progress"><span><b>${esc(routeProgress)}</b></span><span>${esc(focusLabel)}</span></div><div class="demo-route-meter" role="progressbar" aria-label="展示路线进度" aria-valuemin="0" aria-valuemax="${total}" aria-valuenow="${completed}"><i style="width:${progressPct}%"></i></div>${focusHtml}${demoRouteSignalHtml(route?.review_signal)}${stepsHtml}${audienceHtml}<div class="demo-route-foot"><span><i class="demo-route-pulse"></i>使用虚构种子数据，所有决定都可回到原文证据</span><a href="${next.href}">${esc(route && route.completed === route.total ? "重新查看需求设计" : `进入${next.title}`)} ${icon("arrow")}</a></div></section>`;
+  const audienceHtml = `<div class="demo-route-audience" role="group" aria-label="双角色体验"><div class="demo-route-audience-head"><span class="eyebrow">双角色体验</span><strong>同一任务，两个入口</strong><span>组织者看状态与证据，提交者完成材料与回执。</span></div><div class="demo-route-lanes"><article class="demo-route-lane organizer"><div class="demo-route-lane-top"><span class="demo-route-lane-icon">${icon("workbench")}</span><span class="demo-route-lane-kicker">组织者</span></div><strong>从要求到交付</strong><p>设计蓝图、发放凭证、复核证据，最后固定 CSV + ZIP。</p><span class="demo-route-lane-flow">设计 → 凭证 → 复核 → 交付</span><a href="#/workbench/${id}">回到组织者工作台 ${icon("arrow")}</a></article><article class="demo-route-lane submitter"><div class="demo-route-lane-top"><span class="demo-route-lane-icon">${icon("roster")}</span><span class="demo-route-lane-kicker">提交者</span></div><strong>从凭证到回执</strong><p>打开提交空间，保存草稿，正式提交后查看回执和补正。</p><span class="demo-route-lane-flow">登录 → 填写 → 提交 → 核对</span><a href="#/login?role=sub">打开提交者入口 ${icon("arrow")}</a></article></div></div>`;
+  const focusMeta = demoRouteStageMeta(current);
+  const evidence = demoRouteEvidence(current, task.id);
+  const evidenceHtml = evidence
+    ? `<a class="demo-route-focus-evidence" href="${esc(evidence.href)}">${esc(focusMeta.evidence)} ${icon("arrow")}<span>${esc(evidence.label)}</span></a>`
+    : `<strong>${esc(focusMeta.evidence)}</strong>`;
+  const focusHtml = `<div class="demo-route-focus demo-route-command"><div class="demo-route-focus-main"><span class="eyebrow">从这里开始 · 当前焦点</span><strong>${esc(current.title)}</strong><p>${esc(current.detail || "从这里继续查看任务状态")}</p><span class="demo-route-focus-goal"><b>这一站要做到</b>${esc(focusMeta.goal)}</span></div><div class="demo-route-focus-next"><span class="eyebrow">完成后</span><strong>${esc(followUp.title)}</strong><span>${esc(followUp.detail || "继续下一站")}</span></div><a class="button-link" href="${current.href}">进入${esc(current.title)} ${icon("arrow")}</a><div class="demo-route-focus-meta" role="group" aria-label="当前站职责与证据"><div><span>决定边界</span><strong>${esc(focusMeta.boundary)}</strong></div><div><span>证据入口</span>${evidenceHtml}</div><div><span>完成标志</span><strong>${esc(focusMeta.finish)}</strong></div></div>${demoRouteCueHtml(current)}</div>`;
+  const stepsHtml = `<div class="demo-route-steps">${steps.map((s, i) => `<a class="demo-route-step ${s.tone} ${s.status}" href="${s.href}" aria-current="${s.status === "current" ? "step" : "false"}"><span class="demo-route-index">${String(i + 1).padStart(2, "0")}</span><span class="demo-route-icon">${s.status === "done" ? icon("check") : icon(s.icon)}</span><span class="demo-route-copy"><b>${esc(s.title)} <em>${esc(DEMO_ROUTE_STATUS[s.status] || s.status)}</em></b><span>${esc(s.detail)}</span><small class="demo-route-owner ${esc(s.ownerTone || "system")}">${esc(s.owner || "流程")}</small></span><span class="demo-route-arrow">${icon("arrow")}</span></a>`).join("")}</div>`;
+  const taskContext = `<div class="presentation-task-context" aria-label="当前演示任务"><div class="presentation-task-main"><span class="eyebrow">当前演示任务</span><strong>${esc(task.name)}</strong><span>任务 #${esc(task.id)} · ${esc(task.mode === "open" ? "开放报名" : "固定名册")}</span></div><div class="presentation-task-focus"><span class="eyebrow">现在处理</span><strong>${esc(current.title)}</strong><span>${esc(current.detail || "沿当前路线继续")}</span></div><div class="presentation-task-actions"><a class="button-link" href="${current.href}">进入当前站 ${icon("arrow")}</a><button class="link" type="button" aria-label="退出展示视图并查看我的任务" onclick="showTaskListFromPresentation()">${icon("tasks")} 查看我的任务</button></div></div>`;
+  const compactEvidence = typeof window !== "undefined" && !!window.matchMedia?.("(max-width:700px)")?.matches;
+  const evidenceFold = `<details class="demo-route-evidence-fold"${compactEvidence ? "" : " open"}><summary aria-expanded="${compactEvidence ? "false" : "true"}><span><b>查看 Skill、Harness 与运行证据</b><small>Agent Control Plane · Live Showcase · Run Stages · Run Evidence Pulse</small></span><span class="demo-route-evidence-fold-mark">${compactEvidence ? "展开" : "已展开"} ${icon("arrow")}</span></summary><div class="demo-route-evidence-fold-body">${agentArchitectureRailHtml(task)}${agentShowcaseHtml(task, current)}</div></details>`;
+  return `<section class="demo-route" aria-label="展示路线">${taskContext}<div class="demo-route-head"><div><div class="eyebrow">DEMO ROUTE · 4 STOPS</div><h2>三分钟看懂一次收集</h2><p>按顺序点过四站，就能看到 FormFlow 如何把要求、证据和交付串起来。</p></div><span class="badge brand" title="${esc(task.name)}">${esc(task.name)} · ${esc(TASK_STATUS[task.status] || task.status)}</span></div>${demoRouteRoleSummaryHtml(id)}${agentQuickReadHtml(task, current, followUp)}${fallbackNotice}<div class="demo-route-progress"><span><b>${esc(routeProgress)}</b></span><span>${esc(focusLabel)}</span></div><div class="demo-route-meter" role="progressbar" aria-label="展示路线进度" aria-valuemin="0" aria-valuemax="${total}" aria-valuenow="${completed}"><i style="width:${progressPct}%"></i></div>${focusHtml}${evidenceFold}${demoRouteSignalHtml(route?.review_signal)}${stepsHtml}${audienceHtml}<div class="demo-route-foot"><span><i class="demo-route-pulse"></i>使用虚构种子数据，所有决定都可回到原文证据</span><a href="${next.href}">${esc(route && route.completed === route.total ? "重新查看需求设计" : `进入${next.title}`)} ${icon("arrow")}</a></div></section>`;
 }
 function renderDemoRoute(tasks = state.tasks) {
   const box = document.getElementById("demo-route");
   if (!box) return;
   box.innerHTML = demoRouteHtml(demoRouteTask(tasks));
+  paintAgentArchitecture();
+  paintAgentShowcase();
   applyPresentationMode();
   if (state.presentationMode && !state.presentationStartAligned) {
     state.presentationStartAligned = true;
@@ -999,6 +1770,8 @@ function paintWorkspaceAgentStatus() {
     mode.textContent = "离线演示";
     status.textContent = "没有模型密钥：可继续查看模板、已有结果和程序流程；新的需求起草会明确停下。";
     paintTour("离线演示", "当前没有模型密钥：程序规则、已有结果和人工接手仍可完整演示。", "offline");
+    paintAgentRuntimeContractIssue(agentRuntimeContractWarning);
+    paintAgentShowcase();
     return;
   }
   if (state.llmConfigured === true) {
@@ -1006,11 +1779,14 @@ function paintWorkspaceAgentStatus() {
     mode.textContent = "模型已接入";
     status.textContent = "模型已接入；当前任务的复核来源以运行摘要为准，配置状态不代表这次结果一定调用实时模型。";
     paintTour("模型已接入", "当前已配置模型密钥；每次复核是否调用实时模型，以运行记录中的来源标记为准。", "online");
+    paintAgentRuntimeContractIssue(agentRuntimeContractWarning);
+    paintAgentShowcase();
     return;
   }
   mode.textContent = "读取状态…";
   status.textContent = "正在读取当前模型配置；已有任务和程序流程仍可查看。";
   paintTour("运行状态读取中", "正在读取模型配置；已有任务和程序流程仍可查看。", "");
+  paintAgentShowcase();
 }
 async function checkWorkspaceLLMStatus() {
   try {
@@ -1090,6 +1866,7 @@ function paintDesignInputState() {
   const badge=document.getElementById('draft-state');
   if(badge)badge.textContent=badge.textContent.replace(/ · 有未发送内容$/, '')+(state.designDirty ? ' · 有未发送内容' : '');
   document.querySelectorAll('[data-publish]').forEach(el=>el.disabled=!canPublishDesign());
+  paintDesignProgress();
 }
 function cacheDesignInputs() {
   if (!designInputKey() || !document.getElementById('chat-in') || state.designToken !== orgToken()) return;
@@ -1132,17 +1909,19 @@ async function viewDesign(taskId) {
   Object.assign(state,{designTaskId:taskId,designOwnerId:null,designToken:token,designBaseId:0,designQuestions:[],designRenderedBase:null,designDirty:false,designCacheFailed:false,designNeedsRevision:false});
   Object.assign(state, {taskId, chat: [], bpId: null, draft: null, requirement: "", answeredDone: false, draftStatus: "draft", draftVersionId: null, designLoadFailed: false, retryRequest: null, agentRequest: null, agentRequestPollTimer: 0, agentResumeStarted: false, agentRequestDisplayedId: null, designTab: "preview", agentBusy: false, designBlocking: [], designAdvisories: [], designVersions: [], designHistory: [], viewingVersion: null, viewingPublished: null, viewingImpact: null});
   document.getElementById("app").innerHTML = `<div class="breadcrumb"><a href="#/tasks">我的任务</a><span>/</span><span id="design-name">收集任务 #${taskId}</span></div>
+    ${showcaseReturnHtml("需求设计")}
     <div class="page-heading design-heading"><div><div class="eyebrow">COLLECTION DESIGN</div><h1>把要求，变成好用的收集表</h1><p>左边一起梳理需求，右边实时核对。确认无误后再发布。</p></div><span class="badge brand" id="draft-state">正在加载…</span></div>
     <div id="flash" role="status" aria-live="polite"></div>
     <div id="agent-request-status" aria-live="polite"></div>
     <div id="llm-status-banner" class="llm-banner" style="display:none"></div>
     <div class="step-flow"><span class="st on"><span class="dot">1</span>描述需求</span><span class="arw"></span><span class="st" id="st-2"><span class="dot">2</span>核对与澄清</span><span class="arw"></span><span class="st" id="st-3"><span class="dot">3</span>确认发布</span><span class="step-hint">草案存在服务器上；没发出去的内容只留在当前标签页</span></div>
-    <div id="design-recovery"></div><div class="grid-chat"><section class="card agent-panel"><div class="agent-heading"><span class="agent-mark">${icon("sparkle")}</span><div><h2>小齐 <span>需求设计助手</span></h2><p id="agent-status">正在准备…</p></div><span class="agent-live"></span></div>
+    <nav class="design-jump-nav" aria-label="需求设计区域"><button type="button" onclick="jumpToDesignSection('design-chat')">${icon("sparkle")} 和小齐整理</button><button type="button" onclick="jumpToDesignSection('draft-panel')">${icon("review")} 核对收集表</button></nav>
+    <div id="design-recovery"></div><div class="grid-chat"><section id="design-chat" class="card agent-panel"><div class="agent-heading"><span class="agent-mark">${icon("sparkle")}</span><div><h2>小齐 <span>需求设计助手</span></h2><p id="agent-status">正在准备…</p></div><span class="agent-live"></span></div>
       <div class="chat"><div class="chat-scroll" id="chat-scroll" role="log" aria-label="需求对话" aria-live="polite"></div><div class="composer"><div class="chips" id="chat-chips"></div>
       <label class="sr-only" for="chat-in">告诉小齐你的收集要求</label><textarea id="chat-in" oninput="cacheDesignInputs()" placeholder="例如：收一份团课 PDF 报告，登记姓名和班级…" onkeydown="if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing){event.preventDefault();chatSend()}"></textarea>
-      <div class="composer-foot"><span>Enter 发送 · Shift + Enter 换行</span><button id="chat-send" onclick="chatSend()" aria-label="发送需求">发送 ${icon('arrow')}</button></div><p class="field-help" id="design-input-hint" role="status"></p></div></div>${designRuntimeHtml()}
+      <div class="composer-foot"><span>Enter 发送 · Shift + Enter 换行</span><button id="chat-send" onclick="chatSend()" aria-label="发送需求">发送 ${icon('arrow')}</button></div><p class="field-help" id="design-input-hint" role="status"></p></div></div>${designRuntimeHtml()}${designProgressHtml()}
     </section><section id="draft-panel" aria-label="实时收集表预览"></section></div>
-    <dialog id="publish-dialog" aria-labelledby="publish-title"><form onsubmit="event.preventDefault();confirmPublish()"><div class="eyebrow">REVIEW & PUBLISH</div><h2 id="publish-title" tabindex="-1">确认这份收集要求</h2><p>发布后，这个版本的字段、材料和规则会被冻结。后续修改将产生新版本。</p><div id="publish-summary"></div><label class="check-label"><input type="checkbox" id="publish-consent" required>我已核对材料要求、规则依据、截止时间和数据用途</label><div class="dialog-actions"><button type="button" class="ghost" onclick="this.closest('dialog').close()">返回核对</button><button type="submit" id="publish-confirm">确认并发布</button></div><div id="publish-error" role="alert" class="inline-error"></div></form></dialog>`;
+    <dialog id="publish-dialog" aria-labelledby="publish-title"><form onsubmit="event.preventDefault();confirmPublish()"><div class="eyebrow">REVIEW & PUBLISH</div><h2 id="publish-title" tabindex="-1">确认这份收集要求</h2><p>发布后，这个版本的字段、材料和规则会被冻结。后续修改将产生新版本。</p><div id="publish-summary"></div><label class="check-label"><input type="checkbox" id="publish-consent" required>我已核对上方要求与数据处理说明，并按实际约定确认未填写项</label><div class="dialog-actions"><button type="button" class="ghost" onclick="this.closest('dialog').close()">返回核对</button><button type="submit" id="publish-confirm">确认并发布</button></div><div id="publish-error" role="alert" class="inline-error"></div></form></dialog>`;
   setAgentBusy(true, "正在加载"); renderDraftPanel();
   try {
     const r = await api(`/api/tasks/${taskId}/design`);
@@ -1238,23 +2017,34 @@ function paintAgentRuntime() {
     mode.textContent = label;
     mode.className = `runtime-mode${tone ? ` ${tone}` : ''}`;
   };
+  const replay = document.getElementById('offline-replay-action');
+  if (replay) {
+    const demoTask = state.task?.name === '2026 秋季第 1 期团课报告（演示）';
+    replay.innerHTML = state.llmConfigured === false && demoTask
+      ? `<div class="offline-replay-callout"><div><b>想把双 Agent 路径走完？</b><span>用固定虚构需求回放一次需求整理，沿同一队列、校验和人工发布门槛运行。</span></div><button class="ghost sm" type="button" onclick="runOfflineRequirementsReplay()" ${state.agentBusy ? 'disabled' : ''}>${icon('sparkle')} 回放离线起草</button></div>`
+      : '';
+  }
   if (state.llmConfigured === false) {
     setMode("离线可演示", "offline");
     status.textContent = "当前没有模型密钥：模板和手动编辑可用，需求 Agent 会保留原文并明确停下。";
+    paintAgentRuntimeContractIssue(agentRuntimeContractWarning);
     return;
   }
   if (request?.status === "queued") {
     setMode("请求已入队", "online");
     status.textContent = "请求已先落库；断线或刷新后会按同一个请求编号继续查询。";
+    paintAgentRuntimeContractIssue(agentRuntimeContractWarning);
     return;
   }
   if (request?.status === "running" || request?.status === "checking") {
     setMode("正在协作", "online");
     status.textContent = "需求 Agent 正在整理；旧草案不会被半份结果覆盖。";
+    paintAgentRuntimeContractIssue(agentRuntimeContractWarning);
     return;
   }
   setMode("受限运行时", "online");
   status.textContent = "只在当前任务范围内运行；工具调用受 scope、预算、幂等和审计约束。";
+  paintAgentRuntimeContractIssue(agentRuntimeContractWarning);
 }
 function renderChips() {
   const box = document.getElementById('chat-chips'); if (!box) return;
@@ -1342,22 +2132,31 @@ function agentRequestForm(request) {
     requirement: p.requirement || "", template: p.template || "",
     blueprint_version_id: p.blueprint_version_id || "",
     base_blueprint_id: String(p.base_blueprint_id ?? 0),
-    answered: JSON.stringify(p.answered || {}), instruction: p.instruction || ""};
+    answered: JSON.stringify(p.answered || {}), instruction: p.instruction || "",
+    execution_mode: p.execution_mode || "live"};
 }
 function agentRequestProgressHtml(request) {
   const status = request.status || "queued";
   const elapsed = Math.max(0, Date.now() - (request.createdAt || Date.now()));
   const minutes = Math.floor(elapsed / 60000);
-  const title = status === "queued" ? "已收到，正在等候处理"
+  const offline = typeof navigator !== "undefined" && navigator.onLine === false;
+  const replay = request.payload?.execution_mode === "offline_replay";
+  const title = replay ? (status === "queued" ? "离线脚本回放已排队" : status === "running" ? "离线脚本正在整理需求" : "正在确认离线回放状态")
+    : status === "queued" ? "已收到，正在等候处理"
     : status === "running" ? "小齐正在整理这次要求"
+    : status === "checking" && offline ? "网络已断开，等恢复后继续确认"
     : status === "checking" ? "正在确认服务器处理到哪一步"
     : "正在确认请求状态";
-  const detail = state.designCacheFailed
+  const detail = replay
+    ? "这是固定虚构输入的离线脚本回放，不调用外部模型；草案生成后仍要由组织者核对并发布。"
+    : state.designCacheFailed
     ? "请求已交给服务器；不过本标签页暂存不可用，离开前请先复制你的原文。"
+    : offline
+      ? "原文和草案都已保留。恢复联网后会继续查询同一请求，不会重复生成。"
     : minutes >= 2
       ? `已经等了 ${minutes} 分钟。服务端仍保留这次请求；你可以先离开，回来后会继续核对状态。`
       : "原文和当前草案都已保留；即使网络中断，回来后也会接着查这次请求。";
-  return `<section class="agent-request-card" role="status" aria-live="polite">
+  return `<section class="agent-request-card${replay ? ' offline' : ''}" role="status" aria-live="polite">
     <span class="agent-request-mark" aria-hidden="true">${status === "running" ? "…" : "↗"}</span>
     <div class="agent-request-copy"><b>${title}</b><p>${detail}</p></div>
     <button class="ghost sm" type="button" onclick="checkAgentRequestNow()">查看进度</button>
@@ -1478,6 +2277,7 @@ async function submitAgentRequest(request, epoch, token) {
     template: p.template || "", blueprint_version_id: p.blueprint_version_id || "",
     base_blueprint_id: String(p.base_blueprint_id ?? 0),
     answered: JSON.stringify(p.answered || {}), instruction: p.instruction || "",
+    execution_mode: p.execution_mode || "live",
   }});
 }
 async function pollAgentRequest(request, epoch = state.designEpoch, token = orgToken(), mode = "lookup") {
@@ -1501,10 +2301,13 @@ async function pollAgentRequest(request, epoch = state.designEpoch, token = orgT
       return;
     }
     request.status = "checking";
-    request.error = error.status ? "服务器暂时没有回应，我会继续确认这次请求的状态。" : "网络刚才断开了，我会按同一个请求编号继续确认，不会重复生成草案。";
+    const offline = typeof navigator !== "undefined" && navigator.onLine === false;
+    request.error = offline
+      ? "网络已断开，恢复后会继续确认这次请求。"
+      : error.status ? "服务器暂时没有回应，我会继续确认这次请求的状态。" : "网络刚才断开了，我会按同一个请求编号继续确认，不会重复生成草案。";
     savePendingAgentRequest(request); paintAgentRequestStatus(request);
     setAgentBusy(true, "正在接回这次请求");
-    scheduleAgentRequestPoll(request, epoch, token, "lookup");
+    if (!offline) scheduleAgentRequestPoll(request, epoch, token, "lookup");
     return;
   }
   if (!currentDesignRequest(request, epoch, token)) return;
@@ -1559,17 +2362,22 @@ function checkAgentRequestNow() {
   state.agentRequestPollTimer = 0;
   return pollAgentRequest(request, state.designEpoch, orgToken(), "lookup");
 }
-async function runAgent(text, answered = {}, instruction = '', source = 'composer', resumeRequest = null) {
+async function runAgent(text, answered = {}, instruction = '', source = 'composer', resumeRequest = null, options = {}) {
   if (state.agentBusy || state.designLoadFailed || state.viewingVersion) return;
   cacheDesignInputs();
   const previous = resumeRequest ? resumeRequest.previousBlueprintId : state.bpId;
   const sent = resumeRequest ? resumeRequest.sent : collectDesignInputs();
   const sentBase = resumeRequest ? resumeRequest.sentBase : state.designBaseId;
   const token = orgToken(), epoch = state.designEpoch;
-  const payload = resumeRequest ? resumeRequest.payload : previous
+  const payload = resumeRequest ? resumeRequest.payload : options.executionMode === 'offline_replay'
+    ? {kind: "agent", base_blueprint_id: state.bpId || 0, requirement: text,
+       execution_mode: "offline_replay"}
+    : previous
     ? {kind: "revise", blueprint_version_id: previous, base_blueprint_id: previous,
-       requirement: state.requirement || "", answered: {...answered}, instruction}
-    : {kind: "agent", base_blueprint_id: state.bpId || 0, requirement: text};
+       requirement: state.requirement || "", answered: {...answered}, instruction,
+       execution_mode: "live"}
+    : {kind: "agent", base_blueprint_id: state.bpId || 0, requirement: text,
+       execution_mode: "live"};
   const request = resumeRequest || {requestId: newAgentRequestId(), payload,
     text, answered: {...answered}, instruction, source, previousBlueprintId: previous,
     sentBase, sent, createdAt: Date.now(), pollCount: 0, status: "queued"};
@@ -1581,6 +2389,11 @@ async function runAgent(text, answered = {}, instruction = '', source = 'compose
   setAgentBusy(true, previous ? "正在核对修改影响" : "正在整理字段、材料与规则");
   paintAgentRequestStatus(request); setFlash("");
   await pollAgentRequest(request, epoch, token, resumeRequest ? "lookup" : "enqueue");
+}
+function runOfflineRequirementsReplay() {
+  if (state.llmConfigured !== false || state.agentBusy || state.task?.name !== '2026 秋季第 1 期团课报告（演示）') return;
+  const text = '收集 2026 秋季第 1 期团课报告，报告包含本人姓名，接受一份 PDF 或 DOCX，最大 10 MiB、20 页，由组织者最终人工验收。';
+  return runAgent(text, {}, '', 'offline_replay', null, {executionMode: 'offline_replay'});
 }
 function retryAgent() {
   const request = state.retryRequest || state.agentRequest;
@@ -1597,7 +2410,22 @@ function submitClarAnswers() {
   if (!Object.keys(answered).length && !instruction) { setFlash('请至少回答一项，或填写修改意见。留空不会自动确认。'); return; }
   return runAgent(Object.entries(answered).map(([q,a]) => `${q}：${a}`).concat(instruction ? [instruction] : []).join('\n'), answered, instruction, 'clarifications');
 }
-function setDesignTab(tab) { state.designTab = tab; renderDraftPanel(); }
+function setDesignTab(tab) {
+  if (!['preview', 'rules'].includes(tab)) return;
+  state.designTab = tab;
+  renderDraftPanel();
+  document.getElementById(`design-tab-${tab}`)?.focus?.();
+}
+function moveDesignTab(event) {
+  if (!event || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+  const tabs = ['preview', 'rules'].map(tab => document.getElementById(`design-tab-${tab}`)).filter(Boolean);
+  const current = tabs.indexOf(event.currentTarget);
+  if (current < 0) return;
+  const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1
+    : (current + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+  event.preventDefault();
+  tabs[next].click?.();
+}
 function renderDraftPanel() {
   paintDesignInputState();
   const box = document.getElementById('draft-panel'); if(!box) return;
@@ -1615,14 +2443,14 @@ function renderDraftPanel() {
   const blocking = state.designBlocking || [], advisories = state.designAdvisories || [];
   const versionOptions = (state.designVersions || []).map(v =>
     `<option value="${v.id}" ${(viewing?.id || state.bpId) === v.id ? 'selected' : ''}>v${v.version} · ${v.status === 'published' ? '已发布' : '草案'}${v.created_at ? ' · ' + esc(fmtTime(v.created_at).slice(5, 16)) : ''}</option>`).join('');
-  box.innerHTML = `<div class="draft-toolbar"><div role="tablist" aria-label="草案视图"><button role="tab" aria-selected="${state.designTab === 'preview'}" onclick="setDesignTab('preview')" class="${state.designTab === 'preview' ? 'on' : ''}">提交者预览</button><button role="tab" aria-selected="${state.designTab === 'rules'}" onclick="setDesignTab('rules')" class="${state.designTab === 'rules' ? 'on' : ''}">规则与依据 <span>${rules.length}</span></button></div>
+  box.innerHTML = `<div class="draft-toolbar"><div role="tablist" aria-label="草案视图"><button type="button" id="design-tab-preview" role="tab" aria-controls="design-tabpanel" aria-selected="${state.designTab === 'preview'}" tabindex="${state.designTab === 'preview' ? '0' : '-1'}" onkeydown="moveDesignTab(event)" onclick="setDesignTab('preview')" class="${state.designTab === 'preview' ? 'on' : ''}">提交者预览</button><button type="button" id="design-tab-rules" role="tab" aria-controls="design-tabpanel" aria-selected="${state.designTab === 'rules'}" tabindex="${state.designTab === 'rules' ? '0' : '-1'}" onkeydown="moveDesignTab(event)" onclick="setDesignTab('rules')" class="${state.designTab === 'rules' ? 'on' : ''}">规则与依据 <span>${rules.length}</span></button></div>
       <label class="version-picker"><span>版本</span><select onchange="loadDesignVersion(this.value)" aria-label="查看历史版本">${versionOptions || `<option>v${state.draftVersionId || 1}</option>`}</select></label></div>
     ${viewing ? `<div class="version-banner" role="status"><div><b>正在查看历史版本 v${viewing.version}</b><span>这是只读快照，发布与修订仍以最新草案为准。</span></div><div class="row-actions"><button class="ghost sm" onclick="useVersionAsBase()">以此为起点修改</button><button class="ghost sm" onclick="backToLatest()">回到最新</button></div></div>` : ''}
     ${blocking.length ? `<div class="draft-warning blocking" role="alert"><b>发布前必须处理 ${blocking.length} 项</b><ul>${blocking.map(w => `<li>${esc(w)}</li>`).join('')}</ul></div>` : ''}
     ${advisories.length ? `<div class="draft-warning" role="status"><b>${blocking.length ? '另有' : ''} ${advisories.length} 项提醒（不阻止发布）</b><ul>${advisories.map(w => `<li>${esc(w)}</li>`).join('')}</ul></div>` : ''}
     ${designReadinessHtml(bp, d, blocking, advisories, viewing)}
     ${designVersionImpactHtml()}
-    <div class="draft-content" role="tabpanel">${state.designTab === 'preview' ? `<div class="form-preview"><div class="preview-banner"><span>${scope.mode === 'open' ? '开放报名' : '名册收集'}</span><span>填写预览 · 不会提交</span></div><h2>${esc(scope.name || state.task?.name || '收集任务')}</h2><p class="muted">${esc(scope.description || '请按以下要求登记信息并提交材料。')}</p>
+    <div id="design-tabpanel" class="draft-content" role="tabpanel" aria-labelledby="design-tab-${state.designTab}" tabindex="0">${state.designTab === 'preview' ? `<div class="form-preview"><div class="preview-banner"><span>${scope.mode === 'open' ? '开放报名' : '名册收集'}</span><span>填写预览 · 不会提交</span></div><h2>${esc(scope.name || state.task?.name || '收集任务')}</h2><p class="muted">${esc(scope.description || '请按以下要求登记信息并提交材料。')}</p>
       <div class="preview-section-title"><b>01</b> 登记信息</div>${(bp.fields || []).map(f => `<div class="preview-field"><label>${esc(f.label)}${f.required ? '<em> *</em>' : ' <small>选填</small>'}</label>${f.type === 'enum' ? `<select disabled aria-label="${esc(f.label)}"><option>请选择${esc(f.label)}</option>${(f.options || []).map(o => `<option>${esc(o)}</option>`).join('')}</select>` : `<input disabled aria-label="${esc(f.label)}" placeholder="请填写${esc(f.label)}">`}${f.required_condition ? `<p class="field-help">条件：${esc(f.required_condition)}</p>` : ''}${f.purpose ? `<p class="field-help">用途：${esc(f.purpose)}</p>` : ''}</div>`).join('') || '<p class="muted">尚未设置登记字段</p>'}
       <div class="preview-section-title"><b>02</b> 提交材料</div>${(bp.slots || []).map(sl => `<div class="upload-preview">${icon('delivery')}<div><strong>${esc(sl.label)}</strong><p>${(sl.formats || []).map(x=>esc(x.toUpperCase())).join(' / ') || '未限定格式'} · 最多 ${sl.max_count} 份${sl.max_size_mib ? ` · 每份 ≤ ${sl.max_size_mib} MiB` : ''}${sl.max_pages ? ` · ≤ ${sl.max_pages} 页` : ''}</p>${sl.required_condition ? `<p>条件：${esc(sl.required_condition)}</p>` : ''}</div><span>上传区域</span></div>`).join('') || '<p class="muted">尚未设置材料</p>'}
       <div class="preview-section-title"><b>03</b> 时间与验收</div><dl class="kv-list"><dt>时区</dt><dd>${esc(tp.timezone || 'Asia/Shanghai')}</dd><dt>开始收集</dt><dd>${esc(fmtTimeShort(tp.open_at, tp.timezone))}</dd><dt>首次截止</dt><dd>${esc(fmtTimeShort(tp.first_deadline, tp.timezone))}</dd><dt>补正截止</dt><dd>${esc(fmtTimeShort(tp.correction_deadline, tp.timezone))}</dd><dt>最终验收</dt><dd>${bp.manual_acceptance ? '组织者人工确认' : '按规则处理'}</dd></dl></div>` : `<div class="rules-preview"><h2>每条要求，都有依据</h2><p class="muted">程序校验、语义审核与人工判断分别标注，不把不确定的结论当成通过。</p>${rules.map((r,i) => `<article class="rule-preview"><div><span class="rule-number">${String(i+1).padStart(2,'0')}</span>${CAP_BADGE[r.capability] || ''}<span class="badge">${esc(EXECUTOR_LABEL[r.executor] || r.executor)}</span></div><h3>${esc(r.statement)}</h3><blockquote>${esc(r.requirement_source || '模板预置要求，请组织者核对')}</blockquote><p class="field-help">${r.severity === 'blocking' ? '阻塞项 · 未处理时不能验收' : '提醒项'}${r.clarification_question ? ' · ' + esc(r.clarification_question) : ''}</p></article>`).join('') || '<div class="empty">尚未设置检查规则</div>'}<details><summary>原始要求与修订依据</summary><p class="source-text">${esc((viewing ? viewing.source_text : state.requirement) || '当前使用模板预置要求，尚无自然语言输入。')}</p></details><details><summary>交付与数据治理</summary><pre>${esc(JSON.stringify({delivery:bp.delivery, governance:bp.governance},null,2))}</pre></details></div>`}</div>
@@ -1732,6 +2560,7 @@ async function publishBp(taskId) {
     <div class="publish-group"><div class="eyebrow">材料（${slots.length}）</div><p>${slots.map(s => `${esc(s.label)}：${(s.formats || []).map(x => esc(x.toUpperCase())).join('/') || '不限格式'}，最多 ${s.max_count} 份${s.max_size_mib ? `，≤${s.max_size_mib}MiB` : ''}${s.required_condition ? `，条件 ${esc(s.required_condition)}` : ''}`).join('<br>') || '无'}</p></div>
     <div class="publish-group"><div class="eyebrow">检查规则（${rules.length}）</div><ul class="publish-rules">${rules.map(r => `<li><span class="badge ${r.capability === 'supported' ? 'ok' : 'warn'}">${esc((CAP_BADGE[r.capability] || '').replace(/<[^>]+>/g, ''))}</span>${esc(r.statement)}</li>`).join('') || '<li>无</li>'}</ul></div>
     <div class="publish-group"><div class="eyebrow">时间</div><p>时区 ${esc(tp.timezone || 'Asia/Shanghai')} · 开始 ${esc(fmtTimeShort(tp.open_at, tp.timezone))} · 首次截止 ${esc(fmtTimeShort(tp.first_deadline, tp.timezone))} · 补正截止 ${esc(fmtTimeShort(tp.correction_deadline, tp.timezone))}</p></div>
+    ${publishGovernanceHtml(bp)}
     ${advisories.length ? `<div class="draft-warning"><b>${advisories.length} 项提醒（不阻止发布）</b><ul>${advisories.map(w => `<li>${esc(w)}</li>`).join('')}</ul></div>` : ''}
   </div>`;
   document.getElementById('publish-error').textContent = ''; document.getElementById('publish-consent').checked = false;
@@ -1761,8 +2590,11 @@ async function confirmPublish() {
 /* ---------------------------------------------------------------- 名单管理 */
 async function viewRoster(taskId) {
   state.rosterTaskId = taskId;
+  state.rosterFilter = "all";
+  state.rosterEntries = [];
   document.getElementById("app").innerHTML = `
     <div class="breadcrumb"><a href="#/tasks">我的任务</a><span>/</span><span id="roster-name">任务 #${taskId}</span></div>
+    ${showcaseReturnHtml("名单与凭证")}
     <div class="page-heading"><div><div class="eyebrow">ROSTER & CREDENTIALS</div><h1>名单与提交凭证<span class="heading-dot">.</span></h1><p>谁来交、谁免交，以及每个人进入提交空间的唯一钥匙。</p></div><a class="ghost" href="#/workbench/${taskId}">去工作台 ${icon("arrow")}</a></div>
     <div id="flash" role="status" aria-live="polite"></div>
     <div class="overview-stats" id="roster-stats"></div>
@@ -1774,7 +2606,9 @@ async function viewRoster(taskId) {
         <div class="preview-box" id="roster-preview">输入后这里实时显示解析预览</div>
         <button onclick="importRoster(${taskId})" style="width:100%">导入名册 ${icon("arrow")}</button>
       </section>
-      <section class="card roster-list"><div class="section-heading"><div><div class="eyebrow">02 / CREDENTIALS</div><h2>名册与凭证</h2></div><button class="ghost sm" onclick="issueAllGrants(${taskId})">为全部未发放主体发放</button></div>
+      <section class="card roster-list"><div class="section-heading"><div><div class="eyebrow">02 / CREDENTIALS</div><h2>名册与凭证</h2></div><button class="ghost sm" onclick="issueAllGrants(${taskId})">为全部待发放主体发放</button></div>
+        <div id="roster-filter" class="roster-filter" role="group" aria-label="按凭证状态筛选"></div>
+        <p id="roster-results-status" class="sr-only" role="status" aria-live="polite"></p>
         <div id="roster-table"><p class="empty">正在读取名册…</p></div>
         <div id="grant-out"></div>
         <p class="field-help">凭证是提交者进入本人提交空间的唯一钥匙，请通过私下渠道发放；同名主体只按名复用提交空间，是否同一人请在复核页人工核对，不自动合并。重发会生成新凭证。</p>
@@ -1811,25 +2645,94 @@ function renderRosterPreview() {
 }
 
 async function loadRoster(taskId) {
-  const d = await api(`/api/tasks/${taskId}/roster`);
-  state.roster = {};
-  d.entries.forEach(e => { state.roster[e.id] = e; });
-  const nameEl = document.getElementById("roster-name");
-  if (nameEl && d.entries.length !== undefined) nameEl.textContent = `任务 #${taskId}`;
-  document.getElementById("roster-stats").innerHTML =
-    [["名册总数", d.total, "roster"], ["已发放凭证", d.granted, "design"], ["有效免交", d.exempt, "delivery"], ["待发放", Math.max(0, d.total - d.granted - d.exempt), "workbench"]]
-      .map(([l, n, ic]) => `<div class="overview-stat"><span>${l}</span><strong>${String(n).padStart(2, "0")}</strong><i>${icon(ic)}</i></div>`).join("");
-  document.getElementById("roster-table").innerHTML = d.entries.length ? `
+  const epoch = state.routeEpoch, requestId = (state.rosterRequestId || 0) + 1;
+  state.rosterRequestId = requestId;
+  document.querySelectorAll?.(".roster-import input, .roster-import textarea, .roster-import button, .roster-list > .section-heading button, #roster-filter button").forEach(control => { control.disabled = false; });
+  try {
+    const d = await api(`/api/tasks/${taskId}/roster`);
+    if (epoch !== state.routeEpoch || requestId !== state.rosterRequestId) return false;
+    state.roster = {};
+    state.rosterEntries = d.entries;
+    d.entries.forEach(e => { state.roster[e.id] = e; });
+    const nameEl = document.getElementById("roster-name");
+    if (nameEl && d.entries.length !== undefined) nameEl.textContent = `任务 #${taskId}`;
+    document.getElementById("roster-stats").innerHTML =
+      [["名册总数", d.total, "roster"], ["已发放凭证", d.granted, "design"], ["有效免交", d.exempt, "delivery"], ["待发放", Math.max(0, d.total - d.granted - d.exempt), "workbench"]]
+        .map(([l, n, ic]) => `<div class="overview-stat"><span>${l}</span><strong>${String(n).padStart(2, "0")}</strong><i>${icon(ic)}</i></div>`).join("");
+    renderRosterTable();
+    return true;
+  } catch (e) {
+    if (epoch !== state.routeEpoch || requestId !== state.rosterRequestId) return false;
+    const table = document.getElementById("roster-table");
+    if (table) table.innerHTML = `<div class="notice-warn" role="alert"><b>名册暂时无法读取</b><p>${esc(e.message || "请检查任务是否存在，或稍后重试。")}</p><button class="ghost sm" onclick="loadRoster(${taskId})">重试加载名册</button> <a class="ghost sm" href="#/workbench/${taskId}">回到收集工作台</a></div>`;
+    document.querySelectorAll?.(".roster-import input, .roster-import textarea, .roster-import button, .roster-list > .section-heading button, #roster-filter button").forEach(control => { control.disabled = true; });
+    return false;
+  }
+}
+
+function setRosterFilter(filter) {
+  if (!["all", "pending", "issued", "exempt"].includes(filter)) return;
+  state.rosterFilter = filter;
+  renderRosterTable();
+}
+
+function renderRosterTable() {
+  const entries = state.rosterEntries || [];
+  const counts = {
+    all: entries.length,
+    pending: entries.filter(e => !e.granted && !e.exempt).length,
+    issued: entries.filter(e => e.granted).length,
+    exempt: entries.filter(e => e.exempt).length,
+  };
+  const filter = ["all", "pending", "issued", "exempt"].includes(state.rosterFilter) ? state.rosterFilter : "all";
+  const filterEl = document.getElementById("roster-filter");
+  const filterOptions = [
+    ["all", "全部"], ["pending", "待发放"], ["issued", "已发放"], ["exempt", "免交"],
+  ];
+  if (filterEl) {
+    const buttons = [...filterEl.querySelectorAll("button[data-roster-filter]")];
+    if (buttons.length === filterOptions.length) {
+      buttons.forEach((button, index) => {
+        const [key] = filterOptions[index];
+        const active = filter === key;
+        button.className = `roster-filter-button${active ? " active" : ""}`;
+        button.setAttribute("aria-pressed", String(active));
+        button.querySelector("span").textContent = String(counts[key]);
+      });
+    } else {
+      filterEl.innerHTML = filterOptions.map(([key, label]) => `<button type="button" data-roster-filter="${key}"
+        class="roster-filter-button${filter === key ? " active" : ""}" aria-pressed="${filter === key}"
+        onclick="setRosterFilter('${key}')">${label}<span>${counts[key]}</span></button>`).join("");
+    }
+  }
+  const visible = entries.filter(entry => {
+    if (filter === "pending") return !entry.granted && !entry.exempt;
+    if (filter === "issued") return !!entry.granted;
+    if (filter === "exempt") return !!entry.exempt;
+    return true;
+  });
+  const filterLabel = filterOptions.find(([key]) => key === filter)?.[1] || "全部";
+  const resultsStatus = document.getElementById("roster-results-status");
+  if (resultsStatus) {
+    resultsStatus.textContent = !entries.length
+      ? "名单为空。"
+      : visible.length
+        ? `${filter === "all" ? "显示全部" : `已筛选${filterLabel}`}，共 ${visible.length} 位主体。`
+        : `筛选“${filterLabel}”没有匹配主体。`;
+  }
+  document.getElementById("roster-table").innerHTML = visible.length ? `
     <div class="roster-head"><span>姓名 / 备注</span><span>凭证</span><span>提交空间</span><span>操作</span></div>
-    ${d.entries.map(e => `<article class="roster-row">
+    ${visible.map(e => `<article class="roster-row">
       <div class="roster-person"><span class="wb-avatar" aria-hidden="true">${esc((e.name || "?").slice(0, 1))}</span><div><b>${esc(e.name)}</b><span>${esc(e.ref || "未填备注")}</span></div></div>
       <div>${e.granted ? '<span class="badge ok">已发放</span>' : '<span class="badge warn">未发放</span>'}</div>
       <div>${e.exempt ? '<span class="badge info">免交</span>'
         : (e.subject_id ? `<span class="badge">#${e.subject_id}</span>` : '<span class="muted">发放时创建</span>')}</div>
-      <div class="roster-actions"><button class="ghost sm" onclick="issueGrant(${taskId},${e.id})">${
+      <div class="roster-actions"><button class="ghost sm" onclick="issueGrant(${state.rosterTaskId},${e.id})">${
           e.granted ? "重发凭证" : "发放凭证"}</button></div>
     </article>`).join("")}`
-    : `<div class="empty-state"><div class="empty-icon">${icon("roster")}</div><h3>名单还是空的</h3><p>在左边粘贴名单导入，系统会按行生成提交主体。</p></div>`;
+    : entries.length
+      ? `<p class="roster-filter-empty">此状态下没有主体。</p>`
+      : `<div class="empty-state"><div class="empty-icon">${icon("roster")}</div><h3>名单还是空的</h3><p>在左边粘贴名单导入，系统会按行生成提交主体。</p></div>`;
 }
 
 async function copyText(text) {
@@ -1838,6 +2741,20 @@ async function copyText(text) {
     const ta = document.createElement("textarea"); ta.value = text; document.body.appendChild(ta);
     ta.select(); document.execCommand("copy"); ta.remove(); return true;
   }
+}
+async function copyDemoRouteCue(button) {
+  const cue = button?.dataset?.cue || "";
+  if (!cue) return false;
+  const copied = await copyText(cue);
+  if (!button) return copied;
+  button.innerHTML = `${icon(copied ? "check" : "copy")}<span>${copied ? "已复制" : "复制失败"}</span>`;
+  if (copied) {
+    clearTimeout(button._copyTimer);
+    button._copyTimer = setTimeout(() => {
+      button.innerHTML = `${icon("copy")}<span>复制讲解</span>`;
+    }, 1800);
+  }
+  return copied;
 }
 async function copyCredential(cred) {
   await copyText(cred);
@@ -1863,7 +2780,7 @@ async function issueGrant(taskId, entryId) {
     const r = await api(`/api/tasks/${taskId}/grants`, {
       method: "POST",
       form: { subject_name: e.name, roster_entry_id: String(entryId) } });
-    showCredential(e.name, r.credential);
+    showCredential(e.name, r.credential, r.warning);
     await loadRoster(taskId);
   });
 }
@@ -1874,32 +2791,46 @@ async function issueAllGrants(taskId) {
     const todo = d.entries.filter(e => !e.granted && !e.exempt);
     if (!todo.length) { setFlash("所有名册主体都已发放凭证（免交主体不发放）", "ok"); return; }
     if (!window.confirm(`将为 ${todo.length} 个未发放凭证的主体各生成一个凭证，继续？`)) return;
-    const out = [];
+    const out = [], failures = [];
     for (const e of todo) {
-      const r = await api(`/api/tasks/${taskId}/grants`, {
-        method: "POST",
-        form: { subject_name: e.name, roster_entry_id: String(e.id) } });
-      out.push({ name: e.name, credential: r.credential });
+      try {
+        const r = await api(`/api/tasks/${taskId}/grants`, {
+          method: "POST",
+          form: { subject_name: e.name, roster_entry_id: String(e.id) } });
+        out.push({ name: e.name, credential: r.credential, warning: r.warning });
+      } catch (error) {
+        failures.push({ name: e.name, error: error.message || "请求未完成" });
+      }
     }
-    showCredentialList(out);
-    await loadRoster(taskId);
+    let rosterRefreshed = false;
+    try { rosterRefreshed = await loadRoster(taskId); }
+    catch { rosterRefreshed = false; }
+    showCredentialList(out, failures, rosterRefreshed);
+    setFlash(failures.length
+      ? `已生成 ${out.length} 个凭证；${failures.length} 个结果未确认。${rosterRefreshed ? "先核对刷新后的发放状态，再逐项处理。" : "名册状态暂未刷新，请手动刷新后再处理未确认项。"}`
+      : rosterRefreshed
+        ? `已生成 ${out.length} 个凭证，请逐一复制并私下发给对应提交者。`
+        : `已生成 ${out.length} 个凭证，但名册状态暂未刷新；请刷新页面核对状态。`,
+      failures.length || !rosterRefreshed ? "warn" : "ok");
   });
 }
 
-function showCredential(name, cred) {
+function showCredential(name, cred, warning = "") {
   document.getElementById("grant-out").innerHTML = `
     <div class="credential-card">
       <div><span class="eyebrow">NEW CREDENTIAL · 仅显示这一次</span><b>${esc(name)}</b></div>
       <code>${esc(cred)}</code>
+      ${warning ? `<p class="credential-warning" role="status">${esc(warning)}</p>` : ""}
       <div class="row-actions"><button class="sm" onclick="copyCredential(this.dataset.cred)" data-cred="${esc(cred)}">复制凭证</button><span class="muted">请通过私下渠道发给本人</span></div>
-      <p class="field-help">重发会生成新凭证；为安全起见，旧凭证仍有效直到被撤销或过期。</p>
+      <p class="field-help">同一提交主体重发后，旧凭证立即失效。请把新凭证通过私下渠道发给本人。</p>
     </div>`;
 }
-function showCredentialList(list) {
+function showCredentialList(list, failures = [], rosterRefreshed = true) {
   document.getElementById("grant-out").innerHTML = `
     <div class="credential-card"><div><span class="eyebrow">NEW CREDENTIALS · 仅显示这一次</span><b>已生成 ${list.length} 个凭证</b></div>
-    <p class="field-help">请逐一复制发给对应同学；关闭页面后无法再次查看明文。</p></div>
-    <div class="credential-grid">${list.map(x => `<div class="credential-chip"><b>${esc(x.name)}</b><code>${esc(x.credential)}</code><button class="ghost sm" onclick="copyCredential(this.dataset.cred)" data-cred="${esc(x.credential)}">复制</button></div>`).join("")}</div>`;
+    <p class="field-help">请逐一复制发给对应同学；关闭页面后无法再次查看明文。同一提交主体重发后，旧凭证立即失效。</p></div>
+    ${list.length ? `<div class="credential-grid">${list.map(x => `<div class="credential-chip"><b>${esc(x.name)}</b><code>${esc(x.credential)}</code>${x.warning ? `<p class="credential-warning">${esc(x.warning)}</p>` : ""}<button class="ghost sm" onclick="copyCredential(this.dataset.cred)" data-cred="${esc(x.credential)}">复制</button></div>`).join("")}</div>` : ""}
+    ${failures.length ? `<section class="credential-failures" aria-label="未确认的凭证发放结果"><h3>未确认结果 ${failures.length} 条</h3><ul>${failures.map(x => `<li><b>${esc(x.name)}</b><span>${esc(x.error)}</span></li>`).join("")}</ul><p>${rosterRefreshed ? "名册状态已刷新。对已显示“已发放”的条目，不要重复批量发放；确需更换凭证时请逐项重发，并将新凭证发给本人。" : "名册状态未能刷新。请先刷新名册核对每项状态，再处理未确认项；避免直接重复批量发放。"}</p></section>` : !rosterRefreshed ? `<p class="credential-warning" role="status">名册状态暂未刷新，请刷新页面核对发放状态。</p>` : ""}`;
 }
 
 /* ---------------------------------------------------------------- P02 工作台 */
@@ -1918,11 +2849,13 @@ function viewWorkbench(taskId) {
   state.wbQuery = "";
   document.getElementById("app").innerHTML = `
     <div class="breadcrumb"><a href="#/tasks">我的任务</a><span>/</span><span id="wb-task-name">任务 #${taskId}</span></div>
+    ${showcaseReturnHtml("收集工作台")}
     <div class="page-heading"><div><div class="eyebrow">COLLECTION WORKBENCH</div><h1>收集工作台<span class="heading-dot">.</span></h1><p>谁没交、谁要改、谁等你决定，都在这一页。</p></div>
       <div id="wb-lifecycle" class="row-actions"></div></div>
     <div id="flash" role="status" aria-live="polite"></div>
     <div id="wb-readonly"></div>
     <div id="wb-next-step"></div>
+    <div id="wb-refresh-status" role="status" aria-live="polite"></div>
     <div class="overview-stats wb-summary" id="wb-stats"></div>
     <div class="wb-layout">
       <section class="card wb-panel" aria-label="提交者列表">
@@ -1941,20 +2874,30 @@ function viewWorkbench(taskId) {
         <div id="remind-body"><p class="empty">正在读取催交名单…</p></div>
       </aside>
     </div>`;
+  if (state.wbDataTaskId === taskId) {
+    paintWorkbench();
+    paintReminder();
+  }
   refreshWorkbench();
 }
 
 async function refreshWorkbench() {
   const taskId = state.wbTaskId, epoch = state.routeEpoch;
+  const requestId = (state.wbRefreshRequestId || 0) + 1;
+  state.wbRefreshRequestId = requestId;
   if (!taskId || location.hash !== `#/workbench/${taskId}`) return;
+  const isCurrent = () => state.wbTaskId === taskId
+    && epoch === state.routeEpoch && requestId === state.wbRefreshRequestId
+    && location.hash === `#/workbench/${taskId}`;
   try {
     const [data, notif] = await Promise.all([
       api(`/api/tasks/${taskId}/workbench`),
       api(`/api/tasks/${taskId}/notifications`),
     ]);
-    if (state.wbTaskId !== taskId || epoch !== state.routeEpoch) return;
+    if (!isCurrent()) return;
     state.wbCounts = data.counts || {};
     state.wbTask = data.task || {}; state.wbRows = data.rows || [];
+    state.wbDataTaskId = taskId;
     const previous = state.reminder;
     const content = document.getElementById("remind-content");
     const eligible = new Set((notif.view?.targets || []).map(x => x.subject_id));
@@ -1966,12 +2909,28 @@ async function refreshWorkbench() {
       created: state.reminder?.created || null,
       selected: previous?.selected == null ? null : previous.selected.filter(id => eligible.has(id)),
     };
+    const refreshStatus = document.getElementById("wb-refresh-status");
+    if (refreshStatus) refreshStatus.innerHTML = "";
     paintWorkbench();
     paintReminder();
     const pending = state.wbRows.some(r => ["queued", "running", "retry_wait"].includes(r.run_status));
     clearTimeout(_wbTimer);
     if (pending) _wbTimer = setTimeout(refreshWorkbench, 3000);
-  } catch (e) { if (epoch === state.routeEpoch) setFlash(e.message); }
+  } catch (e) {
+    if (!isCurrent()) return;
+    const refreshStatus = document.getElementById("wb-refresh-status");
+    const hasPreviousData = state.wbDataTaskId === taskId;
+    if (refreshStatus) refreshStatus.innerHTML = `<div class="wb-refresh-notice" data-state="${hasPreviousData ? "stale" : "unavailable"}">
+      <div><b>${hasPreviousData ? "显示的是上次读取的数据" : "提交情况尚未加载"}</b>
+        <span>${hasPreviousData ? "当前暂时无法连接服务端；已有名单与进度仍可查看，恢复连接后请重新读取。" : `暂时无法连接服务端，${esc(e.message || "请检查连接后重试。")}`}</span></div>
+      <button type="button" class="ghost sm" onclick="refreshWorkbench()">${icon("arrow")} 重试</button></div>`;
+    if (!hasPreviousData) {
+      const list = document.getElementById("wb-list");
+      if (list) list.innerHTML = `<div class="empty-state wb-load-error"><div class="empty-icon">${icon("arrow")}</div><h3>名单暂时无法读取</h3><p>连接恢复后重试。读取成功前不会把名单显示为空。</p></div>`;
+      const reminder = document.getElementById("remind-body");
+      if (reminder) reminder.innerHTML = `<div class="empty-state wb-load-error"><p>催交名单暂时无法读取，请在连接恢复后重试。</p></div>`;
+    }
+  }
 }
 
 function chooseWorkbenchNextStep(rows, task) {
@@ -2082,7 +3041,7 @@ function paintWorkbench() {
   const stats = document.getElementById("wb-stats");
   if (stats) stats.classList.toggle("open-qualification", t.mode === "open" && c.eligibility_pending != null);
   if (stats) stats.innerHTML = metrics.map(([label2, value, ic, filter]) =>
-    `<button type="button" class="overview-stat" aria-pressed="${state.wbFilter === filter}" aria-label="查看${label2}，${value}${t.subject_kind === 'team' ? '队' : '人'}" onclick="filterWorkbench('${filter}',true)"><span>${label2}${t.subject_kind === 'team' ? '（队）' : ''}</span><strong>${String(value).padStart(2, "0")}</strong><i>${icon(ic)}</i></button>`).join("");
+    `<button type="button" class="overview-stat" aria-pressed="${state.wbFilter === filter}" onclick="filterWorkbench('${filter}',true)"><span>${label2}${t.subject_kind === 'team' ? '（队）' : ''}</span><strong>${String(value).padStart(2, "0")}</strong><i>${icon(ic)}</i></button>`).join("");
 
   const q = (state.wbQuery || "").trim().toLowerCase();
   const visible = rows.filter(r => (r.name || "").toLowerCase().includes(q) && wbMatches(r, state.wbFilter));
@@ -2168,7 +3127,10 @@ function paintReminder() {
 }
 function defaultRemindText() {
   const t = state.wbTask || {};
-  return `你好，${t.name || "本次收集"}还差你的材料。请按任务说明完成登记并上传材料，注意提交截止时间。如已提交请忽略。`;
+  const deadline = t.first_deadline
+    ? `请在首次截止时间 ${fmtTimeShort(t.first_deadline, t.timezone)} 前完成登记并上传材料。`
+    : "请按任务说明完成登记并上传材料。";
+  return `你好，${t.name || "本次收集"}还差你的材料。${deadline}如已提交请忽略。`;
 }
 function toggleRemindTarget(sid, on) {
   const rem = state.reminder; if (!rem) return;
@@ -2261,12 +3223,20 @@ async function retryCheck(taskId, sid, back) {
     else if (state.wbTaskId === taskId && document.getElementById("wb-list")) await refreshWorkbench();
   });
 }
+async function offlineReplayCheck(taskId, sid) {
+  if (!confirm("这会排队一次离线脚本回放：不调用外部模型，只用于展示 Agent 运行链和人工接手边界。继续？")) return;
+  await guard(async () => {
+    const r = await api(`/api/tasks/${taskId}/subjects/${sid}/checks/offline-replay`, { method: "POST" });
+    setFlash(`已排队离线脚本回放：运行 #${r.run_id}，完成后会在这里标明结果来源`, "ok");
+    await viewReview(taskId, sid);
+  });
+}
 
 /* ---------------------------------------------------------------- P03 证据复核 */
 const RUN_LABEL = {queued: "排队中", running: "检查中", retry_wait: "等待重试", success: "检查完成", failed: "检查失败"};
 const DECISION_LABEL = {confirm_issue: "确认问题（需补正）", confirm_pass: "人工核对通过", correct_false_positive: "纠正误报",
   approve_exception: "批准例外", eligibility: "资格复核", exempt: "免交", accept_current: "验收本版本", revoke: "撤销决定"};
-const RESULT_LABEL = {satisfied: "满足", issue: "问题", unknown: "待确认", not_applicable: "不适用", failed: "失败", manual_pending: "人工核对"};
+const RESULT_LABEL = {satisfied: "满足", issue: "问题", unknown: "待确认", not_applicable: "不适用", failed: "检查未完成", manual_pending: "人工核对"};
 const ELIGIBILITY_LABEL = {not_assessed: "未评估", pending: "待核实", eligible: "符合", ineligible: "不符合"};
 const eligibilityBadge = q => q ? `<span class="badge ${q.status === 'eligible' ? 'ok' : q.status === 'ineligible' ? 'bad' : 'warn'}">资格：${esc(ELIGIBILITY_LABEL[q.status] || '待核实')}</span>` : '';
 const severityLabel = value => ({blocking: "阻塞验收", advisory: "提醒项"}[value] || value || "未标级别");
@@ -2355,6 +3325,7 @@ async function viewReview(taskId, sid) {
   if (!Number.isFinite(sid) || sid <= 0) {
     document.getElementById("app").innerHTML = `
       <div class="breadcrumb"><a href="#/tasks">我的任务</a><span>/</span><a href="#/workbench/${taskId}">收集工作台</a><span>/</span><span>证据复核</span></div>
+      ${showcaseReturnHtml("证据复核")}
       <div class="page-heading"><div><div class="eyebrow">EVIDENCE REVIEW</div><h1>逐条核对证据<span class="heading-dot">.</span></h1><p>每处判断都附原文位置。解释不改变机器结论，最终由你决定。</p></div></div>
       <div class="card"><div class="empty-state"><div class="empty-icon">${icon("review")}</div>
         <h3>先选一位提交者</h3>
@@ -2367,6 +3338,7 @@ async function viewReview(taskId, sid) {
   state.reviewConflict = false;
   document.getElementById("app").innerHTML = `
     <div class="breadcrumb"><a href="#/tasks">我的任务</a><span>/</span><a href="#/workbench/${taskId}">收集工作台</a><span>/</span><span id="rv-name">证据复核</span></div>
+    ${showcaseReturnHtml("证据复核")}
     <div class="page-heading"><div><div class="eyebrow">EVIDENCE REVIEW</div><h1>逐条核对证据<span class="heading-dot">.</span></h1><p>每处判断都附原文位置。解释不改变机器结论，最终由你决定。</p></div><div id="review-retry"></div></div>
     <div id="flash" role="status" aria-live="polite"></div>
     <div id="rv"><p class="empty">正在读取检查结果…</p></div>
@@ -2391,7 +3363,10 @@ async function viewReview(taskId, sid) {
     paintReview(taskId, sid);
     return true;
   } catch (e) {
-    if (epoch === state.routeEpoch && requestId === state.reviewRequestId) setFlash(e.message);
+    if (epoch === state.routeEpoch && requestId === state.reviewRequestId) {
+      const box = document.getElementById("rv");
+      if (box) box.innerHTML = `<div class="notice-warn" role="alert"><b>检查结果暂时无法读取</b><p>${esc(e.message || "请检查提交者是否属于当前任务，或稍后重试。")}</p><button class="ghost sm" onclick="viewReview(${taskId},${sid})">重试加载</button> <a class="ghost sm" href="#/workbench/${taskId}">回到收集工作台</a></div>`;
+    }
     return false;
   }
 }
@@ -2433,16 +3408,30 @@ function paintReview(taskId, sid) {
   const run = d.run, notes = d.notes || [];
   const reviewFiles = new Map((d.files || []).map(file => [file.file_id, file]));
   const retry = document.getElementById("review-retry");
-  if (retry) retry.innerHTML = run && run.status === "failed"
-    ? `<button class="ghost" onclick="retryCheck(${taskId},${sid},'review')" title="上次检查技术失败：重试生成新运行，旧运行标记被取代并保留">${icon("arrow")} 重试检查</button>` : "";
+  const activeRun = run && ["queued", "running", "retry_wait"].includes(run.status);
+  const replay = d.offline_replay;
+  if (retry) retry.innerHTML = [
+    run && run.status === "failed"
+      ? `<button class="ghost" onclick="retryCheck(${taskId},${sid},'review')" title="上次检查技术失败：重试生成新运行，旧运行标记被取代并保留">${icon("arrow")} 重试检查</button>` : "",
+    replay?.available && !activeRun
+      ? `<button class="ghost" onclick="offlineReplayCheck(${taskId},${sid})" title="仅演示任务可用：确定性脚本回放，不调用外部模型">${icon("sparkle")} 回放离线检查</button>` : "",
+  ].join("");
 
   const qualification = d.eligibility;
-  const counts = { issue: 0, unknown: 0, failed: 0, satisfied: 0, manual: 0 };
-  rules.forEach(r => { if (r.decision?.decision === "confirm_issue") { counts.issue++; return; } if (r.decision?.resolves) { counts.satisfied++; return; } if (r.result === "manual_pending") counts.manual++; if (r.result === "issue") counts.issue++; else if (r.result === "unknown") counts.unknown++; else if (r.result === "failed") counts.failed++; else if (r.result === "satisfied") counts.satisfied++; });
+  const acceptance = d.acceptance || {ready: false, blockers: ["请刷新复核状态"]};
+  const counts = { issue: 0, unknown: 0, failed: 0, satisfied: 0, manual: 0, manualResolved: 0 };
+  rules.forEach(r => { if (r.decision?.decision === "confirm_issue") { counts.issue++; return; } if (r.decision?.resolves) { counts.satisfied++; counts.manualResolved++; return; } if (r.result === "manual_pending") counts.manual++; if (r.result === "issue") counts.issue++; else if (r.result === "unknown") counts.unknown++; else if (r.result === "failed") counts.failed++; else if (r.result === "satisfied") counts.satisfied++; });
   const cov = run && run.coverage ? run.coverage : null;
   const gap = cov ? (cov.unread_pages || 0) + (cov.failed_pages || 0) : 0;
 
   const pending = rules.filter(needsReview);
+  const nextAction = pending.length
+    ? `<div class="review-next-action review-next-action-warn" role="status"><div><span class="eyebrow">NEXT ACTION</span><strong>先处理 ${pending.length} 项待人工核对</strong><p>组织者需要核对原文或作出决定；提交者不需要为这些项目重复提交材料。</p></div><button class="ghost sm" onclick="nextPendingReview(${taskId},${sid})">跳到下一项待处理 ${icon("arrow")}</button></div>`
+    : rules.length && acceptance.ready
+      ? `<div class="review-next-action review-next-action-ok" role="status"><div><span class="eyebrow">NEXT ACTION</span><strong>材料规则已处理，可以验收本版本</strong><p>验收仍只针对当前正式版本，资格和验收依据会单独记录。</p></div><button class="ghost sm" onclick="jumpReviewSection('review-acceptance')">查看验收 ${icon("arrow")}</button></div>`
+      : rules.length
+        ? `<div class="review-next-action review-next-action-info" role="status"><div><span class="eyebrow">NEXT ACTION</span><strong>材料规则已处理，继续查看验收前置条件</strong><p>如果资格或覆盖范围仍有待办，先处理这些事项再决定是否验收。</p></div><button class="ghost sm" onclick="jumpReviewSection('review-acceptance')">查看前置条件 ${icon("arrow")}</button></div>`
+        : `<div class="review-next-action review-next-action-info" role="status"><div><span class="eyebrow">NEXT ACTION</span><strong>先回工作台发起材料检查</strong><p>当前主体还没有可展示的规则结果；正式提交后才能验收材料。</p></div><a class="ghost sm" href="#/workbench/${taskId}">回工作台 ${icon("arrow")}</a></div>`;
   const evidenceStep = rules.length
     ? `<button class="ghost sm" onclick="jumpReviewSection('review-evidence')"><b>01</b> 核对材料 <span>${pending.length} 项待决定</span></button>`
     : `<button class="ghost sm" disabled title="本版本没有材料检查规则"><b>01</b> 核对材料 <span>本版本无规则</span></button>`;
@@ -2452,10 +3441,13 @@ function paintReview(taskId, sid) {
     <button class="ghost sm" onclick="jumpReviewSection('review-acceptance')"><b>03</b> 验收版本 <span>${d.acceptance?.accepted ? '已验收' : d.acceptance?.ready ? '可验收' : '尚有前置待办'}</span></button>
   </nav>`;
   const meta = `<section class="review-summary card">
-    <div class="review-subject"><span class="wb-avatar">${esc((d.subject.name || "?").slice(0, 1))}</span><div><h2>${esc(d.subject.name)}</h2><span>主体 #${d.subject.id}${d.revision ? ` · 当前版本 v${d.revision.version} · 回执 ${esc(d.revision.receipt)}` : ""}${run ? ` · 运行 #${run.id}（${esc(RUN_LABEL[run.status] || run.status)}）` : ""}</span></div></div>
+    <div class="review-subject"><span class="wb-avatar">${esc((d.subject.name || "?").slice(0, 1))}</span><div><h2>${esc(d.subject.name)}</h2><span>主体 #${d.subject.id}${d.revision ? ` · 当前版本 v${d.revision.version} · 回执 ${esc(d.revision.receipt)}` : ""}${run ? ` · 运行 #${run.id}（${esc(RUN_LABEL[run.status] || run.status)}）` : ""}</span>${run?.execution_mode === "offline_replay" ? `<span class="badge info review-run-source">离线脚本回放 · 不调用外部模型</span>` : ""}</div></div>
     ${qualification && (qualification.required || qualification.status !== 'not_assessed') ? `<div>${eligibilityBadge(qualification)} <span class="muted">${esc(qualification.status_reason)}</span></div>` : ''}
     <div class="review-scope"><span class="badge info">本次复核范围</span><span>主体 #${d.subject.id} · ${d.revision ? `正式 v${d.revision.version}` : "尚未正式提交"} · ${qualification?.members?.length ? `登记成员：${qualification.members.map(esc).join("、")}` : "个人 / 未登记团队成员"}</span><p>理由只恢复到相同账号、主体、版本、成员与检查证据；范围变化后请重新核对。</p></div>
-    <div class="review-metrics">${[["问题", counts.issue, "bad"], ["待人工核对", counts.unknown + counts.manual, "warn"], ["失败", counts.failed, "bad"], ["满足", counts.satisfied, "ok"]].map(([l, n, c]) => `<div class="review-metric"><strong class="${c}">${n}</strong><span>${l}</span></div>`).join("")}</div>
+    <div class="review-metrics">${[["问题", counts.issue, "bad", ""], ["待人工核对", counts.unknown + counts.manual, "warn", ""], ["检查未完成", counts.failed, "info", ""], ["已满足", counts.satisfied, "ok", counts.manualResolved ? `含人工处理 ${counts.manualResolved} 项；机器结论 ${Math.max(0, counts.satisfied - counts.manualResolved)} 项` : "机器结论"]].map(([l, n, c, note]) => `<div class="review-metric"><strong class="${c}">${n}</strong><span>${l}</span>${note ? `<small>${esc(note)}</small>` : ""}</div>`).join("")}</div>
+    <p class="review-metric-note">统计口径：已满足包含组织者人工核对通过的项目；原始机器结论与人工决定会在规则明细中分别保留。</p>
+    ${run?.execution_mode === "offline_replay" ? `<div class="notice-info review-replay-note"><b>这是离线演示回放</b><p>结果由演示脚本桩沿同一 Skill、工具白名单、Harness 预算和审计链生成，不代表真实模型质量；unknown / failed 仍需组织者人工处理。</p></div>` : ""}
+    ${nextAction}
     ${gap ? `<div class="notice-warn">材料共 ${gap} 页未能读取。这些页不构成「确认缺失」，相关规则按待确认处理；请让提交者补充清晰材料，或人工核对。</div>` : ""}
   </section>`;
 
@@ -2475,9 +3467,12 @@ function paintReview(taskId, sid) {
   const ruleButton = r => {
     const on = r.rule_id === state.reviewRule;
     const status = r.decision ? (DECISION_LABEL[r.decision.decision] || "已有人工决定") : (RESULT_LABEL[r.result] || "待核对");
-    return `<button class="review-rule-item ${on ? "on" : ""}" aria-current="${on}" aria-label="${esc((r.requirement && r.requirement.statement) || r.explanation || "待核对的一项要求")}；${esc(status)}；${esc(severityLabel(r.severity))}" data-review-rule="${esc(r.rule_id)}">
+    const done = reviewBucket(r) === "done";
+    const severity = severityLabel(r.severity);
+    const ariaStatus = done ? status : `${status}；${severity}`;
+    return `<button class="review-rule-item ${on ? "on" : ""}" aria-current="${on}" aria-label="${esc((r.requirement && r.requirement.statement) || r.explanation || "待核对的一项要求")}；${esc(ariaStatus)}" data-review-rule="${esc(r.rule_id)}">
       <span class="review-rule-text">${esc((r.requirement && r.requirement.statement) || r.explanation || "待核对的一项要求")}</span>
-      <span class="review-rule-side">${r.decision ? `<span class="badge ${r.decision.decision === "confirm_issue" ? "bad" : "info"}">${esc(DECISION_LABEL[r.decision.decision] || "已有人工决定")}</span>` : resultBadge(r.result)}<span class="badge">${esc(severityLabel(r.severity))}</span></span>
+      <span class="review-rule-side">${r.decision ? `<span class="badge ${r.decision.decision === "confirm_issue" ? "bad" : "info"}">${esc(DECISION_LABEL[r.decision.decision] || "已有人工决定")}</span>` : resultBadge(r.result)}${done ? "" : `<span class="rule-severity">${esc(severity)}</span>`}</span>
     </button>`;
   };
   const groupedRules = reviewGroups.map(group => ({...group, rules: visibleRules.filter(r => reviewBucket(r) === group.key)})).filter(group => group.rules.length);
@@ -2497,7 +3492,18 @@ function paintReview(taskId, sid) {
   const evidence = active ? `
     <article class="evidence-detail" id="review-evidence" tabindex="-1">
       <header><div><span class="eyebrow">这一项的证据</span><h2>${esc((active.requirement && active.requirement.statement) || "待核对的一项要求")}</h2></div>${resultBadge(active.result)}</header>
-      <div class="evidence-meta">${(active.requirement && active.requirement.executor) ? `<span class="badge">${esc(EXECUTOR_LABEL[active.requirement.executor] || active.requirement.executor)}</span>` : ""}${(active.requirement && active.requirement.capability) ? (CAP_BADGE[active.requirement.capability] || "") : ""}<span class="badge">${esc(severityLabel(active.severity))}</span>${(active.requirement && active.requirement.requirement_source) ? `<span class="source-quote">来源：${esc(active.requirement.requirement_source)}</span>` : ""}</div>
+      <div class="evidence-meta">${(active.requirement && active.requirement.executor) ? `<span class="badge">${esc(EXECUTOR_LABEL[active.requirement.executor] || active.requirement.executor)}</span>` : ""}${(active.requirement && active.requirement.capability) ? (CAP_BADGE[active.requirement.capability] || "") : ""}${(!active.decision?.resolves && !["satisfied", "not_applicable"].includes(active.result)) ? `<span class="badge">${esc(severityLabel(active.severity))}</span>` : ""}${(active.requirement && active.requirement.requirement_source) ? `<span class="source-quote">来源：${esc(active.requirement.requirement_source)}</span>` : ""}</div>
+      ${active.result === "failed" ? (() => {
+        const explanation = String(active.explanation || "");
+        const missingKey = /未配置\s*FORMFLOW_LLM_API_KEY/.test(explanation);
+        return `<div class="notice-warn review-llm-help ${missingKey ? "review-llm-help-missing-key" : "review-llm-help-transient"}">
+          <b>${missingKey ? "模型尚未配置，检查暂未开始" : "这次检查没有形成结论"}</b>
+          <p>${missingKey
+            ? "当前运行环境没有配置 FORMFLOW_LLM_API_KEY。这条规则暂时没有机器结论；可以先按模板或人工核对，配置密钥后回工作台重新发起检查。"
+            : "模型这次没有返回可靠结论。可以稍后重新发起检查，也可以直接转人工复核；原始材料和当前记录会保留。"}</p>
+          <a class="link" href="#/tasks">${missingKey ? "回任务列表查看模型配置提示" : "回任务列表选择下一步"}</a>
+        </div>`;
+      })() : ""}
       ${active.decision ? `<div class="notice-warn"><b>${esc(DECISION_LABEL[active.decision.decision] || active.decision.decision)}</b><p>${esc(active.decision.reason)}</p><span class="muted">人工决定不改写原始检查结果；撤销后可重新核对。</span></div>` : ""}
       ${active.explanation ? `<p class="evidence-explanation">${esc(active.explanation)}</p>` : ""}
       ${(active.evidence || []).length ? `<div class="evidence-list">${active.evidence.map(e => { const file = e.file_id ? reviewFiles.get(e.file_id) : null; const fileLink = file?.url ? `<a class="evidence-file-link" href="${esc(file.url)}" data-file-url="${esc(file.url)}" onclick="return openReviewFile(event,this.dataset.fileUrl)" target="_blank" rel="noreferrer">${icon("delivery")} 打开原件 · ${esc(file.name || "未命名文件")}</a>` : ""; return `<blockquote class="evidence"><span class="evidence-loc">${esc(e.locator || "未标注位置")} · ${esc(e.method || "-")}</span>${fileLink}${esc(e.quote || "")}</blockquote>`; }).join("")}</div>` : `<p class="muted">这条规则没有可引用的原文证据。</p>`}
@@ -2527,7 +3533,6 @@ function paintReview(taskId, sid) {
     </div>
   </section>`;
 
-  const acceptance = d.acceptance || {ready: false, blockers: ["请刷新复核状态"]};
   const acceptPanel = `<section class="card acceptance-panel" id="review-acceptance" tabindex="-1" aria-label="验收本版本">
     <h2>${acceptance.accepted ? "本版本已验收" : "验收本版本"}</h2>
     <p>验收只针对${d.revision ? ` v${d.revision.version}` : "当前版本"}，不豁免尚未处置的规则，也不自动验收后续补交。</p>
@@ -2555,6 +3560,8 @@ function paintReview(taskId, sid) {
 
   document.getElementById("rv").innerHTML = `${meta}${versionHistory}${workflow}${sameName}${agentRunCard(run, rules, d.tool_trace, taskId, sid)}
     <div class="review-layout ${rules.length ? '' : 'no-rule-layout'}">${rules.length ? `<div class="review-list-col">${list}</div>` : ''}<div class="review-detail-col">${rules.length ? evidence : `<div class="notice-warn">${d.revision ? '本版本没有材料检查规则。请直接核对独立资格与验收状态。' : '尚无正式提交，现在可以预核资格或处理免交；正式提交后才能验收。'}</div>`}${notesHtml}${decision}${eligibilityPanel}${acceptPanel}${covHtml}</div></div>`;
+  const missingKeyHelp = document.querySelector(".review-llm-help-missing-key");
+  if (missingKeyHelp) missingKeyHelp.innerHTML += '<details class="review-llm-steps"><summary>&#x67e5;&#x770b;&#x672c;&#x5730;&#x914d;&#x7f6e;&#x6b65;&#x9aa4;</summary><ol><li>&#x505c;&#x6b62;&#x5f53;&#x524d; API &#x548c; Worker&#x3002;</li><li>&#x5728;&#x542f;&#x52a8;&#x73af;&#x5883;&#x914d;&#x7f6e; <code>FORMFLOW_LLM_API_KEY</code>&#xff1b;&#x5982;&#x4f7f;&#x7528;&#x81ea;&#x5b9a;&#x4e49;&#x7f51;&#x5173;&#xff0c;&#x540c;&#x65f6;&#x914d;&#x7f6e;&#x6a21;&#x578b;&#x5730;&#x5740;&#x548c;&#x540d;&#x79f0;&#x3002;</li><li>&#x91cd;&#x542f;&#x670d;&#x52a1;&#x540e;&#x56de;&#x5230;&#x5de5;&#x4f5c;&#x53f0;&#xff0c;&#x4e3a;&#x8fd9;&#x4e2a;&#x4e3b;&#x4f53;&#x91cd;&#x65b0;&#x53d1;&#x8d77;&#x68c0;&#x67e5;&#x3002;</li></ol><p class="field-help">&#x79bb;&#x7ebf;&#x6f14;&#x793a;&#x53ef;&#x4ee5;&#x7ee7;&#x7eed;&#x4f7f;&#x7528;&#x6a21;&#x677f;&#x3001;&#x7a0b;&#x5e8f;&#x89c4;&#x5219;&#x548c;&#x4eba;&#x5de5;&#x6838;&#x5bf9;&#xff1b;&#x5df2;&#x6709;&#x6750;&#x6599;&#x4e0e;&#x56de;&#x6267;&#x4f1a;&#x4fdd;&#x7559;&#x3002;</p></details><a class="ghost sm review-llm-workbench-link" href="#/workbench/' + taskId + '">&#x56de;&#x5de5;&#x4f5c;&#x53f0;&#x7ee7;&#x7eed;</a>';
   document.querySelectorAll("[data-review-rule]").forEach(el => el.addEventListener("click", () =>
     selectReviewRule(el.dataset.reviewRule, taskId, sid)));
   const draft = state.reviewDrafts?.[state.reviewContext];
@@ -2851,6 +3858,16 @@ function fileChips(slot, ro) {
     return `<span class="file-chip">${icon("delivery")}<span class="file-chip-name" title="${esc(m.name)}">${esc(m.name)}</span><span class="file-chip-size">${esc(fmtBytes(m.size))}</span>${ro ? "" : `<button type="button" class="file-chip-x icon-only" aria-label="删除 ${esc(m.name)}" title="删除 ${esc(m.name)}" onclick="deleteSlotFile('${esc(slot)}','${esc(fid)}')">${icon("close")}</button>`}</span>`;
   }).join("");
 }
+function filePickerHtml(id, label, formats = [], describedBy = "") {
+  const extensions = Array.isArray(formats) ? formats : [];
+  const accept = extensions.length ? ` accept="${extensions.map(x => "." + esc(x)).join(",")}"` : "";
+  const described = describedBy ? ` aria-describedby="${esc(describedBy)}"` : "";
+  return `<div class="file-picker-wrap"><label class="file-picker"><input class="file-picker-input" type="file" id="${esc(id)}" aria-label="选择 ${esc(label)} 文件"${described} onchange="showSelectedFile(this)"${accept}><span>选择文件</span></label><span class="file-picker-name" aria-live="polite">未选择文件</span></div>`;
+}
+function showSelectedFile(input) {
+  const name = input.closest(".file-picker-wrap")?.querySelector(".file-picker-name");
+  if (name) name.textContent = input.files?.[0]?.name || "未选择文件";
+}
 function paintSlotFiles(slot, ro) {
   const el = document.getElementById("slot-files-" + slot);
   if (el) el.innerHTML = fileChips(slot, ro);
@@ -2977,6 +3994,7 @@ function paintSubmitterNextStep(results = state.submitterResults) {
     buckets: results?.buckets || {},
     runStatus: results?.run_status || "",
     revision: results?.revision,
+    resultsUnavailable: !!state.submitterResultsError && !state.submitterResults,
   });
 }
 window.addEventListener("beforeunload", event => {
@@ -2997,11 +4015,12 @@ async function viewSubmit() {
     location.hash = "#/login?role=sub";
     return;
   }
-  state.me = null; state.draftVersion = null; state.sub = null; state.receipt = null; state.submitterResults = null; state.submitterReadOnly = false;
+  state.me = null; state.draftVersion = null; state.sub = null; state.receipt = null; state.submitterResults = null; state.submitterResultsError = false; state.submitterReadOnly = false;
   document.getElementById("app").innerHTML = `<div id="flash" role="status" aria-live="polite"></div><div id="sub"><p class="empty">正在打开你的提交空间…</p></div>`;
   try {
-    const [me, draft, receipt] = await Promise.all([
-      api("/api/me", { sub: true }),
+    const me = await api("/api/me", { sub: true });
+    if (epoch !== state.routeEpoch || token !== subToken()) return;
+    const [draft, receipt] = await Promise.all([
       api("/api/me/draft", { sub: true }),
       api("/api/me/receipt", { sub: true }),
     ]);
@@ -3036,11 +4055,11 @@ async function viewSubmit() {
     document.getElementById("sub").innerHTML = `
       <div class="submit-shell">
         <div class="breadcrumb"><span>提交者空间</span><span>/</span><span>${esc(me.subject.name)}</span></div>
-        <div class="page-heading"><div><div class="eyebrow">MY SUBMISSION</div><h1>${esc(me.task.name)}<span class="heading-dot">.</span></h1><p>以「${esc(me.subject.name)}」身份提交${me.subject.kind === "team" ? "（团队）" : ""}。草稿随时保存，正式提交后仍可在补正截止前更新。</p></div>
+        <div class="page-heading"><div><div class="eyebrow">MY SUBMISSION</div><h1>${esc(me.task.name)}</h1><p>以「${esc(me.subject.name)}」身份提交${me.subject.kind === "team" ? "（团队）" : ""}。草稿随时保存，正式提交后仍可在补正截止前更新。</p></div>
           <span class="badge ${ro ? "warn" : "ok"}"><span class="badge-dot"></span>${esc(TASK_STATUS_LABEL[me.task.status] || me.task.status)}</span></div>
         ${ro ? `<div class="notice-warn">任务已${esc(TASK_STATUS_LABEL[me.task.status] || me.task.status)}，处于只读状态：不能保存草稿、上传或正式提交；已提交内容与回执仍可查看。</div>` : ""}
         <section class="submit-overview">
-          <div class="overview-stats">${[["登记字段", `${done}/${fields.length}`, "design"], [fileMetricLabel, uploaded, "delivery"], ["首次截止", fmtTimeShort(me.task.first_deadline, me.task.timezone).slice(5), "workbench"], ["补正截止", fmtTimeShort(me.task.correction_deadline, me.task.timezone).slice(5), "workbench"]].map(([l, v, ic]) => `<div class="overview-stat"><span>${esc(l)}</span><strong class="stat-text" ${l === "登记字段" ? 'id="submission-field-count"' : l === fileMetricLabel ? 'id="submission-file-count"' : ""}>${esc(v)}</strong><i>${icon(ic)}</i></div>`).join("")}</div>
+          <div class="overview-stats">${[["登记字段", `${done}/${fields.length}`, "design"], [fileMetricLabel, uploaded, "delivery"], ["首次截止", fmtTimeShort(me.task.first_deadline, me.task.timezone), "workbench"], ["补正截止", fmtTimeShort(me.task.correction_deadline, me.task.timezone), "workbench"]].map(([l, v, ic]) => `<div class="overview-stat"><span>${esc(l)}</span><strong class="stat-text" ${l === "登记字段" ? 'id="submission-field-count"' : l === fileMetricLabel ? 'id="submission-file-count"' : ""}>${esc(v)}</strong><i>${icon(ic)}</i></div>`).join("")}</div>
           ${receiptHtml}
         </section>
         <div id="submit-next-step">${submitterNextStepHtml({formal: !!receipt.formal, readOnly: ro, issues: []})}</div>
@@ -3073,28 +4092,30 @@ async function viewSubmit() {
                   ${naNote}
                   <p id="slot-error-${esc(s.id)}" class="validation-message" hidden></p>
                   <div class="file-chips" id="slot-files-${esc(s.id)}">${fileChips(s.id, ro)}</div>
-                  ${ro ? "" : `<div class="upload-row"><input type="file" id="file-${esc(s.id)}" aria-describedby="slot-error-${esc(s.id)}" aria-label="选择 ${esc(s.label)} 文件" ${(s.formats || []).length ? `accept="${(s.formats || []).map(x => "." + esc(x)).join(",")}"` : ""}><button class="ghost sm" id="upload-${esc(s.id)}" onclick="uploadSlot('${esc(s.id)}')">上传</button></div>`}
+                  ${ro ? "" : `<div class="upload-row">${filePickerHtml(`file-${s.id}`, s.label, s.formats, `slot-error-${s.id}`)}<button class="ghost sm" id="upload-${esc(s.id)}" onclick="uploadSlot('${esc(s.id)}')">上传</button></div>`}
                 </article>`;
               }).join("") || '<p class="muted">本次收集没有材料要求。</p>'}
             </div>
             <div class="submit-actions">
-              <button class="ghost sm" onclick="reloadServerDraft()">重新加载服务器草稿</button>
-              <button class="ghost" onclick="saveDraft()" ${ro ? "disabled" : ""}>保存草稿</button>
-              <button onclick="doSubmit()" ${ro ? "disabled" : ""}>${receipt.formal ? "提交更正版本并重新核对" : "提交材料并开始核对"} ${icon("arrow")}</button>
+              <button class="ghost sm submit-action-reload" onclick="reloadServerDraft()">重新加载服务器草稿</button>
+              <button class="ghost submit-action-save" onclick="saveDraft()" ${ro ? "disabled" : ""}>保存草稿</button>
+              <button class="submit-action-primary" onclick="doSubmit()" ${ro ? "disabled" : ""}>${receipt.formal ? "提交更正版本并重新核对" : "提交材料并开始核对"} ${icon("arrow")}</button>
               <span class="muted" id="draft-hint">${draft.draft_version ? `草稿版本 ${draft.draft_version}` : "尚未保存草稿"}${draft.updated_at ? ` · ${esc(fmtTime(draft.updated_at))}` : ""}</span>
             </div>
             <div id="receipt-out"></div>
           </section>
           <aside class="submit-side">
-            <section class="card side-note"><div class="eyebrow">BEFORE YOU SUBMIT</div><h2>提交前核对</h2>
+            ${receipt.formal ? `<section class="card side-note"><div class="eyebrow">AFTER SUBMISSION</div><h2>补正与回执</h2>
+              <ul class="check-list"><li>当前正式版本为 <b>v${esc(receipt.revision)}</b>，回执已固定。</li><li>需要更正时，更新材料后提交更正版本，原版本仍会保留。</li><li>补正截止：<b>${esc(fmtTimeShort(me.task.correction_deadline, me.task.timezone))}</b><span class="muted">（${esc(me.task.timezone)}）</span></li><li>上传附件或保存草稿不会替换当前正式版本。</li></ul>
+            </section>` : `<section class="card side-note"><div class="eyebrow">BEFORE YOU SUBMIT</div><h2>提交前核对</h2>
               <ul class="check-list"><li>首次截止：<b>${esc(fmtTimeShort(me.task.first_deadline, me.task.timezone))}</b></li><li>补正截止：<b>${esc(fmtTimeShort(me.task.correction_deadline, me.task.timezone))}</b><span class="muted">（${esc(me.task.timezone)}）</span></li><li>正式提交会形成不可篡改的版本，再次提交会形成补正版本。</li><li>上传成功 ≠ 正式提交，记得点「正式提交」。</li></ul>
-            </section>
+            </section>`}
             <section class="card side-note"><div class="eyebrow">如果有疑问</div><h2>提交之后</h2>
               <p class="field-help">核对后会列出对应的材料、原文位置和建议做法。觉得有一处没看清，可以补充说明请组织者再核对；需要更正时也可以直接补交材料。</p>
             </section>
           </aside>
         </div>
-        <section class="card my-results-card"><div class="section-heading"><div><div class="eyebrow">材料进度</div><h2>这份材料核对到哪了</h2></div><span class="muted">需要你处理的内容会放在前面</span></div><div id="my-results"><p class="muted">—</p></div></section>
+        <section class="card my-results-card"><div class="section-heading"><div><div class="eyebrow">材料进度</div><h2>这份材料核对到哪了</h2></div><span class="muted">提交后的状态与下一步</span></div><div id="my-results"><p class="muted">—</p></div></section>
       </div>`;
     document.querySelectorAll("[data-field]").forEach(el =>
       el.addEventListener("input", () => {
@@ -3116,11 +4137,12 @@ async function viewSubmit() {
     if (epoch !== state.routeEpoch) return;
     if (e.status === 401) {
       localStorage.removeItem(SUB_KEY);
-      location.hash = "#/login?role=sub";
+      location.hash = "#/login?role=sub&notice=credential-expired";
       return;
     }
+    const message = submitterNetworkError(e, "load");
     document.getElementById("sub").innerHTML =
-      `<div class="flash err">${esc(e.message)}（请重新用凭证登录）</div>`;
+      `<div class="flash err">${esc(message.message)} <button class="ghost sm" type="button" onclick="viewSubmit()">重新加载提交空间</button></div>`;
   }
 }
 async function uploadFile(slot, file) {
@@ -3141,7 +4163,9 @@ async function uploadSlot(slot) {
     const input = document.getElementById("file-" + slot);
     if (!input || !input.files.length) throw new Error("请先选择文件");
     const file = input.files[0];
-    const data = await uploadFile(slot, file);
+    let data;
+    try { data = await uploadFile(slot, file); }
+    catch (error) { throw submitterNetworkError(error, "upload"); }
     if (!current()) return;
     afterSlotUpload(slot, data.file_id, { name: file.name, size: file.size || data.size }, data.draft_version);
     input.value = "";
@@ -3161,8 +4185,12 @@ function afterSlotUpload(slot, fileId, meta, draftVersion) {
     const i = state.sub.slots.findIndex(s => s.id === slot);
     if (i >= 0) {
       const msg = document.getElementById("sub-slot-msg");
-      if (msg && state.sub.mode === "chat") msg.innerHTML = `<div class="flash ok">已上传：${esc((meta && meta.name) || fileId)}</div>`;
-      if (state.sub.phase === "done") renderSubStep();
+      if (state.sub.mode === "chat" && state.sub.phase === "slots" && state.sub.sIdx === i) {
+        subUser(`上传了「${esc(state.sub.slots[i].label)}」：${esc((meta && meta.name) || fileId)}`);
+        advanceSlot(i);
+      } else if (msg && state.sub.mode === "chat") {
+        msg.innerHTML = `<div class="flash ok">已上传：${esc((meta && meta.name) || fileId)}</div>`;
+      }
     }
   }
 }
@@ -3189,8 +4217,11 @@ async function saveDraft() {
   await guard(async () => {
     const fields = collectDraftFields();
     const snapshot = draftFingerprint(fields, state.files);
-    const r = await api("/api/me/draft", { method: "POST", sub: true,
-      json: { fields, slot_file_ids: state.files, expected_version: state.draftVersion } });
+    let r;
+    try {
+      r = await api("/api/me/draft", { method: "POST", sub: true,
+        json: { fields, slot_file_ids: state.files, expected_version: state.draftVersion } });
+    } catch (error) { throw submitterNetworkError(error, "draft"); }
     if (!current()) return;
     state.serverDraftFields = {...fields};
     state.serverDraftFingerprint = snapshot;
@@ -3228,7 +4259,7 @@ async function doSubmit() {
       } catch (error) {
         if (!current()) return;
         if (error.issues?.length) { showSubmissionIssues(error.issues); return; }
-        throw error;
+        throw submitterNetworkError(error, "submit");
       }
       if (!current()) return;
       state.serverDraftFields = {...fields};
@@ -3236,14 +4267,14 @@ async function doSubmit() {
       state.pendingSubmission = null;
       state.draftVersion = r.draft_version;
       cacheSubmissionDraft();
-      document.getElementById("receipt-out").innerHTML = `
-        <div class="receipt"><div><span class="eyebrow">SUBMITTED</span><b>提交成功 · v${r.revision}</b><span class="receipt-no">${esc(r.receipt)}</span></div><div class="receipt-meta"><span>提交时间</span><b>${esc(fmtTime(r.formal_submitted_at, state.me.task.timezone))}</b></div></div>`;
+      await viewSubmit();
       setFlash(`提交成功！回执 ${r.receipt}（v${r.revision}）`, "ok");
-      await loadMyResults();
     }, current);
   } finally { state.submitting = false; }
 }
 let _resultsTimer = 0;
+let _resultsRetryDelay = 3000;
+let _resultsRetryCount = 0;
 async function loadMyResults() {
   clearTimeout(_resultsTimer);
   const epoch = state.routeEpoch, token = subToken();
@@ -3252,7 +4283,10 @@ async function loadMyResults() {
   try {
     const r = await api("/api/me/results", { sub: true });
     if (epoch !== state.routeEpoch || token !== subToken() || requestId !== state.resultsRequestId) return;
+    _resultsRetryDelay = 3000;
+    _resultsRetryCount = 0;
     state.submitterResults = r;
+    state.submitterResultsError = false;
     paintSubmitterNextStep(r);
     const b = r.buckets || {};
     const details = r.details || [];
@@ -3262,11 +4296,14 @@ async function loadMyResults() {
       <p>当前进度：<b>${esc(submitterSummary(r.summary))}</b>${r.revision ? ` · 第 ${r.revision} 版` : ""}</p>
       <p>${[
         countBadge(b.blocking, "需要更正", "bad"),
-        countBadge(b.unknown, "待确认", "warn"),
-        countBadge(b.human, "组织者核对", "info"),
-        countBadge(b.incomplete, "检查未完成", "warn"),
         ...(b.pending_jobs || []).map(x => `<span class="badge info">${esc(RUN_LABEL[x] || "正在核对")}</span>`),
       ].filter(Boolean).join("") || '<span class="muted">暂时没有需要你处理的事项</span>'}</p>`;
+    const organizerCount = (b.unknown || []).length + (b.human || []).length + (b.incomplete || []).length;
+    if (organizerCount) html += `<p class="muted">组织者待办：${[
+      countBadge(b.unknown, "待确认", "warn"),
+      countBadge(b.human, "组织者核对", "info"),
+      countBadge(b.incomplete, "检查未完成", "warn"),
+    ].filter(Boolean).join(" ")}。这些需要组织者完成核对或恢复检查；你不需要为它们重复提交材料。</p>`;
     if (r.eligibility && (r.eligibility.required || r.eligibility.status !== 'not_assessed')) {
       html += `<div class="notice-warn">${eligibilityBadge(r.eligibility)}<p>${esc(r.eligibility.status_reason)}</p><p>${r.eligibility.reason ? '资格记录依据：' + esc(r.eligibility.reason) : ''}</p><span>资格由组织者独立核实，材料检查不会自动决定资格。</span></div>`;
     }
@@ -3278,11 +4315,16 @@ async function loadMyResults() {
     }
     // 规则明细：哪里有问题、怎么改、引用证据、剩余待办
     const todo = details.filter(x => x.decision?.decision === "confirm_issue"
-      || (!x.decision?.resolves && ["issue", "unknown", "failed", "manual_pending"].includes(x.result)));
+      || (!x.decision?.resolves && x.result === "issue"));
+    const organizerItems = details.filter(x => !x.decision?.resolves
+      && ["unknown", "failed", "manual_pending"].includes(x.result));
     const done = details.filter(x => x.decision?.resolves
       || (!x.decision && ["satisfied", "not_applicable"].includes(x.result)));
     if (todo.length) {
       html += `<h3>需要一起处理（${todo.length}）</h3>` + todo.map(ruleCard).join("");
+    }
+    if (organizerItems.length) {
+      html += `<section class="notice-warn"><b>组织者待办（${organizerItems.length}）</b><p>这些项目需要组织者核对或重新完成检查，你不需要为它们重复提交材料；若有需要更正的材料，可按上方提示补交。</p>${organizerItems.map(ruleCard).join("")}</section>`;
     }
     if (done.length) {
       html += `<p class="kv">已按要求核对完成 ${done.length} 项。</p>`;
@@ -3332,9 +4374,18 @@ async function loadMyResults() {
   } catch (e) {
     if (epoch !== state.routeEpoch || token !== subToken() || requestId !== state.resultsRequestId) return;
     const box = document.getElementById("my-results");
+    if (!state.submitterResults) {
+      state.submitterResultsError = true;
+      paintSubmitterNextStep();
+    }
     if (box) {
       const notice = `<div class="notice-warn" id="results-load-error">检查结果暂时无法更新，已有回执和填写不受影响。<button class="ghost sm" onclick="loadMyResults()">重试加载结果</button></div>`;
       if (!document.getElementById("results-load-error")) box.insertAdjacentHTML("afterbegin", notice);
+    }
+    if (navigator.onLine !== false && _resultsRetryCount < 5 && (isSubmitterNetworkFailure(e) || e.status >= 500)) {
+      _resultsTimer = setTimeout(loadMyResults, _resultsRetryDelay);
+      _resultsRetryCount++;
+      _resultsRetryDelay = Math.min(_resultsRetryDelay * 2, 30000);
     }
   }
 }
@@ -3375,8 +4426,8 @@ function initSubChat(fields, slots, ro, subjectName, initialAnswers) {
   if (state.sub.fields.length) {
     const firstEmpty = state.sub.fields.findIndex(f => !state.sub.answers[f.id]);
     state.sub.fIdx = firstEmpty < 0 ? state.sub.fields.length : firstEmpty;
-    if (state.sub.fIdx >= state.sub.fields.length) state.sub.phase = "slots";
-  } else { state.sub.phase = "slots"; }
+    if (state.sub.fIdx >= state.sub.fields.length) startPendingSlots();
+  } else { startPendingSlots(); }
   const uploaded = Object.values(state.files).reduce((n, ids) => n + ids.length, 0);
   subAgent(`你好${esc(subjectName)}，这里是<b>逐步填写向导</b>
     <div class="mini">这份问卷共 ${state.sub.fields.length} 项登记信息、${state.sub.slots.length} 项材料。
@@ -3426,6 +4477,7 @@ function setSubMode(m) {
     syncSubAnswersFromForm();
     const firstEmpty = state.sub.fields.findIndex(f => !state.sub.answers[f.id]);
     if (firstEmpty >= 0) { state.sub.phase = "fields"; state.sub.fIdx = firstEmpty; }
+    else startPendingSlots();
     renderSubStep();
   }
 }
@@ -3515,9 +4567,7 @@ function subAnswerField(i) {
   state.sub.fIdx = i + 1;
   if (state.sub.fIdx < state.sub.fields.length) renderSubStep();
   else {
-    state.sub.phase = "slots"; state.sub.sIdx = 0;
-    setSubStep(2);
-    if (!state.sub.slots.length) { state.sub.phase = "done"; setSubStep(3); }
+    startPendingSlots();
     renderSubStep();
   }
 }
@@ -3530,8 +4580,7 @@ function subSkipField(i) {
   state.sub.fIdx = i + 1;
   if (state.sub.fIdx < state.sub.fields.length) renderSubStep();
   else {
-    state.sub.phase = "slots"; state.sub.sIdx = 0; setSubStep(2);
-    if (!state.sub.slots.length) { state.sub.phase = "done"; setSubStep(3); }
+    startPendingSlots();
     renderSubStep();
   }
 }
@@ -3539,6 +4588,18 @@ function subSkipField(i) {
 function subSlotReq(s) {
   if (!s.required_condition) return true;
   return evalSlotCondition(s.required_condition, formValues()) !== false;
+}
+function nextPendingSlot(start) {
+  for (let i = start; i < state.sub.slots.length; i++) {
+    const slot = state.sub.slots[i];
+    if (!(state.files[slot.id] || []).length && subSlotReq(slot)) return i;
+  }
+  return state.sub.slots.length;
+}
+function startPendingSlots() {
+  state.sub.sIdx = nextPendingSlot(0);
+  state.sub.phase = state.sub.sIdx < state.sub.slots.length ? "slots" : "done";
+  setSubStep(state.sub.phase === "done" ? 3 : 2);
 }
 function subSlotCard(i) {
   const s = state.sub.slots[i];
@@ -3553,7 +4614,7 @@ function subSlotCard(i) {
     ${na}
     ${done ? `<div class="file-chips">${fileChips(s.id, false)}</div>` : ""}
     <div class="row">
-      <input type="file" id="sub-file" style="max-width:260px" ${(s.formats || []).length ? `accept="${(s.formats || []).map(x => "." + esc(x)).join(",")}"` : ""}>
+      ${filePickerHtml("sub-file", s.label, s.formats)}
       <button class="sm" onclick="subUploadSlot(${i})">上传</button>
       ${req ? `<button class="ghost sm" onclick="setSubMode('form')" title="留到表单区再传">稍后传</button>`
             : `<button class="ghost sm" onclick="subSkipSlot(${i})">跳过</button>`}
@@ -3577,15 +4638,13 @@ async function subUploadSlot(i) {
     if (!current()) return;
     msg.innerHTML = "";
     afterSlotUpload(s.id, data.file_id, { name: file.name, size: file.size || data.size });
-    subUser(`上传了「${esc(s.label)}」：${esc(file.name)}`);
-    advanceSlot(i);
   } catch (e) {
     if (!current()) return;
     msg.innerHTML = `<div class="flash err" style="margin:6px 0">${esc(e.message)}</div>`;
   }
 }
 function advanceSlot(i) {
-  state.sub.sIdx = i + 1;
+  state.sub.sIdx = nextPendingSlot(i + 1);
   if (state.sub.sIdx < state.sub.slots.length) renderSubStep();
   else { state.sub.phase = "done"; setSubStep(3); renderSubStep(); }
 }
@@ -3620,15 +4679,17 @@ async function viewDelivery(taskId) {
   state.deliveryHistoryHasMore = false;
   document.getElementById("app").innerHTML = `
     <div class="breadcrumb"><a href="#/tasks">我的任务</a><span>/</span><span>交付与归档</span></div>
+    ${showcaseReturnHtml("交付与归档")}
     <div class="page-heading"><div><div class="eyebrow">DELIVERY & ARCHIVE</div><h1>交付与归档<span class="heading-dot">.</span></h1><p>先固定一份快照再导出，之后的新提交不会影响已经固定的包。</p></div>
       <a class="ghost" href="#/workbench/${taskId}">回工作台 ${icon("arrow")}</a></div>
     <div id="flash" role="status" aria-live="polite"></div>
     <div class="delivery-layout">
-      <section class="card snapshot-panel"><div class="eyebrow">01 / SNAPSHOT</div><h2>固定快照</h2>
+      <section class="card snapshot-panel"><div class="eyebrow">01 / SNAPSHOT</div><h2>固定新快照</h2>
         <label for="snap-kind">快照类型</label>
         <select id="snap-kind"><option value="formal">正式（仅已验收）</option><option value="preview">整理预览（全部列出）</option></select>
-        <p class="field-help">${icon("delivery")} 正式快照只纳入已验收版本；预览快照列出全部主体并标明排除原因。快照固定后不可追加。</p>
-        <button onclick="createSnapshot(${taskId})">固定快照 ${icon("arrow")}</button>
+        <p class="field-help">${icon("delivery")} 正式快照只纳入已验收版本；预览快照列出全部主体并标明排除原因。每次点击都会生成一份新的独立快照，已有快照不会被覆盖。</p>
+        <div id="delivery-snapshot-status" class="delivery-current-status" role="status" aria-live="polite">正在读取最近快照…</div>
+        <button onclick="createSnapshot(${taskId})">固定一份新快照 ${icon("arrow")}</button>
       </section>
       <section class="card delivery-note"><div class="eyebrow">02 / EXPORT</div><h2>导出说明</h2>
         <ul class="check-list"><li>CSV 汇总每个主体的登记信息、版本、回执与验收状态。</li><li>ZIP 按交付命名规则打包材料原件。</li><li>导出基于快照，不在导出时读取最新数据。</li></ul>
@@ -3648,7 +4709,6 @@ function deliveryHistoryHtml(snapshots, taskId, hasMore) {
     const id = Number(snapshot.snapshot_id);
     const jobs = Array.isArray(snapshot.exports) ? snapshot.exports : [];
     const latest = jobs[0];
-    const needsExport = !latest || latest.status !== "success" || !latest.csv_available || !latest.zip_available;
     const jobHtml = jobs.length ? jobs.map(job => {
       const jobId = Number(job.job_id);
       const downloads = [
@@ -3662,10 +4722,16 @@ function deliveryHistoryHtml(snapshots, taskId, hasMore) {
     }).join("") : '<p class="muted">尚未生成 CSV / ZIP。</p>';
     return `<article class="delivery-history-item"><div class="delivery-history-item-head"><div><b>${snapshot.kind === "formal" ? "正式快照" : "整理预览快照"} #${id}</b><time>${esc(fmtTime(snapshot.created_at))}</time></div><span class="badge">纳入 ${Number(snapshot.totals?.included || 0)} / 排除 ${Number(snapshot.totals?.excluded || 0)}</span></div>
       <div class="delivery-history-exports">${jobHtml}</div>
-      <div class="row-actions delivery-history-actions"><button class="ghost sm" onclick="inspectSnapshot(${id})">查看固定清单</button>${needsExport ? `<button class="ghost sm" onclick="runExport(${id},'history-export-${id}')">${latest ? "重新生成 CSV + ZIP" : "生成 CSV + ZIP"}</button>` : ""}<span id="history-export-${id}" class="row-actions"></span></div>
+      <div class="row-actions delivery-history-actions"><button class="ghost sm" onclick="inspectSnapshot(${id})">查看固定清单</button></div>
     </article>`;
   }).join("");
   return `${items}${hasMore ? `<div class="delivery-history-more"><button class="ghost sm" onclick="loadDeliveryHistory(${taskId},true)">加载更早记录</button><span id="delivery-history-more-error" class="muted"></span></div>` : ""}`;
+}
+function deliverySnapshotStatusHtml(snapshots) {
+  const latest = Array.isArray(snapshots) && snapshots.length ? snapshots[0] : null;
+  if (!latest) return '<span class="delivery-current-status-label">还没有固定快照</span><span>先生成一份快照，之后才能导出 CSV 和 ZIP。</span>';
+  const kind = latest.kind === "formal" ? "正式快照" : "整理预览快照";
+  return `<span class="delivery-current-status-label">最近固定：${kind} #${Number(latest.snapshot_id)}</span><span>${esc(fmtTime(latest.created_at))} · 再次固定会生成新快照，旧包保持不变。</span>`;
 }
 async function loadDeliveryHistory(taskId, append = false) {
   const epoch = state.routeEpoch, token = orgToken();
@@ -3686,9 +4752,13 @@ async function loadDeliveryHistory(taskId, append = false) {
       ? result.next_offset : offset + received.length;
     state.deliveryHistoryHasMore = !!result.has_more;
     container.innerHTML = deliveryHistoryHtml(state.deliveryHistory, taskId, state.deliveryHistoryHasMore);
+    const status = document.getElementById("delivery-snapshot-status");
+    if (status && !append) status.innerHTML = deliverySnapshotStatusHtml(state.deliveryHistory);
   } catch (error) {
     if (epoch !== state.routeEpoch || token !== orgToken()) return;
     const message = `<span class="flash err">${esc(error.message || "历史记录暂时无法读取")}</span>`;
+    const status = document.getElementById("delivery-snapshot-status");
+    if (status && !append) status.innerHTML = '<span class="delivery-current-status-label">最近快照暂时无法读取</span><span>可以先固定新快照；历史记录恢复后会自动显示。</span>';
     if (append) {
       const moreError = document.getElementById("delivery-history-more-error");
       if (moreError) moreError.innerHTML = message;
@@ -3700,12 +4770,43 @@ async function inspectSnapshot(snapshotId) {
   await guard(async () => {
     const snapshot = await api(`/api/snapshots/${snapshotId}`);
     if (epoch !== state.routeEpoch || token !== orgToken()) return;
-    paintSnapshot(snapshot.snapshot_id, JSON.parse(snapshot.manifest));
+    paintSnapshot(snapshot.snapshot_id, JSON.parse(snapshot.manifest), snapshot.agent_evidence);
     document.getElementById("snap-view")?.scrollIntoView({behavior:"smooth", block:"start"});
     setFlash(`已打开快照 #${snapshot.snapshot_id}，清单保持不变`, "ok");
   }, () => epoch === state.routeEpoch && token === orgToken());
 }
-function paintSnapshot(snapshotId, manifest) {
+function agentEvidenceSummaryHtml(evidence) {
+  const entries = Array.isArray(evidence?.entries) ? evidence.entries : [];
+  const runs = entries.map(entry => entry && entry.run).filter(Boolean);
+  const completed = runs.filter(run => run.status === "success").length;
+  const pending = runs.filter(run => ["queued", "running", "retry_wait"].includes(run.status)).length;
+  const failed = runs.filter(run => run.status === "failed").length;
+  const offline = runs.filter(run => run.execution_mode === "offline_replay").length;
+  const live = runs.filter(run => run.execution_mode !== "offline_replay").length;
+  const toolSteps = runs.reduce((total, run) => total + (Array.isArray(run.tool_trace) ? run.tool_trace.length : 0), 0);
+  const ruleCounts = {};
+  runs.forEach(run => Object.entries(run.rule_results || {}).forEach(([key, value]) => {
+    ruleCounts[key] = (ruleCounts[key] || 0) + Number(value || 0);
+  }));
+  const ruleText = Object.entries(ruleCounts).map(([key, value]) => `${esc(key)} ${value}`).join(" · ") || "暂无规则结论";
+  const handoff = failed || pending || entries.some(entry => entry && !entry.run);
+  const status = failed ? `<span class="badge bad">有运行失败</span>`
+    : pending ? `<span class="badge info">仍在运行</span>`
+    : runs.length ? `<span class="badge ok">证据已就绪</span>`
+    : `<span class="badge">暂无运行</span>`;
+  return `<section class="agent-evidence-panel" aria-label="Agent 运行证据">
+    <div class="agent-evidence-head"><div><div class="eyebrow">AGENT EVIDENCE</div><h3>Agent 运行证据</h3></div>${status}</div>
+    <p class="field-help">与本快照中的版本绑定，只展示可追溯的运行元数据；材料正文、提示词、工具参数和隐藏推理不会出现在这里。</p>
+    <div class="agent-evidence-metrics">
+      <div><span>已绑定运行</span><b>${runs.length}/${entries.length}</b><small>完成 ${completed} · 待处理 ${pending + failed}</small></div>
+      <div><span>运行方式</span><b>${offline} 离线 / ${live} 实时</b><small>用于区分演示回放与模型服务</small></div>
+      <div><span>规则结论</span><b>${Object.values(ruleCounts).reduce((a, b) => a + b, 0)}</b><small>${ruleText}</small></div>
+      <div><span>工具步骤</span><b>${toolSteps}</b><small>仅保留工具名、序号、状态和耗时</small></div>
+    </div>
+    ${handoff ? `<div class="notice-warn agent-evidence-handoff"><b>仍需要人工接手</b><p>${failed ? "有检查运行失败；" : ""}${pending ? "有检查尚未完成；" : ""}${entries.some(entry => entry && !entry.run) ? "部分主体没有可绑定的检查运行；" : ""}这些状态不会被包装成已通过，组织者可以回到复核页逐项处理。</p></div>` : `<div class="notice-info agent-evidence-handoff"><b>人工发布门仍然有效</b><p>Agent 只提供证据，纳入交付仍以组织者验收和固定快照为准。</p></div>`}
+  </section>`;
+}
+function paintSnapshot(snapshotId, manifest, evidence = null) {
   const excluded = (manifest.entries || []).filter(entry => !entry.included);
   const target = document.getElementById("snap-view");
   if (!target) return;
@@ -3717,7 +4818,8 @@ function paintSnapshot(snapshotId, manifest) {
       <td>${entry.included ? '<span class="badge ok">是</span>' : '<span class="badge">否</span>'}</td><td>${esc(entry.excluded_reason || "—")}</td>
       <td>${(entry.files || []).length}</td></tr>`).join("")}</tbody></table></div>
     ${excluded.length ? `<p class="field-help">有 ${excluded.length} 个主体未纳入：正式快照只包含已验收版本，可在工作台逐个人工验收后重新固定。</p>` : ""}
-    <div class="row-actions snapshot-actions"><button onclick="runExport(${snapshotId})">生成 CSV + ZIP ${icon("arrow")}</button><span id="dl" class="row-actions"></span></div>
+    ${agentEvidenceSummaryHtml(evidence)}
+    <div class="row-actions snapshot-actions"><div class="snapshot-export-action"><button class="ghost" onclick="runExport(${snapshotId})">导出当前快照 ${icon("arrow")}</button><span class="field-help">生成这份快照的 CSV + ZIP</span></div><span id="dl" class="row-actions"></span></div>
   </section>`;
 }
 async function createSnapshot(taskId) {
@@ -3725,7 +4827,7 @@ async function createSnapshot(taskId) {
     const kind = document.getElementById("snap-kind").value;
     const r = await api(`/api/tasks/${taskId}/snapshots`,
                         { method: "POST", form: { kind } });
-    paintSnapshot(r.snapshot_id, JSON.parse(r.manifest));
+    paintSnapshot(r.snapshot_id, JSON.parse(r.manifest), r.agent_evidence);
     setFlash(`快照 #${r.snapshot_id} 已固定`, "ok");
     await loadDeliveryHistory(taskId);
   });

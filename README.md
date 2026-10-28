@@ -11,7 +11,7 @@
 
 </div>
 
-![FormFlow 证据复核工作区：复核范围、待处理规则与三步导航](docs/ux-review-2026-10-21/review-desktop.png)
+![FormFlow 展示工作区：Agent 架构导览与当前收集任务](docs/ux-review-2026-10-26/round-10-agent-tour-readability/tasks-desktop.png)
 
 > 当前为本地可演示的黑客松作品，已实现从发布要求、收件、检查、补正到人工验收及快照交付的核心闭环。尚未完成真实业务试点、模型质量评估和公网部署安全验收；截图与演示人物、材料均为虚构。
 
@@ -74,9 +74,68 @@ cd FormFlow
 python scripts/start_demo.py
 ```
 
-脚本自动完成依赖安装、种子数据写入、API 和 Worker 后台启动。启动后打开 `http://127.0.0.1:8000/`，组织者用 `demo / demo1234` 登录，登录页也会显示"体验演示环境"快捷入口。
+脚本自动完成依赖安装、种子数据写入并启动 API 和 Worker；只有 API 健康检查通过、Worker 完成启动恢复并报告就绪后，才显示可访问提示。启动后打开输出中的本地地址，组织者用 `demo / demo1234` 登录，登录页也会显示"体验演示环境"快捷入口。若默认 8000 端口被其他服务占用，可运行 `python scripts/start_demo.py --port 8010`。
 
-停止服务：`python scripts/start_demo.py --stop`
+首次启动会在 `data/demo/` 创建独立数据库并打印提交者凭证；后续启动会保留现有演示数据和凭证。执行 `python scripts/start_demo.py --check` 可只读检查依赖、种子、API 健康、Worker `ready` 标记、Agent runtime 合同和 MCP 只读桥；任一关键项未就绪时返回非零，不会安装依赖或写入数据。需要恢复初始场景时，确认只操作本地演示数据后运行 `python scripts/start_demo.py --reset`；重置会删除 `data/demo/` 下的数据库、附件和日志并重新显示凭证。
+
+演示服务启动后，可用浏览器 Harness 对评委展示链做一次只读验收：
+
+```bash
+FORMFLOW_SHOWCASE_BASE=http://127.0.0.1:8000 node scripts/showcase_check.cjs
+```
+
+它会在 1440、390、320px 下走登录、展示首页、需求设计、工作台、复核、交付和两个无效 ID 失败态；检查关键入口、加载占位是否被替换、横向溢出、控制台错误及非预期 HTTP 失败。设置 `FORMFLOW_SHOWCASE_OUT` 会额外写出 `showcase-results.json`，可作为现场验收记录。该脚本只读访问演示服务，不创建或修改任务数据。
+
+API 与 Worker 日志保存在 `data/demo/logs/`。停止命令只处理启动器登记的演示进程；若 8000 端口被其他程序占用，启动会报错且保留现有演示数据。
+
+停止服务：`python scripts/start_demo.py --stop`。停止命令会使用启动器记录的 API 与 Worker 进程，不依赖端口参数。
+
+### 备份与恢复演练
+
+演示数据需要在服务停止后备份，工具会将 SQLite 数据库和私有附件打包并逐文件校验。它不会覆盖已有备份或恢复目录；恢复只写入一个新的目标目录，不会替换 `data/demo/`：
+
+```bash
+python scripts/start_demo.py --stop
+python scripts/backup_demo.py create --output data/backups/demo-check.zip
+python scripts/backup_demo.py verify data/backups/demo-check.zip
+python scripts/backup_demo.py restore data/backups/demo-check.zip --target data/demo-restore-check
+```
+
+`verify` 会在临时目录实际展开备份并运行 SQLite 完整性检查，同时核对清单记录的创建时间、数据库/附件来源、文件大小和 SHA-256。恢复只在全部文件校验通过后原子地改名到目标目录；失败会清理临时目录，不会留下半成品。备份 ZIP 未加密，只用于虚构演示数据，应保存在私有目录并避免提交到仓库。恢复目录通过校验后可作为隔离副本检查；此工具不替代正式部署的异地备份、附件存储快照或灾难恢复方案。
+
+### 连接外部 MCP 客户端（只读）
+
+FormFlow 提供一个可选的本地 stdio MCP sidecar，供支持 MCP 的桌面 Agent 查询组织者自己的任务、聚合收集进度、下一步路线和 Agent runtime 合同。外部 Agent 可以先读取某任务启用的 Skill、工具白名单、Harness 限额、MCP 边界及人工接手点，再决定如何协助组织者。它调用同一 API，并复用组织者登录会话，因此任务所有权仍由服务端验证。当前只开放 `list_my_tasks`、`get_task_collection_progress`、`get_task_next_step` 与 `get_task_agent_runtime`；进度工具只返回名单/开放报名的计数，不读取逐人名单、材料、提示词或审计正文，也不提供写入工具。
+
+任务首页另外展示一条由服务端执行的 MCP-compatible 只读导览：它会按同一白名单生成四个调用的脱敏账本、运行编号和人工接手边界，供现场解释 Agent 如何读取任务状态。浏览器不会拿到 MCP 会话 token，也不会直接启动 stdio sidecar；这条网页导览和下面的外部 MCP 客户端是两条独立入口。
+
+想现场验证 MCP 协议和四项工具，可在 API 已启动并完成种子数据后另开终端运行交互演示。脚本通过隐藏输入收取组织者密码，token 只在当前进程及其 sidecar 子进程环境中使用，不会打印或写入文件：
+
+```bash
+python scripts/demo_mcp.py
+```
+
+默认账号是 `demo`，按提示输入 `demo1234`。脚本会通过 MCP stdio 发现工具，再调用任务列表、收集进度、下一步路线和 Agent runtime 查询；收集进度会汇总显示资格待核人数。账号下只有一个任务时自动选择，多任务时可输入任务编号，直接回车使用列表第一项。需要在录屏或无 stdin 的环境复现时，可把密码放入当前进程环境变量后运行 `FORMFLOW_DEMO_PASSWORD=demo1234 python scripts/demo_mcp.py --non-interactive --task-id 1`；PowerShell 对应为 `$env:FORMFLOW_DEMO_PASSWORD='demo1234'; python scripts/demo_mcp.py --non-interactive --task-id 1`。密码、会话 token 和材料内容都不会打印或写入文件。输出只含任务导航摘要与运行边界。HTTP 仅允许本机地址，远程 API 必须使用 HTTPS。
+
+桌面 MCP 客户端可按下面示例配置 sidecar。不要把真实账号 token 提交到仓库或发给他人：
+
+```json
+{
+  "mcpServers": {
+    "formflow": {
+      "command": "python",
+      "args": ["-m", "app.mcp_server"],
+      "cwd": "替换为 FormFlow 项目目录",
+      "env": {
+        "FORMFLOW_MCP_API_URL": "http://127.0.0.1:8000",
+        "FORMFLOW_MCP_TOKEN": "替换为组织者登录 token"
+      }
+    }
+  }
+}
+```
+
+远程 API 地址必须使用 HTTPS；HTTP 仅允许 loopback。登录 token 失效后需更新 MCP 客户端配置。网页内置 Agent 不会自动调用此 stdio sidecar；网页上的只读导览由服务端桥接并按脱敏投影展示。
 
 ### 手动安装（如需单独配置）
 
@@ -87,8 +146,10 @@ git clone https://github.com/strawberry-little-bear/FormFlow.git
 cd FormFlow
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+python -m pip install --require-hashes -r requirements.lock
 ```
+
+`requirements.txt` 记录兼容版本范围，`requirements.lock` 固定本项目 Python 3.12 的解析结果与包哈希。锁文件由 `uv 0.13.5` 生成；更新依赖后，在 Python 3.12 环境运行 `uv pip compile --generate-hashes --python-version 3.12 --universal --output-file requirements.lock requirements.txt`，再用 `python -m pip install --require-hashes -r requirements.lock` 验证安装，并运行完整测试。
 
 ### 手动启动独立演示环境（无需模型密钥）
 
@@ -144,6 +205,8 @@ python -m app.worker
 
 **技术栈**：FastAPI · SQLAlchemy · SQLite/WAL · 原生前端 · PyMuPDF / python-docx · RapidOCR · OpenAI 兼容模型接口。当前为本地单 API + 单 Worker 原型，不宣称分布式队列或多 Worker 安全。
 
+推送到 `main` 或向 `main` 提交 Pull Request 时，GitHub Actions 会在 Python 3.12 / Node.js 22 上运行 Python 全量测试、前端契约测试和 JavaScript 语法检查。`requirements.txt` 记录兼容版本范围；`requirements.lock` 固定 Python 3.12 的依赖解析结果与包哈希，CI、演示启动器和手动安装均使用 `--require-hashes` 校验安装。更新依赖时请同步重建锁文件并运行完整测试。
+
 ```text
 app/agents/      需求起草、逐规则审核与受限审核 skill
 app/agent_tools.py 工具 Schema、scope、预算、幂等与审计 harness
@@ -159,7 +222,7 @@ docs/           产品方案、演示剧本、迭代记录与浏览器证据
 
 ```bash
 python -m pytest -q
-node --test tests/frontend_contracts.test.cjs
+node --test tests/frontend_contracts.test.cjs tests/ux_browser.test.cjs
 node --check app/static/app.js
 python scripts/smoke_review.py --stub  # 本地脚本化审核，不调用真实模型
 git diff --check
@@ -169,6 +232,8 @@ git diff --check
 
 2026-10-24 首次进入与现场展示继续收敛：确认 2026-10-23 走查的七项修复在当前 `main` 全部生效；登录页组织者/提交者标签支持键盘左右、Home、End 切换，并同步焦点、选中态和对应面板。当前回归为 **343 项 Python 测试、115 项 Node 前端契约测试通过**；`node --check`、`git diff --check`、复核页/无密钥专项浏览器走查均通过。
 
+2026-10-24 演示启动可靠性继续收敛：启动器只在首次初始化时播种，已有演示库默认保留；`--check` 只读，`--reset` 显式重建隔离数据，种子凭证输出可见且失败会中止。API/Worker 输出保留在 `data/demo/logs/`，停止只针对启动器登记的 PID，端口冲突会在数据变更前退出。新增 7 项启动器测试覆盖只读检查、已有库保留、中断播种恢复、种子失败提示、PID 停止范围和重置目录边界。Python 全量 **353 项**、Node 前端契约 **127 项**通过。
+
 2026-10-24 提交者路径继续补齐可达性：完整表单 / 逐步填写标签现在支持 `aria-selected`、`aria-controls`、roving `tabindex` 和左右、Home、End 键盘切换，错误摘要与字段定位保持可用。当前前端契约为 **117 项**；提交、草稿和上传行为未改变。
 
 2026-10-24 复核队列继续补齐键盘与读屏反馈：规则筛选重绘后焦点留在当前筛选按钮，运行记录筛选同样保留焦点；队列状态会播报当前显示范围和选中规则，规则按钮的无障碍名称包含检查状态与严重级别。静态资源版本更新为 `20261024-9`，不改变规则分组、证据范围或人工决定语义。
@@ -176,6 +241,8 @@ git diff --check
 2026-10-24 演示入口继续收敛：登录页点击“体验演示环境”成功后会自动进入可退出的展示视图，直接展开四站路线、真实运行摘要和 Agent walkthrough；普通账号登录仍保持完整管理工作区，退出登录会清除临时展示状态。前端契约回归为 119 项，未改变任务、凭证、提交或验收数据。
 
 2026-10-24 展示质量继续收敛：任务列表、名册、复核路线和提交材料槽位为长任务名、长主体名与长文件名补上最小宽度和自然换行约束，任务名保留悬停全文；展示视图改用独立舞台背景并统一标题字距，避免 320px、窄屏和 200% 缩放下压缩操作列。新增前端契约覆盖这些可读性边界。
+
+2026-10-28 当前演示入口已按首次使用者路径复核：从登录页进入“体验演示环境”后，可以在同一任务首页用“查看我的任务”退出展示视图，立即看到真实任务列表；Showcase Harness 现在会在 1440/390/320px 逐视口执行这条转换，并继续检查需求设计、工作台、复核、交付和两个无效 ID 失败态。当前工作区回归为 **448 项 Python 测试、204 项前端契约测试**；`node --check`、`git diff --check` 和 Showcase Harness 均通过。演示仍使用虚构种子与空模型密钥，合同自测和离线回放只证明边界与流程，不代表真实模型质量、真实外部 MCP 互操作或生产部署安全。
 
 ## 安全、数据与当前边界
 

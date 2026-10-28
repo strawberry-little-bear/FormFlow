@@ -139,6 +139,22 @@ def test_semantic_satisfied_with_verified_quote(stub_llm):
     assert r.evidence and r.evidence[0].file_id == "f1"
 
 
+def test_semantic_rule_passes_harness_deadline_to_llm(stub_llm):
+    observed = []
+    original_chat = stub_llm.chat
+
+    def capture_deadline(messages, temperature=0.2, deadline_monotonic=None):
+        observed.append(deadline_monotonic)
+        return original_chat(messages, temperature)
+
+    stub_llm.chat = capture_deadline
+    result = run_semantic_rule(_bp().rules[4], _ctx(), client=stub_llm,
+                               deadline_monotonic=123.5)
+
+    assert result.result == RESULT_UNKNOWN
+    assert observed == [123.5]
+
+
 def test_semantic_fabricated_quote_downgraded_to_unknown(stub_llm):
     """编造原文：引用无法定位 → unknown，不得作为确认结论。"""
     stub_llm.responses = [{

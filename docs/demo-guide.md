@@ -4,11 +4,39 @@
 
 ## 演示前（提前完成，不占台上时间）
 
-1. 按 README 使用独立 `data/demo/` 数据库和存储；安装依赖、执行种子。**重新种子会重置演示任务与凭证及附件**，不能连接业务库。
-2. 启动 API；若要演示新提交检查，同时启动相同环境下的单 Worker。预生成证据不要求真实模型，现场不要临时配置或泄露密钥。
+1. 按 README 使用独立 `data/demo/` 数据库和存储；首次启动会安装缺少的依赖并执行种子，之后启动保留演示进度和凭证。只有明确要恢复初始场景时才运行 `python scripts/start_demo.py --reset`；它会删除 `data/demo/` 下的数据库、附件和日志并重新打印一次性提交者凭证。不能连接业务库。
+2. 运行 `python scripts/start_demo.py` 启动 API 和单 Worker。启动器会校验 Agent runtime 合同版本，等待 Worker 完成数据库恢复并报告就绪后才显示演示入口；若默认 8000 端口被旧服务占用，可用 `python scripts/start_demo.py --port 8010` 启动当前版本并按启动输出打开地址。`python scripts/start_demo.py --check --port 8010` 是只读就绪检查：除本地种子、API、Worker 和 Agent runtime 外，还会启动一次本地 MCP stdio 子进程，发现 4 个工具并确认它们都标记为只读；它不会调用任务 API、写入数据或启动演示服务。若超时，请先看 `data/demo/logs/worker.log`。预生成证据不要求真实模型，现场不要临时配置或泄露密钥。
 3. 用 `demo / demo1234` 登录组织者；另一个浏览器/独立会话预先用赵六凭证打开提交者空间，不在投屏画面展示完整凭证。
 4. 工作台核对：名册5、免交1、应交4、正式3、未正式1、验收1。任务截止由种子按执行时刻生成，以页面任务时区为准。
 5. 真实演示前先完整走一遍；准备本仓库截图作为网络/环境失败时的静态备份，但明确说是截图而非在线结果。
+
+### 可选：现场展示 Harness
+
+演示服务启动后，可以在第二个终端运行一条只读浏览器验收。它覆盖桌面、390px 和 320px，并验证展示首页、五个工作区、无效名册 ID、无效复核主体 ID、关键入口、加载失败态、横向溢出和浏览器错误：
+
+```bash
+FORMFLOW_SHOWCASE_BASE=http://127.0.0.1:8000 node scripts/showcase_check.cjs
+```
+
+PowerShell 写法：
+
+```powershell
+$env:FORMFLOW_SHOWCASE_BASE = 'http://127.0.0.1:8000'
+node scripts/showcase_check.cjs
+```
+
+退出码为 0 才表示本轮展示链通过。需要留档时再设置 `FORMFLOW_SHOWCASE_OUT`，脚本会写出 `showcase-results.json`；它只读访问演示 API，不改变种子数据。
+
+### 可选：复跑浏览器走查
+
+应用本身不依赖 Node。要运行 `scripts/ux_*.cjs` 浏览器走查，在项目根目录安装 Playwright 与 Chromium：
+
+```bash
+npm install --no-save --package-lock=false playwright
+npx playwright install chromium
+```
+
+脚本优先使用本地 `playwright`，其次使用 `playwright-core`；非标准安装可通过 `FORMFLOW_PLAYWRIGHT_MODULE` 指定模块，使用 core 或自定义浏览器时可用 `FORMFLOW_CHROMIUM_EXECUTABLE` 指定 Chromium。所有走查脚本支持 `FORMFLOW_WALKTHROUGH_BASE` 和 `FORMFLOW_WALKTHROUGH_OUT` 覆盖服务地址与截图目录；默认截图路径相对仓库定位。部分走查会创建任务或修改演示状态，请只对隔离演示数据库运行。
 
 ## 0:00–0:40｜问题与价值
 
@@ -49,20 +77,23 @@
 
 本次隔离种子现有结果由离线脚本桩生成；要展示真正的新语义检查，需确认已按 `.env.example` 配置模型并以同一环境启动 Worker，先用虚构或授权脱敏材料试跑。演示轨迹会明确标记离线桩或实时模型，不把二者混为一谈。无 Worker 时新检查会排队；设计 Agent 的新请求由服务器持久记录，页面显示“已收到/正在整理/等待状态确认”，断网或刷新后会按原请求编号先查再恢复，不重复生成版本。遇模型超时/断开要如实展示“检查没完成”，不要为了顺畅隐藏故障态。
 
-## 3:40–4:30｜交付不拿错版本
+## 3:40–4:10｜交付不拿错版本
 
 组织者进入「交付与归档」：
 
-- 创建正式快照（会写入本地演示库），核对纳入/排除明细。
-- 未改变种子时正式包只纳入张三；若现场验收了王五，应按当前实际状态说明，不再套用初始人数。
-- 下载 CSV 与 ZIP，说明它们引用同一快照。新补交不会静默替换已经生成的包。
-- 刷新页面后，在“历史快照与导出”里找回原清单、查看最近导出状态并重下可用文件；导出失败时可基于同一快照重试。
-- 如果快照原件缺失、大小变化或校验值不符，导出会明确失败且不显示下载入口；先核对/恢复存储再重试，不要把不完整包称为成功。
+- 创建正式快照并核对纳入/排除明细；未改变种子时正式包只纳入张三，状态有变化就按页面实际人数说明。
+- 指出 CSV 与 ZIP 引用同一快照，新补交不会替换已经生成的包。历史导出恢复和原件校验留作问答时展开。
 - 催交只是可复制通知内容，未对外发送。
 
-## 4:30–5:00｜双 Agent 与下一步
+## 4:10–4:45｜Skill、Harness 与 MCP 边界
 
-打开「需求设计」介绍已发布蓝图/历史预览，不在冻结版本上直接发布。展示未发送输入、复用历史后的草案及发布前差异核对（演示库可变更，但不必真的发布）。演示长调用恢复时可用空密钥安全展示“暂不可用、原文保留”，刷新后请求按相同编号查询；用模板继续，不把未生成的内容宣称为 AI 结果。
+回到任务首页，先指出 Agent runtime 概览中的双 Agent 分工，再展开工作导览，沿着 `requirements_draft` 整理蓝图、组织者确认发布、`review_one_submission` 逐条取证、Harness 限制执行、组织者接手的顺序讲解。网页内置 Agent 使用受限 Skill、工具白名单和 Harness；它本身不连接外部 MCP。若评委希望看到真实 MCP 调用，在另一终端执行 `python scripts/demo_mcp.py`，输入演示组织者账号 `demo` 和密码 `demo1234`。脚本会隐藏密码输入，通过 stdio 发现四个只读工具并调用任务列表、聚合收集进度、下一步路线和 runtime 合同；收集摘要会列出“资格待核”人数，会话 token 不会显示或落盘。录屏或无 stdin 的环境可设置 `FORMFLOW_DEMO_PASSWORD=demo1234` 后加 `--non-interactive --task-id 1`，PowerShell 使用 `$env:FORMFLOW_DEMO_PASSWORD='demo1234';`，避免停在交互提示。强调外部 MCP sidecar 复用组织者权限；进度只含计数，不读取逐人名单或材料正文，也不能写入。
+
+如果终端演示不适合当前环境，可展示 README 中的客户端配置样例并说明脚本刚刚完成协议级现场调用；不要将网页 Agent 描述成已经连接 MCP。
+
+## 4:45–5:00｜双 Agent 与下一步
+
+在「需求设计」指出 `requirements_draft` 只整理草案，发布前仍需组织者核对确认；用一句话对照审核 Agent 的取证职责，并以“程序守版本与权限、人做最终判断”收尾。不在最后 15 秒编辑或发布任务。
 
 > 需求 Agent 整理要求，审核 Agent 找证据；程序守住权限、版本、预算与快照；最终资格与验收由人负责。下一步先做目标用户试走和错误评估，而不是承诺模型准确率。
 
@@ -77,4 +108,6 @@
 | 无法验收 | 看服务端阻塞列表，不能用验收按钮绕开规则/资格前置 |
 | 投屏暴露凭证 | 停止展示并撤销重发；真实凭证不进截图、README 或提交记录 |
 
-完成演示后，只清理由草稿不会撤销已提交决定；需要重置时停止演示、确认独立库路径后再执行种子。
+完成演示后，只清理由草稿不会撤销已提交决定；需要恢复初始场景时，确认使用独立演示库后运行 `python scripts/start_demo.py --reset`。诊断服务时查看 `data/demo/logs/api.log` 和 `data/demo/logs/worker.log`。
+
+重要演示数据可先停止服务，再运行 `python scripts/backup_demo.py create`。将生成的 ZIP 用 `python scripts/backup_demo.py verify <备份文件>` 校验；该命令会临时恢复数据库和附件并检查 SQLite。需要实际恢复演练时，使用 `python scripts/backup_demo.py restore <备份文件> --target data/demo-restore-check`，目标目录必须不存在。备份未加密，只用于虚构演示数据并应私下保存；该流程不代表正式部署具备灾难恢复能力。

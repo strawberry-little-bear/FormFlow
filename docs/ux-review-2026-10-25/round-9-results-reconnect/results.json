@@ -1,0 +1,16 @@
+{
+  "base": "http://127.0.0.1:8000",
+  "api": "intercepted with deterministic submitter fixtures",
+  "resultRequests": 3,
+  "offlineNoticeShown": true,
+  "firstReconnectStatus": 503,
+  "retryableFailureRetained": true,
+  "secondReconnectStatus": 200,
+  "recovered": true,
+  "injectedFailureConsoleErrors": [
+    "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+    "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+  ],
+  "consoleErrors": [],
+  "pageErrors": []
+}

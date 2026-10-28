@@ -1,0 +1,236 @@
+/**
+ * Read-only browser harness for the hackathon showcase path.
+ *
+ * The demo server must already be running. The command intentionally uses the
+ * seeded demo login and does not mutate task data; it only navigates routes,
+ * checks the visible state, and emits a small machine-readable report.
+ */
+const fs = require('node:fs');
+const path = require('node:path');
+const { launchChromium } = require('./ux_browser.cjs');
+
+const BASE = (process.env.FORMFLOW_SHOWCASE_BASE || 'http://127.0.0.1:8000').replace(/\/$/, '');
+const OUT = process.env.FORMFLOW_SHOWCASE_OUT
+  ? path.resolve(process.env.FORMFLOW_SHOWCASE_OUT)
+  : null;
+const VIEWPORTS = [
+  { name: 'desktop', width: 1440, height: 950 },
+  { name: 'mobile-390', width: 390, height: 844 },
+  { name: 'mobile-320', width: 320, height: 760 },
+];
+
+const ROUTES = [
+  { name: 'tasks', hash: '#/tasks', required: ['FIRST LOOK', '当前焦点', 'MCP 回放', '下一步'] },
+  { name: 'design', hash: '#/design/1', required: ['需求设计', 'CURRENT RUN'] },
+  { name: 'workbench', hash: '#/workbench/1', required: ['收集工作台', '下一步'] },
+  { name: 'review', hash: '#/review/1/2', required: ['逐条核对证据', 'NEXT ACTION'] },
+  { name: 'delivery', hash: '#/delivery/1', required: ['交付与归档', '固定快照'] },
+  { name: 'roster-invalid', hash: '#/roster/9999', required: ['名册暂时无法读取', '重试加载名册'] },
+  { name: 'review-invalid', hash: '#/review/1/9999', required: ['检查结果暂时无法读取', '重试加载'] },
+];
+
+function cleanText(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function routeUrl(hash) {
+  return `${BASE}/${hash}`;
+}
+
+async function waitForPaint(page) {
+  await page.waitForLoadState('networkidle').catch(() => {});
+  // The SPA renders the shell first, then paints the API response.
+  await page.waitForTimeout(700);
+}
+
+async function waitForRouteSurface(page, route) {
+  const required = JSON.stringify(route.required || []);
+  await page.waitForFunction(({ requiredText }) => {
+    const body = document.body?.innerText || '';
+    const requiredItems = JSON.parse(requiredText);
+    const hasRequired = requiredItems.every(text => body.includes(text));
+    const hasExpectedFailure = body.includes('暂时无法读取');
+    return hasRequired || hasExpectedFailure;
+  }, { requiredText: required }, { timeout: 5000 }).catch(() => {});
+}
+
+async function inspectAccessibilitySurface(page) {
+  return page.evaluate(() => {
+    const visible = node => {
+      const style = getComputedStyle(node);
+      const rect = node.getBoundingClientRect();
+      return style.display !== 'none'
+        && style.visibility !== 'hidden'
+        && rect.width > 0
+        && rect.height > 0;
+    };
+    const labelledBy = node => (node.getAttribute('aria-labelledby') || '')
+      .split(/\s+/)
+      .map(id => document.getElementById(id)?.textContent || '')
+      .join(' ')
+      .trim();
+    const explicitLabel = node => {
+      const id = node.id;
+      return node.closest('label')?.textContent?.trim()
+        || (id && [...document.querySelectorAll('label[for]')]
+          .find(label => label.htmlFor === id)?.textContent?.trim())
+        || '';
+    };
+    const controls = [...document.querySelectorAll(
+      'button, a[href], input:not([type="hidden"]), select, textarea, [role="button"], [role="tab"]'
+    )].filter(visible);
+    const unnamed = controls
+      .filter(node => {
+        const name = node.getAttribute('aria-label')
+          || labelledBy(node)
+          || explicitLabel(node)
+          || node.getAttribute('title')
+          || node.textContent?.replace(/\s+/g, ' ').trim()
+          || '';
+        return !name;
+      })
+      .map(node => `${node.tagName.toLowerCase()}${node.id ? `#${node.id}` : ''}`);
+    const unlabeledFields = controls
+      .filter(node => ['INPUT', 'SELECT', 'TEXTAREA'].includes(node.tagName))
+      .filter(node => !node.getAttribute('aria-label')
+        && !labelledBy(node)
+        && !explicitLabel(node))
+      .map(node => `${node.tagName.toLowerCase()}${node.id ? `#${node.id}` : ''}`);
+    const main = document.querySelector('main#app');
+    const heading = main?.querySelector('h1, h2, [data-page-title]');
+    return {
+      interactiveCount: controls.length,
+      unnamed,
+      unlabeledFields,
+      hasRouteFocusTarget: !!heading || main?.getAttribute('tabindex') === '-1',
+    };
+  });
+}
+
+async function enterDemo(page) {
+  await page.goto(BASE, { waitUntil: 'networkidle' });
+  const button = page.locator('button.demo-btn');
+  if (!await button.count()) throw new Error('登录页缺少“体验演示环境”入口');
+  await button.click();
+  await page.waitForURL('**/#/tasks', { timeout: 10000 });
+  await waitForPaint(page);
+}
+
+async function exitPresentationToTaskList(page) {
+  const exit = page.locator('button[aria-label="退出展示视图并查看我的任务"]');
+  if (!await exit.count()) throw new Error('展示首页缺少“查看我的任务”入口');
+  await exit.click();
+  await waitForPaint(page);
+  return page.evaluate(() => {
+    const taskSection = document.querySelector('.task-section');
+    const style = taskSection ? getComputedStyle(taskSection) : null;
+    return {
+      exitedPresentation: !document.body.classList.contains('presentation-mode'),
+      taskListVisible: !!taskSection && style?.display !== 'none' && style?.visibility !== 'hidden',
+      hasTaskHeading: document.body.innerText.includes('我的任务'),
+    };
+  });
+}
+
+async function main() {
+  const browser = await launchChromium({ headless: true });
+  const report = {
+    base: BASE,
+    generatedAt: new Date().toISOString(),
+    viewports: [],
+    passed: true,
+  };
+
+  try {
+    for (const viewport of VIEWPORTS) {
+      const context = await browser.newContext({ viewport: { width: viewport.width, height: viewport.height } });
+      const page = await context.newPage();
+      const errors = [];
+      const badResponses = [];
+      let activeRoute = null;
+      page.on('console', message => {
+        if (message.type() === 'error' && !activeRoute?.expectedFailure) errors.push(message.text());
+      });
+      page.on('pageerror', error => {
+        if (!activeRoute?.expectedFailure) errors.push(`PAGEERROR: ${error.message}`);
+      });
+      page.on('response', response => {
+        // The two invalid routes intentionally return 404 and are checked as
+        // UI failures below, so exclude their expected responses from noise.
+        if (response.url().startsWith(BASE) && response.status() >= 400 && !activeRoute?.expectedFailure) {
+          badResponses.push(`${response.status()} ${response.url()}`);
+        }
+      });
+
+      const viewportReport = { ...viewport, routes: [], overflow: null, presentationExit: null, errors, badResponses };
+      try {
+        await enterDemo(page);
+        viewportReport.presentationExit = await exitPresentationToTaskList(page);
+        for (const route of ROUTES) {
+          activeRoute = route;
+          activeRoute.expectedFailure = route.name.endsWith('-invalid');
+          await page.goto(routeUrl(route.hash), { waitUntil: 'networkidle' }).catch(() => {});
+          await waitForPaint(page);
+          await waitForRouteSurface(page, route);
+          const bodyText = cleanText(await page.locator('body').innerText().catch(() => ''));
+          const missing = route.required.filter(text => !bodyText.includes(text));
+          const loadingStuck = /正在读取(?:任务|名册|检查结果|交付|主体)/.test(bodyText)
+            && !/暂时无法读取/.test(bodyText);
+          const overflow = await page.evaluate(() => ({
+            scrollWidth: document.documentElement.scrollWidth,
+            clientWidth: document.documentElement.clientWidth,
+            overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+          }));
+          const accessibility = await inspectAccessibilitySurface(page);
+          viewportReport.routes.push({
+            name: route.name,
+            hash: route.hash,
+            ok: missing.length === 0 && !loadingStuck,
+            missing,
+            loadingStuck,
+            overflow,
+            accessibility,
+          });
+        }
+        viewportReport.overflow = await page.evaluate(() => ({
+          scrollWidth: document.documentElement.scrollWidth,
+          clientWidth: document.documentElement.clientWidth,
+          overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+        }));
+      } finally {
+        await context.close();
+      }
+      report.viewports.push(viewportReport);
+    }
+  } finally {
+    await browser.close();
+  }
+
+  for (const viewport of report.viewports) {
+    if (viewport.overflow?.overflow || viewport.errors.length || viewport.badResponses.length
+      || !viewport.presentationExit?.exitedPresentation
+      || !viewport.presentationExit?.taskListVisible
+      || !viewport.presentationExit?.hasTaskHeading) {
+      report.passed = false;
+    }
+    if (viewport.routes.some(route => !route.ok
+      || route.overflow?.overflow
+      || route.accessibility?.unnamed?.length
+      || route.accessibility?.unlabeledFields?.length
+      || !route.accessibility?.hasRouteFocusTarget)) report.passed = false;
+  }
+
+  const output = `${JSON.stringify(report, null, 2)}\n`;
+  process.stdout.write(output);
+  if (OUT) {
+    fs.mkdirSync(OUT, { recursive: true });
+    fs.writeFileSync(path.join(OUT, 'showcase-results.json'), output, 'utf8');
+  }
+  if (!report.passed) process.exitCode = 1;
+}
+
+main().catch(error => {
+  console.error(`SHOWCASE_CHECK_FAILED: ${error.message}`);
+  process.exitCode = 1;
+});
+

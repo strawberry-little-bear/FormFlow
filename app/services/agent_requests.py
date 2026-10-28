@@ -24,6 +24,7 @@ LLM_WORST_CASE_SECONDS = (settings.llm_timeout_seconds * (settings.llm_max_retri
                           + (90 if settings.llm_fallback_model else 0) + 600)
 RUNNING_LEASE = timedelta(seconds=max(1800, LLM_WORST_CASE_SECONDS))
 MAX_PAYLOAD_BYTES = 32_768
+EXECUTION_MODES = {"live", "offline_replay"}
 
 
 class AgentRequestError(ValueError):
@@ -34,6 +35,11 @@ def normalize_payload(raw: dict) -> dict:
     if not isinstance(raw, dict):
         raise AgentRequestError("请求内容格式不正确")
     kind = raw.get("kind")
+    execution_mode = str(raw.get("execution_mode") or "live").strip().lower()
+    if execution_mode not in EXECUTION_MODES:
+        raise AgentRequestError("需求处理模式无效，请刷新后再试")
+    if execution_mode == "offline_replay" and kind != "agent":
+        raise AgentRequestError("离线回放只支持首次需求起草")
     if kind == "agent":
         requirement = str(raw.get("requirement") or "").strip()
         if not requirement:
@@ -46,7 +52,8 @@ def normalize_payload(raw: dict) -> dict:
             raise AgentRequestError("草案版本无效，请刷新后再试")
         payload = {"kind": "agent", "requirement": requirement,
                    "template": str(raw.get("template") or ""),
-                   "base_blueprint_id": base_id}
+                   "base_blueprint_id": base_id,
+                   "execution_mode": execution_mode}
     elif kind == "revise":
         try:
             bp_id = int(raw.get("blueprint_version_id"))
@@ -61,7 +68,8 @@ def normalize_payload(raw: dict) -> dict:
             raise AgentRequestError("澄清回答格式不正确，请刷新后重试")
         payload = {"kind": "revise", "blueprint_version_id": bp_id,
                    "base_blueprint_id": bp_id, "requirement": requirement,
-                   "answered": answered, "instruction": instruction}
+                   "answered": answered, "instruction": instruction,
+                   "execution_mode": execution_mode}
     else:
         raise AgentRequestError("不支持的需求处理方式")
     encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True,
@@ -127,6 +135,14 @@ def enqueue(db: Session, task: Task, account: Account, request_id: str,
 def public_status(job: AgentDraftRequest) -> dict:
     out = {"request_id": job.request_id, "status": job.status,
            "attempts": job.attempts}
+    try:
+        mode = json.loads(job.payload_json or "{}").get("execution_mode", "live")
+    except (TypeError, ValueError, json.JSONDecodeError):
+        mode = "live"
+    out["execution_mode"] = mode
+    if mode == "offline_replay":
+        out["simulation"] = True
+        out["runtime_label"] = "离线脚本回放 · 不调用外部模型"
     if job.status == "completed" and job.result_json:
         out["result"] = json.loads(job.result_json)
     elif job.status == "failed":
@@ -152,7 +168,15 @@ def _execute_request(db: Session, job: AgentDraftRequest, task: Task, payload: d
         raise AgentRequestError("草案已在另一页面更新；请回到最新版本核对后，再提交保留的修改内容")
     task_service.ensure_task_writable(task)
     if payload["kind"] == "agent":
-        result = draft_blueprint(payload["requirement"], template=payload.get("template") or None)
+        client = None
+        if payload.get("execution_mode") == "offline_replay":
+            from .demo_seed import ScriptedRequirementsLLM
+            client = ScriptedRequirementsLLM()
+        if client is None:
+            result = draft_blueprint(payload["requirement"], template=payload.get("template") or None)
+        else:
+            result = draft_blueprint(payload["requirement"], template=payload.get("template") or None,
+                                     client=client)
         if _model_failed(result):
             # 区分"没配密钥"和"这次没回好"：前者重试也不会成功，必须如实说
             unavailable = next((str(w) for w in result.warnings
@@ -166,8 +190,12 @@ def _execute_request(db: Session, job: AgentDraftRequest, task: Task, payload: d
             db, task, result, source_text=payload["requirement"])
         blocking, advisories = task_service.split_publish_checks(result.blueprint, blueprint, result)
         return {"blueprint_version_id": blueprint.id, "version": blueprint.version,
-                "status": blueprint.status, "draft": result.model_dump(),
-                "blocking": blocking, "advisories": advisories}
+                "status": blueprint.status, "draft": result.model_dump(mode="json"),
+                "blocking": blocking, "advisories": advisories,
+                "execution_mode": payload.get("execution_mode", "live"),
+                "simulation": payload.get("execution_mode") == "offline_replay",
+                "runtime_label": ("离线脚本回放 · 不调用外部模型"
+                                  if payload.get("execution_mode") == "offline_replay" else "")}
 
     result, blueprint, impact = task_service.revise_draft(
         db, task, payload["blueprint_version_id"],
@@ -226,6 +254,10 @@ def process_request(request_pk: int) -> bool:
             if job is None or task is None or account is None or task.created_by != account.id:
                 raise AgentRequestError("找不到这次需求处理记录；请刷新后重试")
             payload = json.loads(job.payload_json)
+            if payload.get("execution_mode") == "offline_replay":
+                from .demo_seed import DEMO_TASK_NAME, DEMO_USERNAME
+                if account.username != DEMO_USERNAME or task.name != DEMO_TASK_NAME:
+                    raise AgentRequestError("离线回放只对演示任务开放")
             response = _execute_request(db, job, task, payload)
             completed = db.execute(update(AgentDraftRequest).where(
                 AgentDraftRequest.id == request_pk,
