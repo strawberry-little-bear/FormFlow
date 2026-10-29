@@ -4298,6 +4298,11 @@ async function loadMyResults() {
   const epoch = state.routeEpoch, token = subToken();
   const requestId = (state.resultsRequestId || 0) + 1;
   state.resultsRequestId = requestId;
+  const previousBuckets = state.submitterResults?.buckets || {};
+  const wasAwaitingFollowUp = (previousBuckets.unknown || []).length
+    + (previousBuckets.human || []).length + (previousBuckets.incomplete || []).length > 0
+    || (previousBuckets.pending_jobs || []).length > 0
+    || ["queued", "running", "retry_wait"].includes(state.submitterResults?.run_status);
   try {
     const r = await api("/api/me/results", { sub: true });
     if (epoch !== state.routeEpoch || token !== subToken() || requestId !== state.resultsRequestId) return;
@@ -4404,10 +4409,14 @@ async function loadMyResults() {
       const notice = `<div class="notice-warn" id="results-load-error">检查结果暂时无法更新，已有回执和填写不受影响。<button class="ghost sm" onclick="loadMyResults()">重试加载结果</button></div>`;
       if (!document.getElementById("results-load-error")) box.insertAdjacentHTML("afterbegin", notice);
     }
-    if (navigator.onLine !== false && _resultsRetryCount < 5 && (isSubmitterNetworkFailure(e) || e.status >= 500)) {
-      _resultsTimer = setTimeout(loadMyResults, _resultsRetryDelay);
-      _resultsRetryCount++;
-      _resultsRetryDelay = Math.min(_resultsRetryDelay * 2, 30000);
+    if (navigator.onLine !== false && (isSubmitterNetworkFailure(e) || e.status >= 500)) {
+      if (wasAwaitingFollowUp) {
+        _resultsTimer = setTimeout(loadMyResults, 30000);
+      } else if (_resultsRetryCount < 5) {
+        _resultsTimer = setTimeout(loadMyResults, _resultsRetryDelay);
+        _resultsRetryCount++;
+        _resultsRetryDelay = Math.min(_resultsRetryDelay * 2, 30000);
+      }
     }
   }
 }

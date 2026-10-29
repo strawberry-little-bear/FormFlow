@@ -1859,6 +1859,25 @@ test('submitter checks for organizer review updates every 30 seconds and stops a
   assert.match(els['submit-next-step'].innerHTML,/这份提交已经验收/);
   assert.equal(scheduleCount,1);
 });
+test('submitter keeps checking a known organizer todo after a temporary server error', async () => {
+  const {app,context,els}=setup();
+  app.state.me={};
+  app.state.receipt={formal:true,revision:1};
+  app.state.submitterResults={run_status:'success',buckets:{human:['r_final_review']}};
+  let scheduled, delay, calls=0, scheduleCount=0;
+  context.setTimeout=(fn,ms)=>{scheduled=fn;delay=ms;scheduleCount++;return scheduleCount;};
+  context.clearTimeout=()=>{};
+  context.fetch=async()=>++calls===1
+    ? response({detail:'暂时不可用'},503)
+    : response({summary:'已验收',revision:1,buckets:{blocking:[],unknown:[],human:[],incomplete:[],pending_jobs:[]},details:[]});
+  await app.loadMyResults();
+  assert.equal(delay,30000);
+  assert.match(els['my-results'].innerHTML,/检查结果暂时无法更新/);
+  await scheduled();
+  assert.equal(calls,2);
+  assert.match(els['submit-next-step'].innerHTML,/这份提交已经验收/);
+  assert.equal(scheduleCount,1);
+});
 test('submitter next-step band follows draft and review state without inventing a second status', () => {
   const {app} = setup();
   let html = app.submitterNextStepHtml({formal:false, issues:[{code:'required'}]});
