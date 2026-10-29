@@ -150,14 +150,28 @@ fs.mkdirSync(OUT, { recursive: true });
       await page.reload({ waitUntil: 'networkidle' });
       const measurement = await page.evaluate(() => {
         const button = document.querySelector('.submit-primary-dock button');
+        const dock = document.querySelector('.submit-primary-dock');
+        const resultsHeading = document.querySelector('#my-results-heading');
         const rect = button?.getBoundingClientRect();
+        const headingRect = resultsHeading?.getBoundingClientRect();
         return {
           viewport: document.documentElement.clientWidth,
           document: document.documentElement.scrollWidth,
           actionHeight: rect ? Math.round(rect.height) : 0,
-          actionVisible: !!rect && rect.top >= 0 && rect.bottom <= window.innerHeight,
+          dockActiveAtPageTop: dock?.classList.contains('is-docked') || false,
+          resultsHeadingVisibleAtPageTop: !!headingRect && headingRect.top >= 0 && headingRect.bottom <= window.innerHeight,
         };
       });
+      if (measurement.dockActiveAtPageTop) {
+        throw new Error(`页面顶部仍错误显示固定提交栏：${JSON.stringify(measurement)}`);
+      }
+      await page.locator('.submit-form-card').scrollIntoViewIfNeeded();
+      await page.waitForFunction(() => document.querySelector('.submit-primary-dock')?.classList.contains('is-docked'));
+      const actionVisible = await page.evaluate(() => {
+        const rect = document.querySelector('.submit-primary-dock button')?.getBoundingClientRect();
+        return !!rect && rect.top >= 0 && rect.bottom <= window.innerHeight;
+      });
+      measurement.actionVisibleInForm = actionVisible;
       mobile.push({ width, ...measurement });
       if (width === 320) resultsNavigation.mobile320 = await checkResultsJump(width);
       await page.screenshot({
@@ -190,7 +204,8 @@ fs.mkdirSync(OUT, { recursive: true });
     const mobilePassed = mobile.length === 2 && mobile.every(viewport =>
       viewport.viewport === viewport.width
       && viewport.document === viewport.width
-      && viewport.actionVisible
+      && !viewport.dockActiveAtPageTop
+      && viewport.actionVisibleInForm
       && viewport.actionHeight >= 48
     );
     if (!report.receiptVisible || !report.formalGuidanceVisible || !unchangedCorrectionDisabled || !editedCorrectionEnabled || !mobilePassed || consoleErrors.length || pageErrors.length || badResponses.length) {

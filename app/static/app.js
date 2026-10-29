@@ -258,11 +258,18 @@ window.addEventListener("resize", () => {
   if (state.presentationMode && document.body?.dataset?.page === "tasks") applyPresentationMode();
 });
 function syncSubmitDockViewport() {
+  const dock = document.querySelector(".submit-primary-dock");
+  const form = document.querySelector(".submit-form-card");
+  if (dock && form) {
+    const rect = form.getBoundingClientRect();
+    dock.classList.toggle("is-docked", rect.top < window.innerHeight && rect.bottom > 0);
+  }
   const viewport = window.visualViewport;
   if (!viewport || !document.documentElement?.style) return;
   const inset = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
   document.documentElement.style.setProperty("--submit-dock-viewport-inset", `${Math.round(inset)}px`);
 }
+window.addEventListener("scroll", syncSubmitDockViewport, {passive: true});
 window.visualViewport?.addEventListener("resize", syncSubmitDockViewport);
 window.visualViewport?.addEventListener("scroll", syncSubmitDockViewport);
 window.addEventListener("online", () => {
@@ -4164,6 +4171,7 @@ async function viewSubmit() {
         </div>
         ${receipt.formal ? "" : resultsHtml}
       </div>`;
+    syncSubmitDockViewport();
     document.querySelectorAll("[data-field]").forEach(el =>
       el.addEventListener("input", () => {
         refreshSlotConditions(slots);

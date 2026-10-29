@@ -3236,7 +3236,7 @@ test('submitter actions keep the primary action readable on narrow screens', () 
   assert.match(source, /submit-action-primary/);
   assert.match(source, /class="submit-primary-dock"><button class="submit-action-primary"/);
   assert.match(styleSource, /@media\(max-width:360px\)[\s\S]*submit-actions > button\.ghost\.sm\.submit-action-reload \{ min-height:42px/);
-  assert.match(styleSource, /@media\(max-width:480px\)[\s\S]*submit-primary-dock \{[\s\S]*position:fixed/);
+  assert.match(styleSource, /@media\(max-width:480px\)[\s\S]*submit-primary-dock\.is-docked \{[\s\S]*position:fixed/);
   assert.match(styleSource, /submit-primary-dock button \{[\s\S]*min-height:48px/);
 });
 
@@ -3265,6 +3265,21 @@ test('submitter dock follows the visible viewport above a virtual keyboard', () 
   viewportListeners.resize();
   assert.equal(style['--submit-dock-viewport-inset'], '0px');
   assert.equal(typeof viewportListeners.scroll, 'function');
+});
+test('submitter dock only overlays the viewport while the form is visible', () => {
+  const {context, document, windowListeners} = setup();
+  const dock = element(), form = element();
+  document.querySelector = selector => selector === '.submit-primary-dock' ? dock
+    : selector === '.submit-form-card' ? form : null;
+  form.getBoundingClientRect = () => ({top: 900, bottom: 1800});
+  context.syncSubmitDockViewport();
+  assert.equal(dock.classList.contains('is-docked'), false);
+  form.getBoundingClientRect = () => ({top: 700, bottom: 1500});
+  windowListeners.scroll();
+  assert.equal(dock.classList.contains('is-docked'), true);
+  form.getBoundingClientRect = () => ({top: -1000, bottom: -1});
+  windowListeners.scroll();
+  assert.equal(dock.classList.contains('is-docked'), false);
 });
 test('review summary explains when manual decisions are included in satisfied totals', async () => {
   const env=setup(), page=reviewPage(reviewScope('a'));
