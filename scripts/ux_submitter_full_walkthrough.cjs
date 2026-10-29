@@ -83,23 +83,23 @@ fs.mkdirSync(OUT, { recursive: true });
     const submitted = await submitResponse;
     if (!submitted.ok()) throw new Error(`Formal submit failed with HTTP ${submitted.status()}: ${await submitted.text()}`);
     await page.getByText(/已正式提交 · v1/).waitFor();
+    const receiptVisible = await page.getByText(/已正式提交 · v1/).count() > 0;
     await page.getByText('提交时间').waitFor();
     const formalGuidanceVisible = await page.getByText('补正与回执', { exact: true }).count() === 1
       && await page.getByText('提交前核对', { exact: true }).count() === 0;
     if (!formalGuidanceVisible) throw new Error('Formal submission still shows pre-submission guidance.');
     const correctionButton = page.locator('.submit-action-primary');
-    const unchangedCorrectionDisabled = await correctionButton.isDisabled();
-    if (!unchangedCorrectionDisabled || !await correctionButton.getByText('当前版本已提交').count()) {
-      throw new Error('Unchanged formal content still offers a correction submission.');
+    const unchangedActionShowsResults = !await correctionButton.isDisabled()
+      && await correctionButton.getByText('查看核对记录').count() === 1;
+    if (!unchangedActionShowsResults) {
+      throw new Error('Unchanged formal content should offer a results link, not a correction submission.');
     }
-    const nameField = page.locator('#field-name');
-    await nameField.fill(SUBJECT_NAME + '（更正）');
-    await page.waitForFunction(() => !document.querySelector('.submit-action-primary')?.disabled);
-    const editedCorrectionEnabled = !await correctionButton.isDisabled();
-    await nameField.fill(SUBJECT_NAME);
-    await page.waitForFunction(() => document.querySelector('.submit-action-primary')?.disabled);
-    if (!editedCorrectionEnabled) throw new Error('Changing formal content did not enable correction submission.');
-    await page.screenshot({ path: path.join(OUT, 'submitter-receipt.png'), fullPage: true });
+
+    let submitRequestCount = 0;
+    page.on('request', request => {
+      if (request.url().includes('/api/me/submit') && request.method() === 'POST') submitRequestCount += 1;
+    });
+    const submitRequestsBeforeResultsClick = submitRequestCount;
 
     const checkResultsJump = async width => {
       const button = page.locator('button:has-text("查看核对记录")').first();
@@ -143,6 +143,27 @@ fs.mkdirSync(OUT, { recursive: true });
     };
 
     const resultsNavigation = { desktop: await checkResultsJump(1440) };
+    const submitRequestsAfterResultsClick = submitRequestCount - submitRequestsBeforeResultsClick;
+    if (submitRequestsAfterResultsClick !== 0) {
+      throw new Error(`Viewing results unexpectedly submitted another version (${submitRequestsAfterResultsClick} new submit requests).`);
+    }
+
+    const nameField = page.locator('#field-name');
+    await nameField.fill(SUBJECT_NAME + '（更正）');
+    await page.waitForFunction(() => {
+      const button = document.querySelector('.submit-action-primary');
+      return button && !button.disabled && button.textContent.includes('提交更正版本并重新核对');
+    });
+    const editedCorrectionEnabled = !await correctionButton.isDisabled()
+      && await correctionButton.getByText('提交更正版本并重新核对').count() === 1;
+    if (!editedCorrectionEnabled) throw new Error('Changing formal content did not enable correction submission.');
+    const correctionResponse = page.waitForResponse(response =>
+      response.url().includes('/api/me/submit') && response.request().method() === 'POST');
+    await correctionButton.click();
+    const corrected = await correctionResponse;
+    if (!corrected.ok()) throw new Error(`Correction submit failed with HTTP ${corrected.status()}: ${await corrected.text()}`);
+    await page.getByText(/已正式提交 · v2/).waitFor();
+    await page.screenshot({ path: path.join(OUT, 'submitter-receipt.png'), fullPage: true });
 
     const mobile = [];
     for (const width of [390, 320]) {
@@ -189,10 +210,13 @@ fs.mkdirSync(OUT, { recursive: true });
       draftStatus: saved.status(),
       restoredDraftSkipsUploadedSlot,
       submitStatus: submitted.status(),
-      receiptVisible: await page.getByText(/已正式提交 · v1/).count() > 0,
+      receiptVisible,
       formalGuidanceVisible,
-      unchangedCorrectionDisabled,
+      unchangedActionShowsResults,
+      submitRequestsAfterResultsClick,
       editedCorrectionEnabled,
+      correctionStatus: corrected.status(),
+      correctionReceiptVisible: await page.getByText(/已正式提交 · v2/).count() > 0,
       resultsNavigation,
       mobile,
       consoleErrors,
@@ -208,7 +232,9 @@ fs.mkdirSync(OUT, { recursive: true });
       && viewport.actionVisibleInForm
       && viewport.actionHeight >= 48
     );
-    if (!report.receiptVisible || !report.formalGuidanceVisible || !unchangedCorrectionDisabled || !editedCorrectionEnabled || !mobilePassed || consoleErrors.length || pageErrors.length || badResponses.length) {
+    if (!report.receiptVisible || !report.formalGuidanceVisible || !unchangedActionShowsResults
+      || submitRequestsAfterResultsClick !== 0 || !editedCorrectionEnabled || !report.correctionReceiptVisible
+      || !mobilePassed || consoleErrors.length || pageErrors.length || badResponses.length) {
       process.exitCode = 1;
     }
   } finally {
