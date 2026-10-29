@@ -1853,6 +1853,9 @@ test('submitter next-step band follows draft and review state without inventing 
   assert.doesNotMatch(html,/等待材料核对完成/);
   html = app.submitterNextStepHtml({formal:true, summary:'规则通过（待人工验收）', buckets:{}});
   assert.match(html,/等待组织者最终验收/);
+  html = app.submitterNextStepHtml({formal:true, summary:'待人工', buckets:{human:['r1']}});
+  assert.match(html,/组织者核对中，你无需重复提交/);
+  assert.match(html,/正式版本和回执已保留/);
   html = app.submitterNextStepHtml({formal:true, summary:'规则通过'});
   assert.match(html,/材料检查已完成/);
   html = app.submitterNextStepHtml({formal:true});
