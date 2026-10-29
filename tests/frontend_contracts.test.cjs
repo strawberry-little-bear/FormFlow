@@ -44,6 +44,8 @@ function setup(sharedStorage = storage()) {
     setTimeout, clearTimeout, confirm: () => true, console,
     fetch: async () => {throw new Error('Unexpected request');}});
 vm.runInContext(source + '\nthis.app = {state, route, useVersionAsBase, loadDesignVersion, cacheDesignInputs, restoreDesignInputs, recoverDesignInput, recoverDesignInput, paintChat, runAgent, runExport, deliveryHistoryHtml, deliverySnapshotStatusHtml, loadDeliveryHistory, inspectSnapshot, paintSnapshot, agentEvidenceSummaryHtml, canPublishDesign, publishDiffHtml, designVersionImpactHtml, publishGovernanceHtml, publishBp, confirmPublish, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, fmtTimeShort, designReadinessHtml, designProgressHtml, applyDraft, draftFingerprint, collectDraftFields, cacheSubmissionDraft, paintSubmitterNextStep, submitterNextStepHtml, setSubMode, moveSubmitModeTab, setDesignTab, moveDesignTab, refreshSlotConditions, wbMatches, api, apiError, submitDecision, saveDraft, doSubmit, doSubLogin, uploadSlot, deleteSlotFile, cacheReviewDraft, discardReviewDraft, logout, nextPendingReview, setReviewFilter, setReviewTraceFilter, selectReviewRule, viewReview, reviewRevisionHistoryHtml, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, chooseWorkbenchNextStep, workbenchNextStepHtml, agentRunCard, agentTourHtml, agentTourRuntimeHtml, runtimeSelfTestHtml, submitterGuidance, ruleCard, receiptFilesHtml, submissionIssues, checkAgentRequestNow, resumePendingAgentRequest, savePendingAgentRequest, agentRequestProgressHtml, retryAgent, pollAgentRequest, showSubmissionIssues, initSubChat, demoRouteTask, demoRouteHtml, demoRouteCueHtml, copyDemoRouteCue, agentArchitectureRailHtml, agentQuickReadHtml, agentShowcaseHtml, runStageReplayHtml, paintAgentShowcase, jumpToRunStage, mcpSnapshotHtml, renderDemoRoute, paintWorkspaceAgentStatus, paintAgentRuntime, paintAgentRuntimeContractIssue, viewLogin, viewSubmit, switchLoginTab, moveLoginTab, setFlash, openDialog, readPresentationMode, showcaseReturnHtml, applyPresentationMode, setPresentationMode, togglePresentationMode, fillDemoCred, doLogin, issueAllGrants, viewRoster, loadRoster, setRosterFilter, renderRosterTable, showCredential, showCredentialList, setEmptyTaskHome, jumpToSubmitResults};', context);
+  context.app.submissionMatchesReceipt = context.submissionMatchesReceipt;
+  context.app.refreshSubmitAction = context.refreshSubmitAction;
   context.app.deliverySnapshotStatusHtml = context.deliverySnapshotStatusHtml;
   context.app.afterSlotUpload = context.afterSlotUpload;
   context.app.agentRuntimeContractIssue = context.agentRuntimeContractIssue;
@@ -3269,4 +3271,25 @@ test('creating a snapshot ignores repeated clicks while the request is pending',
   assert.equal(button.disabled, false);
   assert.equal(button.getAttribute('aria-busy'), 'false');
   assert.equal(button.innerHTML, '固定一份新快照');
+});
+
+test('unchanged formal content disables correction until a field or attachment changes', () => {
+  const {app, document, fields} = setup();
+  const button = element();
+  document.querySelector = selector => selector === '.submit-action-primary' ? button : null;
+  app.state.receipt = {formal:true, fields:{name:'old'}, slot_file_ids:{report:['file-a']}};
+  app.state.files = {report:['file-a']};
+  assert.equal(app.submissionMatchesReceipt({name:'old'}, app.state.files), true);
+  app.state.submitterReadOnly = false;
+  app.refreshSubmitAction();
+  assert.equal(button.disabled, true);
+  assert.match(button.innerHTML, /当前版本已提交/);
+  fields[0].value = 'new';
+  app.refreshSubmitAction();
+  assert.equal(button.disabled, false);
+  assert.match(button.innerHTML, /提交更正版本并重新核对/);
+  fields[0].value = 'old';
+  app.state.files.report.push('file-b');
+  app.refreshSubmitAction();
+  assert.equal(button.disabled, false);
 });

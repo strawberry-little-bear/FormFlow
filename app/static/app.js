@@ -3959,6 +3959,20 @@ function draftFingerprint(fields, files) {
     value && typeof value === "object" && !Array.isArray(value)
       ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b))) : value);
 }
+function submissionMatchesReceipt(fields, files, receipt = state.receipt) {
+  return !!receipt?.formal
+    && draftFingerprint(fields, files) === draftFingerprint(receipt.fields, receipt.slot_file_ids);
+}
+function refreshSubmitAction() {
+  const button = document.querySelector(".submit-action-primary");
+  if (!button || !state.receipt) return;
+  const unchanged = submissionMatchesReceipt(collectDraftFields(), state.files);
+  button.disabled = state.submitterReadOnly || unchanged;
+  const label = state.receipt.formal
+    ? unchanged ? "当前版本已提交" : "提交更正版本并重新核对"
+    : "提交材料并开始核对";
+  button.innerHTML = label + " " + icon("arrow");
+}
 function submissionContext() {
   const epoch = state.routeEpoch, key = draftCacheKey(), token = subToken();
   return () => epoch === state.routeEpoch && key === draftCacheKey() && token === subToken();
@@ -4128,7 +4142,7 @@ async function viewSubmit() {
               <button class="ghost submit-action-save" onclick="saveDraft()" ${ro ? "disabled" : ""}>保存草稿</button>
               <span class="muted" id="draft-hint">${draft.draft_version ? `草稿版本 ${draft.draft_version}` : "尚未保存草稿"}${draft.updated_at ? ` · ${esc(fmtTime(draft.updated_at))}` : ""}</span>
             </div>
-            <div class="submit-primary-dock"><button class="submit-action-primary" onclick="doSubmit()" ${ro ? "disabled" : ""}>${receipt.formal ? "提交更正版本并重新核对" : "提交材料并开始核对"} ${icon("arrow")}</button></div>
+            <div class="submit-primary-dock"><button class="submit-action-primary" onclick="doSubmit()" ${ro || submissionMatchesReceipt(draft.fields, state.files, receipt) ? "disabled" : ""}>${receipt.formal && submissionMatchesReceipt(draft.fields, state.files, receipt) ? "当前版本已提交" : receipt.formal ? "提交更正版本并重新核对" : "提交材料并开始核对"} ${icon("arrow")}</button></div>
             <div id="receipt-out"></div>
           </section>
           <aside class="submit-side">
@@ -4149,6 +4163,7 @@ async function viewSubmit() {
         refreshSlotConditions(slots);
         if (state.sub && state.sub.mode === "chat") syncSubAnswersFromForm();
         cacheSubmissionDraft();
+        refreshSubmitAction();
       }));
     refreshSlotConditions(slots);
     initSubChat(fields, slots, ro, me.subject.name, draft.fields || {});
@@ -4207,6 +4222,7 @@ function afterSlotUpload(slot, fileId, meta, draftVersion) {
   cacheSubmissionDraft();
   const ro = state.sub ? state.sub.ro : false;
   paintSlotFiles(slot, ro);
+  refreshSubmitAction();
   if (state.sub && state.sub.slots) refreshSlotConditions(state.sub.slots);
   if (state.sub) {
     const i = state.sub.slots.findIndex(s => s.id === slot);
@@ -4233,6 +4249,7 @@ async function deleteSlotFile(slot, fileId) {
     state.serverDraftFingerprint = draftFingerprint(state.serverDraftFields || {}, state.files);
     cacheSubmissionDraft();
     paintSlotFiles(slot, state.sub ? state.sub.ro : false);
+    refreshSubmitAction();
     if (state.sub && state.sub.slots) refreshSlotConditions(state.sub.slots);
     setFlash(result.cleanup_pending
       ? "文件已从草稿中移除，但存储清理未完成，请联系管理员处理。"

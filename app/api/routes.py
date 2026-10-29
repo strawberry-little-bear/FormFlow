@@ -837,6 +837,10 @@ def my_receipt(grant_and_subject: tuple = Depends(current_subject), db: Session 
         manifest = json.loads(rev.slot_file_ids_json or "{}")
     except (TypeError, ValueError):
         manifest = {}
+    try:
+        fields = json.loads(rev.fields_json or "{}")
+    except (TypeError, ValueError):
+        fields = {}
     run = db.scalar(select(CheckRun).where(CheckRun.revision_id == rev.id)
                     .order_by(CheckRun.id.desc()))
     blueprint_version = db.get(BlueprintVersion, run.blueprint_version_id) if run else None
@@ -864,7 +868,9 @@ def my_receipt(grant_and_subject: tuple = Depends(current_subject), db: Session 
                     files.append({"name": fo.original_name, "size": fo.size,
                                   "slot": slot_labels.get(slot, slot)})
     return {"formal": True, "receipt": rev.receipt, "revision": rev.version,
-            "formal_submitted_at": iso_utc(rev.formal_submitted_at), "files": files}
+            "formal_submitted_at": iso_utc(rev.formal_submitted_at), "files": files,
+            "fields": fields if isinstance(fields, dict) else {},
+            "slot_file_ids": manifest if isinstance(manifest, dict) else {}}
 
 @router.post("/me/appeals")
 def create_appeal(body: AppealIn,

@@ -185,6 +185,8 @@ def test_formal_receipt_keeps_a_readable_file_manifest_after_editing_correction_
         receipt = client.get("/api/me/receipt", headers=headers).json()
         assert receipt["formal"] is True
         assert receipt["receipt"] == revision.receipt
+        assert receipt["fields"] == {}
+        assert receipt["slot_file_ids"] == {"report": [file_id]}
         assert receipt["files"] == [{"name": "虚构报名单.txt", "size": len(b"fictional signup"),
                                      "slot": "活动报名单"}]
 

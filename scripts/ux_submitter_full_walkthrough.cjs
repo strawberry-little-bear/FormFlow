@@ -87,6 +87,18 @@ fs.mkdirSync(OUT, { recursive: true });
     const formalGuidanceVisible = await page.getByText('补正与回执', { exact: true }).count() === 1
       && await page.getByText('提交前核对', { exact: true }).count() === 0;
     if (!formalGuidanceVisible) throw new Error('Formal submission still shows pre-submission guidance.');
+    const correctionButton = page.locator('.submit-action-primary');
+    const unchangedCorrectionDisabled = await correctionButton.isDisabled();
+    if (!unchangedCorrectionDisabled || !await correctionButton.getByText('当前版本已提交').count()) {
+      throw new Error('Unchanged formal content still offers a correction submission.');
+    }
+    const nameField = page.locator('#field-name');
+    await nameField.fill(SUBJECT_NAME + '（更正）');
+    await page.waitForFunction(() => !document.querySelector('.submit-action-primary')?.disabled);
+    const editedCorrectionEnabled = !await correctionButton.isDisabled();
+    await nameField.fill(SUBJECT_NAME);
+    await page.waitForFunction(() => document.querySelector('.submit-action-primary')?.disabled);
+    if (!editedCorrectionEnabled) throw new Error('Changing formal content did not enable correction submission.');
     await page.screenshot({ path: path.join(OUT, 'submitter-receipt.png'), fullPage: true });
 
     const checkResultsJump = async width => {
@@ -165,6 +177,8 @@ fs.mkdirSync(OUT, { recursive: true });
       submitStatus: submitted.status(),
       receiptVisible: await page.getByText(/已正式提交 · v1/).count() > 0,
       formalGuidanceVisible,
+      unchangedCorrectionDisabled,
+      editedCorrectionEnabled,
       resultsNavigation,
       mobile,
       consoleErrors,
@@ -179,7 +193,7 @@ fs.mkdirSync(OUT, { recursive: true });
       && viewport.actionVisible
       && viewport.actionHeight >= 48
     );
-    if (!report.receiptVisible || !report.formalGuidanceVisible || !mobilePassed || consoleErrors.length || pageErrors.length || badResponses.length) {
+    if (!report.receiptVisible || !report.formalGuidanceVisible || !unchangedCorrectionDisabled || !editedCorrectionEnabled || !mobilePassed || consoleErrors.length || pageErrors.length || badResponses.length) {
       process.exitCode = 1;
     }
   } finally {
