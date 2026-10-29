@@ -21,7 +21,7 @@ const VIEWPORTS = [
 ];
 
 const ROUTES = [
-  { name: 'tasks', hash: '#/tasks', required: ['FIRST LOOK', '当前焦点', 'MCP 回放', '下一步'] },
+  { name: 'tasks', hash: '#/tasks', required: ['我的任务', '进入展示视图', '新建收集任务'] },
   { name: 'design', hash: '#/design/1', required: ['需求设计', 'CURRENT RUN'] },
   { name: 'workbench', hash: '#/workbench/1', required: ['收集工作台', '下一步'] },
   { name: 'review', hash: '#/review/1/2', required: ['逐条核对证据', 'NEXT ACTION'] },
@@ -225,7 +225,7 @@ async function exitPresentationToTaskList(page) {
     const taskSection = document.querySelector('.task-section');
     if (!taskSection) return false;
     const rect = taskSection.getBoundingClientRect();
-    return Math.abs(rect.top) < 4 && rect.bottom > 0;
+    return rect.top >= 0 && rect.bottom <= window.innerHeight;
   }, null, { timeout: 5000 }).catch(() => {});
   const taskListState = await page.evaluate(() => {
     const taskSection = document.querySelector('.task-section');
@@ -238,7 +238,7 @@ async function exitPresentationToTaskList(page) {
         return !element || getComputedStyle(element).display === 'none';
       }),
       taskListVisible: !!taskSection && style?.display !== 'none' && style?.visibility !== 'hidden',
-      taskListInViewport: !!rect && Math.abs(rect.top) < 4 && rect.bottom > 0,
+      taskListInViewport: !!rect && rect.top >= 0 && rect.bottom <= window.innerHeight,
       taskListFocused: document.activeElement === taskSection,
       taskListLabel: taskSection?.getAttribute('aria-label') || '',
       taskListBounds: rect ? {top: Math.round(rect.top), bottom: Math.round(rect.bottom), height: Math.round(rect.height)} : null,
