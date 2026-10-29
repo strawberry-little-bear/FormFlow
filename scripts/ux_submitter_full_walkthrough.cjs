@@ -1,6 +1,7 @@
 /** Exercise the submitter flow against an isolated demo seed. */
 const { launchChromium } = require('./ux_browser.cjs');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 const BASE = process.env.FORMFLOW_WALKTHROUGH_BASE || 'http://127.0.0.1:8000';
@@ -8,14 +9,15 @@ const CREDENTIAL = process.env.FORMFLOW_WALKTHROUGH_CREDENTIAL;
 const SUBJECT_NAME = process.env.FORMFLOW_WALKTHROUGH_SUBJECT || '赵六';
 const OUT = process.env.FORMFLOW_WALKTHROUGH_OUT
   ? path.resolve(process.env.FORMFLOW_WALKTHROUGH_OUT)
-  : path.resolve(__dirname, '../docs/ux-review-2026-10-25/submitter-full');
+  : null;
 
 if (!CREDENTIAL) {
   console.error(`Set FORMFLOW_WALKTHROUGH_CREDENTIAL to the credential for ${SUBJECT_NAME}.`);
   process.exit(2);
 }
 
-fs.mkdirSync(OUT, { recursive: true });
+const outputDir = OUT || fs.mkdtempSync(path.join(os.tmpdir(), 'formflow-submitter-walkthrough-'));
+fs.mkdirSync(outputDir, { recursive: true });
 
 (async () => {
   const browser = await launchChromium({ headless: true });
@@ -37,7 +39,7 @@ fs.mkdirSync(OUT, { recursive: true });
     await page.locator('#lg-cred').fill(CREDENTIAL);
     await page.locator('button:has-text("进入我的提交空间")').click();
     await page.getByText('填写与上传').waitFor();
-    await page.screenshot({ path: path.join(OUT, 'submitter-form-before.png'), fullPage: true });
+    await page.screenshot({ path: path.join(outputDir, 'submitter-form-before.png'), fullPage: true });
 
     await page.locator('#field-name').fill(SUBJECT_NAME);
     await page.locator('#field-term').fill('2026 秋季第 1 期');
@@ -65,7 +67,7 @@ fs.mkdirSync(OUT, { recursive: true });
     const saved = await draftResponse;
     if (!saved.ok()) throw new Error(`Draft save failed with HTTP ${saved.status()}: ${await saved.text()}`);
     await page.waitForFunction(() => document.querySelector('#draft-hint')?.textContent.includes('已保存到服务器'));
-    await page.screenshot({ path: path.join(OUT, 'submitter-draft-saved.png'), fullPage: true });
+    await page.screenshot({ path: path.join(outputDir, 'submitter-draft-saved.png'), fullPage: true });
 
     await page.reload({ waitUntil: 'networkidle' });
     await page.locator('#submode-chat').click();
@@ -75,7 +77,7 @@ fs.mkdirSync(OUT, { recursive: true });
     if (!restoredDraftSkipsUploadedSlot) {
       throw new Error('Restored guide did not skip the already-uploaded material.');
     }
-    await page.screenshot({ path: path.join(OUT, 'submitter-draft-restored-guide.png'), fullPage: true });
+    await page.screenshot({ path: path.join(outputDir, 'submitter-draft-restored-guide.png'), fullPage: true });
 
     const submitResponse = page.waitForResponse(response =>
       response.url().includes('/api/me/submit') && response.request().method() === 'POST');
@@ -163,7 +165,7 @@ fs.mkdirSync(OUT, { recursive: true });
     const corrected = await correctionResponse;
     if (!corrected.ok()) throw new Error(`Correction submit failed with HTTP ${corrected.status()}: ${await corrected.text()}`);
     await page.getByText(/已正式提交 · v2/).waitFor();
-    await page.screenshot({ path: path.join(OUT, 'submitter-receipt.png'), fullPage: true });
+    await page.screenshot({ path: path.join(outputDir, 'submitter-receipt.png'), fullPage: true });
 
     const mobile = [];
     for (const width of [390, 320]) {
@@ -196,13 +198,14 @@ fs.mkdirSync(OUT, { recursive: true });
       mobile.push({ width, ...measurement });
       if (width === 320) resultsNavigation.mobile320 = await checkResultsJump(width);
       await page.screenshot({
-        path: path.join(OUT, `submitter-receipt-${width}.png`),
+        path: path.join(outputDir, `submitter-receipt-${width}.png`),
         fullPage: true,
       });
     }
 
     const report = {
       base: BASE,
+      outputDirectory: outputDir,
       generatedAt: new Date().toISOString(),
       path: ['credential login', 'complete fields', 'upload file', 'save server draft', 'reload draft', 'verify guide skips uploaded material', 'formal submit', 'read receipt'],
       uploadStatus: uploaded.status(),
@@ -223,7 +226,7 @@ fs.mkdirSync(OUT, { recursive: true });
       pageErrors,
       badResponses,
     };
-    fs.writeFileSync(path.join(OUT, 'submitter-results.json'), `${JSON.stringify(report, null, 2)}\n`);
+    fs.writeFileSync(path.join(outputDir, 'submitter-results.json'), `${JSON.stringify(report, null, 2)}\n`);
     console.log(JSON.stringify(report, null, 2));
     const mobilePassed = mobile.length === 2 && mobile.every(viewport =>
       viewport.viewport === viewport.width
