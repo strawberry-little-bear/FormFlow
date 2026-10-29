@@ -1257,7 +1257,7 @@ test('presentation entry keeps Agent evidence on demand while retaining the live
   assert.match(source, /details\.addEventListener\("toggle"/);
 });
 test('presentation route makes the current task and next action explicit', () => {
-  assert.match(source, /class="presentation-task-context" aria-label="当前演示任务"/);
+  assert.match(source, /class="presentation-task-context" role="group" aria-label="当前演示任务"/);
   assert.match(source, /当前演示任务[\s\S]*任务 #\$\{esc\(task\.id\)\}/);
   assert.match(source, /class="presentation-task-focus"[\s\S]*现在处理[\s\S]*current\.title/);
   assert.match(source, /onclick="showTaskListFromPresentation\(\)"/);
