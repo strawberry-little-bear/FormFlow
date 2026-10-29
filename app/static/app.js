@@ -2673,7 +2673,7 @@ function renderRosterPreview() {
 async function loadRoster(taskId) {
   const epoch = state.routeEpoch, requestId = (state.rosterRequestId || 0) + 1;
   state.rosterRequestId = requestId;
-  const controls = document.querySelectorAll?.(".roster-import input, .roster-import textarea, .roster-import button, .roster-list > .section-heading button, #roster-filter button") || [];
+  const controls = document.querySelectorAll?.(".roster-import input, .roster-import textarea, .roster-import button, .roster-list > .section-heading button, .roster-actions button, #roster-filter button") || [];
   controls.forEach(control => { control.disabled = true; });
   const loadState = document.getElementById("roster-load-state");
   if (loadState) loadState.innerHTML = `<p class="muted" role="status">正在读取名册…</p>`;
