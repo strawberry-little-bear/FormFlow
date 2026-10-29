@@ -3287,12 +3287,13 @@ test('submitter dock only overlays the viewport while the form is visible', () =
   windowListeners.scroll();
   assert.equal(dock.classList.contains('is-docked'), false);
 });
-test('review summary explains when manual decisions are included in satisfied totals', async () => {
+test('review summary labels combined rule totals and separates machine and organizer outcomes', async () => {
   const env=setup(), page=reviewPage(reviewScope('a'));
   page.rules=[{rule_id:'A',result:'satisfied',requirement:{statement:'机器已满足'}},{rule_id:'B',result:'issue',decision:{decision:'confirm_pass',resolves:true},requirement:{statement:'人工已处理'}}];
   await openReview(env,page);
-  assert.match(env.els.rv.innerHTML,/已满足/);
-  assert.match(env.els.rv.innerHTML,/含人工处理 1 项/);
+  assert.match(env.els.rv.innerHTML,/规则已处理/);
+  assert.match(env.els.rv.innerHTML,/机器结论 1 项 · 组织者处理 1 项/);
+  assert.match(env.els.rv.innerHTML,/规则已处理包含机器满足结论和组织者已记录决定/);
 });
 
 test('review summary exposes the next organizer action before the long evidence flow', async () => {
