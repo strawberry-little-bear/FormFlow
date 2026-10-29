@@ -1,7 +1,7 @@
 "use strict";
 /* 收齐啦 FormFlow 前端（P01–P05）。纯静态 SPA，直接调用 /api。 */
 const ORG_KEY = "ff_org_token", SUB_KEY = "ff_sub_token", PRESENTATION_KEY = "ff_tasks_presentation", DEMO_ENTRY_KEY = "ff_demo_entry";
-const state = { taskId: null, chat: [], bpId: null, draft: null, requirement: "", answeredDone: false, files: {}, filesMeta: {}, draftVersion: null, me: null, lastJob: null, roster: {}, rosterEntries: [], rosterFilter: "all", designEpoch: 0, agentBusy: false, agentRequest: null, agentRequestPollTimer: 0, agentResumeStarted: false, agentRequestDisplayedId: null, draftStatus: "draft", draftVersionId: null, designTab: "preview", tasks: [], llmConfigured: null, agentRuntime: null, mcpSnapshot: null, mcpSnapshotLoading: false, mcpSnapshotRunning: false, mcpReplayIndex: null, mcpReplayTimer: 0, demoTaskId: null, designBlocking: [], designAdvisories: [], designVersions: [], designHistory: [], viewingVersion: null, viewingPublished: null, viewingImpact: null, wbRows: [], wbFilter: "all", reviewRule: null, reviewFilter: "all", reviewTraceFilter: "all", presentationMode: false, presentationStartAligned: false };
+const state = { taskId: null, chat: [], bpId: null, draft: null, requirement: "", answeredDone: false, files: {}, filesMeta: {}, draftVersion: null, me: null, lastJob: null, roster: {}, rosterEntries: [], rosterFilter: "all", rosterGrantBusy: false, designEpoch: 0, agentBusy: false, agentRequest: null, agentRequestPollTimer: 0, agentResumeStarted: false, agentRequestDisplayedId: null, draftStatus: "draft", draftVersionId: null, designTab: "preview", tasks: [], llmConfigured: null, agentRuntime: null, mcpSnapshot: null, mcpSnapshotLoading: false, mcpSnapshotRunning: false, mcpReplayIndex: null, mcpReplayTimer: 0, demoTaskId: null, designBlocking: [], designAdvisories: [], designVersions: [], designHistory: [], viewingVersion: null, viewingPublished: null, viewingImpact: null, wbRows: [], wbFilter: "all", reviewRule: null, reviewFilter: "all", reviewTraceFilter: "all", presentationMode: false, presentationStartAligned: false };
 
 const orgToken = () => localStorage.getItem(ORG_KEY) || "";
 const subToken = () => localStorage.getItem(SUB_KEY) || "";
@@ -2639,7 +2639,7 @@ async function viewRoster(taskId) {
         <div class="preview-box" id="roster-preview">输入后这里实时显示解析预览</div>
         <button onclick="importRoster(${taskId})" style="width:100%">导入名册 ${icon("arrow")}</button>
       </section>
-      <section class="card roster-list"><div class="section-heading"><div><div class="eyebrow">02 / CREDENTIALS</div><h2>名册与凭证</h2></div><button class="ghost sm" onclick="issueAllGrants(${taskId})">为全部待发放主体发放</button></div>
+      <section class="card roster-list"><div class="section-heading"><div><div class="eyebrow">02 / CREDENTIALS</div><h2>名册与凭证</h2></div><button id="roster-grant-all" class="ghost sm" onclick="issueAllGrants(${taskId})">为全部待发放主体发放</button></div>
         <div id="roster-filter" class="roster-filter" role="group" aria-label="按凭证状态筛选"></div>
         <p id="roster-results-status" class="sr-only" role="status" aria-live="polite"></p>
         <div id="roster-table"><p class="empty">正在读取名册…</p></div>
@@ -2697,7 +2697,7 @@ async function loadRoster(taskId) {
         .map(([l, n, ic]) => `<div class="overview-stat"><span>${l}</span><strong>${String(n).padStart(2, "0")}</strong><i>${icon(ic)}</i></div>`).join("");
     renderRosterTable();
     if (loadState) loadState.innerHTML = "";
-    controls.forEach(control => { control.disabled = false; });
+    controls.forEach(control => { control.disabled = state.rosterGrantBusy; });
     return true;
   } catch (e) {
     if (epoch !== state.routeEpoch || requestId !== state.rosterRequestId) return false;
@@ -2705,6 +2705,22 @@ async function loadRoster(taskId) {
     if (table) table.innerHTML = "";
     if (loadState) loadState.innerHTML = `<div class="notice-warn" role="alert"><b>名册暂时无法读取</b><p>${esc(e.message || "请检查任务是否存在，或稍后重试。")}</p><button class="ghost sm" onclick="loadRoster(${taskId})">重试加载名册</button> <a class="ghost sm" href="#/workbench/${taskId}">回到收集工作台</a></div>`;
     return false;
+  }
+}
+
+function setRosterGrantBusy(busy) {
+  state.rosterGrantBusy = busy;
+  const controls = document.querySelectorAll?.(".roster-actions button") || [];
+  controls.forEach(button => {
+    button.disabled = busy;
+    const entry = state.roster[button.dataset.rosterEntry];
+    button.textContent = busy ? "正在处理…" : entry?.granted ? "重发凭证" : "发放凭证";
+  });
+  const bulkButton = document.getElementById("roster-grant-all");
+  if (bulkButton) {
+    const hasLoadError = !!document.querySelector?.("#roster-load-state [role=alert]");
+    bulkButton.disabled = busy || hasLoadError;
+    bulkButton.textContent = busy ? "正在发放…" : "为全部待发放主体发放";
   }
 }
 
@@ -2765,8 +2781,8 @@ function renderRosterTable() {
       <div>${e.granted ? '<span class="badge ok">已发放</span>' : '<span class="badge warn">未发放</span>'}</div>
       <div>${e.exempt ? '<span class="badge info">免交</span>'
         : (e.subject_id ? `<span class="badge">#${e.subject_id}</span>` : '<span class="muted">发放时创建</span>')}</div>
-      <div class="roster-actions"><button class="ghost sm" onclick="issueGrant(${state.rosterTaskId},${e.id})">${
-          e.granted ? "重发凭证" : "发放凭证"}</button></div>
+      <div class="roster-actions"><button class="ghost sm" data-roster-entry="${e.id}" ${state.rosterGrantBusy ? "disabled" : ""} onclick="issueGrant(${state.rosterTaskId},${e.id})">${
+          state.rosterGrantBusy ? "正在发放…" : e.granted ? "重发凭证" : "发放凭证"}</button></div>
     </article>`).join("")}`
     : entries.length
       ? `<p class="roster-filter-empty">此状态下没有主体。</p>`
@@ -2812,19 +2828,29 @@ async function importRoster(taskId) {
 }
 
 async function issueGrant(taskId, entryId) {
-  await guard(async () => {
-    const e = state.roster[entryId];
-    if (!e) throw new Error("名单条目不存在，请刷新页面再试");
+  if (state.rosterGrantBusy) return;
+  const e = state.roster[entryId];
+  if (!e) { setFlash("名单条目不存在，请刷新页面再试"); return; }
+  setRosterGrantBusy(true);
+  try {
     const r = await api(`/api/tasks/${taskId}/grants`, {
       method: "POST",
       form: { subject_name: e.name, roster_entry_id: String(entryId) } });
     showCredential(e.name, r.credential, r.warning);
     await loadRoster(taskId);
-  });
+  } catch (error) {
+    setFlash(error.message || "凭证发放未完成");
+    await loadRoster(taskId);
+  } finally {
+    setRosterGrantBusy(false);
+  }
 }
 
 async function issueAllGrants(taskId) {
-  await guard(async () => {
+  if (state.rosterGrantBusy) return;
+  setRosterGrantBusy(true);
+  let rosterRefreshed = false;
+  try { await guard(async () => {
     const d = await api(`/api/tasks/${taskId}/roster`);
     const todo = d.entries.filter(e => !e.granted && !e.exempt);
     if (!todo.length) { setFlash("所有名册主体都已发放凭证（免交主体不发放）", "ok"); return; }
@@ -2840,7 +2866,6 @@ async function issueAllGrants(taskId) {
         failures.push({ name: e.name, error: error.message || "请求未完成" });
       }
     }
-    let rosterRefreshed = false;
     try { rosterRefreshed = await loadRoster(taskId); }
     catch { rosterRefreshed = false; }
     showCredentialList(out, failures, rosterRefreshed);
@@ -2850,7 +2875,9 @@ async function issueAllGrants(taskId) {
         ? `已生成 ${out.length} 个凭证，请逐一复制并私下发给对应提交者。`
         : `已生成 ${out.length} 个凭证，但名册状态暂未刷新；请刷新页面核对状态。`,
       failures.length || !rosterRefreshed ? "warn" : "ok");
-  });
+  }); } finally {
+    setRosterGrantBusy(false);
+  }
 }
 
 function showCredential(name, cred, warning = "") {
