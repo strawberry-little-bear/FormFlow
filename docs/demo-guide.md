@@ -25,7 +25,7 @@ $env:FORMFLOW_SHOWCASE_BASE = 'http://127.0.0.1:8000'
 node scripts/showcase_check.cjs
 ```
 
-退出码为 0 才表示本轮展示链通过。需要留档时再设置 `FORMFLOW_SHOWCASE_OUT`，脚本会写出 `showcase-results.json`；它只读访问演示 API，不改变种子数据。
+退出码为 0 才表示本轮展示链通过。需要留档时再设置 `FORMFLOW_SHOWCASE_OUT`，脚本会写出 `showcase-results.json` 和 `screenshots/<视口>/<路由>.png`；每张图对应的实际 hash 和页面标题也会记录在报告里。它只读访问演示 API，不改变种子数据。
 
 ### 可选：复跑浏览器走查
 

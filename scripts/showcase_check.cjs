@@ -33,6 +33,22 @@ function cleanText(value) {
   return String(value || '').replace(/\s+/g, ' ').trim();
 }
 
+async function captureRouteEvidence(page, viewport, route) {
+  const pageState = await page.evaluate(() => ({
+    hash: location.hash,
+    heading: document.querySelector('main#app h1, main#app h2, main#app [data-page-title]')?.textContent?.replace(/\s+/g, ' ').trim() || '',
+  }));
+  const screenshot = OUT
+    ? path.posix.join('screenshots', viewport.name, `${route.name}.png`)
+    : null;
+  if (screenshot) {
+    const file = path.join(OUT, ...screenshot.split('/'));
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    await page.screenshot({ path: file });
+  }
+  return { ...pageState, screenshot };
+}
+
 function routeUrl(hash) {
   return `${BASE}/${hash}`;
 }
@@ -193,10 +209,15 @@ async function main() {
             overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
           }));
           const accessibility = await inspectAccessibilitySurface(page);
+          const evidence = await captureRouteEvidence(page, viewport, route);
           viewportReport.routes.push({
             name: route.name,
             hash: route.hash,
-            ok: missing.length === 0 && !loadingStuck,
+            actualHash: evidence.hash,
+            heading: evidence.heading,
+            screenshot: evidence.screenshot,
+            ok: missing.length === 0 && !loadingStuck
+              && evidence.hash === route.hash && !!evidence.heading,
             missing,
             loadingStuck,
             overflow,
@@ -229,6 +250,8 @@ async function main() {
     }
     if (viewport.routes.some(route => !route.ok
       || route.overflow?.overflow
+      || route.actualHash !== route.hash
+      || !route.heading
       || route.accessibility?.unnamed?.length
       || route.accessibility?.unlabeledFields?.length
       || !route.accessibility?.hasRouteFocusTarget)) report.passed = false;
