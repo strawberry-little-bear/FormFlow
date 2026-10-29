@@ -28,7 +28,7 @@ function element(value = '') {
 function setup(sharedStorage = storage()) {
   const els = Object.fromEntries(['sub', 'draft-hint', 'flash', 'receipt-out', 'decision-submit', 'presentation-toggle', 'lg-cred',
     'review-conflict', 'login-err', 'dc-type', 'dc-rule', 'dc-reason', 'dc-exp', 'acceptance-reason', 'acceptance-submit',
-    'review-draft-status', 'submission-errors', 'field-error-name', 'dl', 'delivery-history-list', 'delivery-history-more-error', 'snap-view', 'create-snapshot', 'snap-kind', 'app', 'rv', 'rv-name', 'my-results', 'my-results-card', 'submit-next-step', 'nav', 'role-label', 'wb-next-step', 'btn-logout', 'workspace-agent-mode', 'workspace-agent-status', 'agent-tour-mode', 'agent-tour-availability', 'agent-runtime-mode', 'agent-runtime-status', 'grant-out', 'roster-name', 'roster-stats', 'roster-filter', 'roster-results-status', 'roster-table', 'roster-load-state'].map(id => [id, element()]));
+    'review-draft-status', 'submission-errors', 'field-error-name', 'dl', 'delivery-history-list', 'delivery-history-more-error', 'snap-view', 'create-snapshot', 'snap-kind', 'app', 'rv', 'rv-name', 'my-results', 'my-results-card', 'submit-next-step', 'nav', 'role-label', 'wb-next-step', 'btn-logout', 'workspace-agent-mode', 'workspace-agent-status', 'agent-tour-mode', 'agent-tour-availability', 'agent-runtime-mode', 'agent-runtime-status', 'grant-out', 'roster-name', 'roster-stats', 'roster-filter', 'roster-results-status', 'roster-table', 'roster-load-state', 'roster-grant-all'].map(id => [id, element()]));
   const fields = [Object.assign(element('old'), {dataset: {field:'name'}})];
   els['login-err'].style = {};
   els['field-name'] = fields[0];
@@ -43,8 +43,9 @@ function setup(sharedStorage = storage()) {
     requestAnimationFrame: fn => fn(),
     setTimeout, clearTimeout, confirm: () => true, console,
     fetch: async () => {throw new Error('Unexpected request');}});
-vm.runInContext(source + '\nthis.app = {state, route, useVersionAsBase, loadDesignVersion, cacheDesignInputs, restoreDesignInputs, recoverDesignInput, recoverDesignInput, paintChat, runAgent, runExport, deliveryHistoryHtml, deliverySnapshotStatusHtml, loadDeliveryHistory, inspectSnapshot, paintSnapshot, agentEvidenceSummaryHtml, canPublishDesign, publishDiffHtml, designVersionImpactHtml, publishGovernanceHtml, publishBp, confirmPublish, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, fmtTimeShort, designReadinessHtml, designProgressHtml, applyDraft, draftFingerprint, collectDraftFields, cacheSubmissionDraft, paintSubmitterNextStep, submitterNextStepHtml, setSubMode, moveSubmitModeTab, setDesignTab, moveDesignTab, refreshSlotConditions, wbMatches, api, apiError, submitDecision, saveDraft, doSubmit, doSubLogin, uploadSlot, deleteSlotFile, cacheReviewDraft, discardReviewDraft, logout, nextPendingReview, setReviewFilter, setReviewTraceFilter, selectReviewRule, viewReview, reviewRevisionHistoryHtml, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, chooseWorkbenchNextStep, workbenchNextStepHtml, agentRunCard, agentTourHtml, agentTourRuntimeHtml, runtimeSelfTestHtml, submitterGuidance, ruleCard, receiptFilesHtml, submissionIssues, checkAgentRequestNow, resumePendingAgentRequest, savePendingAgentRequest, agentRequestProgressHtml, retryAgent, pollAgentRequest, showSubmissionIssues, initSubChat, demoRouteTask, demoRouteHtml, demoRouteCueHtml, copyDemoRouteCue, agentArchitectureRailHtml, agentQuickReadHtml, agentShowcaseHtml, runStageReplayHtml, paintAgentShowcase, jumpToRunStage, mcpSnapshotHtml, renderDemoRoute, paintWorkspaceAgentStatus, paintAgentRuntime, paintAgentRuntimeContractIssue, viewLogin, viewSubmit, switchLoginTab, moveLoginTab, setFlash, openDialog, readPresentationMode, showcaseReturnHtml, applyPresentationMode, setPresentationMode, togglePresentationMode, fillDemoCred, doLogin, issueAllGrants, viewRoster, loadRoster, setRosterFilter, renderRosterTable, showCredential, showCredentialList, setEmptyTaskHome, jumpToSubmitResults};', context);
+vm.runInContext(source + '\nthis.app = {state, route, useVersionAsBase, loadDesignVersion, cacheDesignInputs, restoreDesignInputs, recoverDesignInput, recoverDesignInput, paintChat, runAgent, runExport, deliveryHistoryHtml, deliverySnapshotStatusHtml, loadDeliveryHistory, inspectSnapshot, paintSnapshot, agentEvidenceSummaryHtml, canPublishDesign, publishDiffHtml, designVersionImpactHtml, publishGovernanceHtml, publishBp, confirmPublish, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, fmtTimeShort, designReadinessHtml, designProgressHtml, applyDraft, draftFingerprint, collectDraftFields, paintSubmitterNextStep, submitterNextStepHtml, setSubMode, moveSubmitModeTab, setDesignTab, moveDesignTab, refreshSlotConditions, wbMatches, api, apiError, submitDecision, saveDraft, doSubmit, doSubLogin, uploadSlot, deleteSlotFile, cacheReviewDraft, discardReviewDraft, logout, nextPendingReview, setReviewFilter, setReviewTraceFilter, selectReviewRule, viewReview, reviewRevisionHistoryHtml, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, chooseWorkbenchNextStep, workbenchNextStepHtml, agentRunCard, agentTourHtml, agentTourRuntimeHtml, runtimeSelfTestHtml, submitterGuidance, ruleCard, receiptFilesHtml, submissionIssues, checkAgentRequestNow, resumePendingAgentRequest, savePendingAgentRequest, agentRequestProgressHtml, retryAgent, pollAgentRequest, showSubmissionIssues, initSubChat, demoRouteTask, demoRouteHtml, demoRouteCueHtml, copyDemoRouteCue, agentArchitectureRailHtml, agentQuickReadHtml, agentShowcaseHtml, runStageReplayHtml, paintAgentShowcase, jumpToRunStage, mcpSnapshotHtml, renderDemoRoute, paintWorkspaceAgentStatus, paintAgentRuntime, paintAgentRuntimeContractIssue, viewLogin, viewSubmit, switchLoginTab, moveLoginTab, setFlash, openDialog, readPresentationMode, showcaseReturnHtml, applyPresentationMode, setPresentationMode, togglePresentationMode, fillDemoCred, doLogin, issueGrant, issueAllGrants, viewRoster, loadRoster, setRosterFilter, renderRosterTable, showCredential, showCredentialList, setEmptyTaskHome, jumpToSubmitResults};', context);
   context.app.submissionMatchesReceipt = context.submissionMatchesReceipt;
+  context.app.cacheSubmissionDraft = vm.runInContext('cacheSubmissionDraft', context);
   context.app.refreshSubmitAction = context.refreshSubmitAction;
   context.app.deliverySnapshotStatusHtml = context.deliverySnapshotStatusHtml;
   context.app.afterSlotUpload = context.afterSlotUpload;
@@ -2302,6 +2303,41 @@ test('roster avatar keeps its centered identity style instead of the metadata tr
   assert.match(avatarRule[1], /align-items\s*:\s*center/);
   assert.match(avatarRule[1], /justify-content\s*:\s*center/);
   assert.match(avatarRule[1], /white-space\s*:\s*normal/);
+});
+test('single credential issuance ignores repeated clicks until roster state is refreshed', async () => {
+  const {app,context,els} = setup();
+  const entries = [{id:1,name:'甲同学',ref:'一班',granted:false,exempt:false}];
+  app.state.rosterTaskId = 7;
+  app.state.rosterEntries = entries;
+  app.state.roster = {1: entries[0]};
+  app.renderRosterTable();
+  const rowButton = element();
+  rowButton.dataset.rosterEntry = '1';
+  context.document.querySelectorAll = selector => selector === '.roster-actions button' ? [rowButton] : [];
+  let resolveGrant, grants = 0;
+  context.fetch = async url => {
+    if (url.endsWith('/grants')) {
+      grants++;
+      return new Promise(resolve => { resolveGrant = resolve; });
+    }
+    return response({entries:[{...entries[0],granted:true}],total:1,granted:1,exempt:0});
+  };
+
+  const first = app.issueGrant(7,1);
+  await Promise.resolve();
+  assert.equal(app.state.rosterGrantBusy,true);
+  assert.equal(rowButton.disabled,true);
+  assert.equal(rowButton.textContent,'正在处理…');
+  await app.issueGrant(7,1);
+  assert.equal(grants,1,'a second activation must not rotate the one-time credential');
+
+  resolveGrant(response({credential:'one-time-credential'}));
+  await first;
+  assert.equal(app.state.rosterGrantBusy,false);
+  assert.equal(grants,1);
+  assert.match(els['grant-out'].innerHTML,/one-time-credential/);
+  assert.equal(rowButton.disabled,false);
+  assert.equal(rowButton.textContent,'重发凭证');
 });
 test('bulk credential issuance keeps successful one-time tokens visible after a partial failure', async () => {
   const {app,context,els} = setup();
