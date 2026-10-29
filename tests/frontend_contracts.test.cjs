@@ -2313,7 +2313,15 @@ test('single credential issuance ignores repeated clicks until roster state is r
   app.renderRosterTable();
   const rowButton = element();
   rowButton.dataset.rosterEntry = '1';
-  context.document.querySelectorAll = selector => selector === '.roster-actions button' ? [rowButton] : [];
+  const importButton = element(), filterButton = element();
+  const importInput = element(), importText = element();
+  context.document.querySelectorAll = selector => {
+    if (selector === '.roster-actions button') return [rowButton];
+    if (selector === '.roster-import input, .roster-import textarea, .roster-import button, .roster-list > .section-heading button, .roster-actions button, #roster-filter button') {
+      return [importButton, filterButton, importInput, importText, rowButton, els['roster-grant-all']];
+    }
+    return [];
+  };
   let resolveGrant, grants = 0;
   context.fetch = async url => {
     if (url.endsWith('/grants')) {
@@ -2328,6 +2336,11 @@ test('single credential issuance ignores repeated clicks until roster state is r
   assert.equal(app.state.rosterGrantBusy,true);
   assert.equal(rowButton.disabled,true);
   assert.equal(rowButton.textContent,'正在处理…');
+  assert.equal(importButton.disabled,true);
+  assert.equal(filterButton.disabled,true);
+  assert.equal(importInput.disabled,true);
+  assert.equal(importText.disabled,true);
+  assert.equal(els['roster-grant-all'].disabled,true);
   await app.issueGrant(7,1);
   assert.equal(grants,1,'a second activation must not rotate the one-time credential');
 
@@ -2338,6 +2351,41 @@ test('single credential issuance ignores repeated clicks until roster state is r
   assert.match(els['grant-out'].innerHTML,/one-time-credential/);
   assert.equal(rowButton.disabled,false);
   assert.equal(rowButton.textContent,'重发凭证');
+  assert.equal(importButton.disabled,false);
+  assert.equal(filterButton.disabled,false);
+  assert.equal(importInput.disabled,false);
+  assert.equal(importText.disabled,false);
+  assert.equal(els['roster-grant-all'].disabled,false);
+});
+test('roster controls remain locked when credential refresh fails', async () => {
+  const {app,context,els} = setup();
+  const entry = {id:1,name:'甲同学',ref:'一班',granted:false,exempt:false};
+  app.state.rosterTaskId = 7;
+  app.state.rosterEntries = [entry];
+  app.state.roster = {1:entry};
+  const rowButton = Object.assign(element(), {dataset:{rosterEntry:'1'}});
+  const importButton = element(), filterButton = element();
+  context.document.querySelectorAll = selector => {
+    if (selector === '.roster-actions button') return [rowButton];
+    if (selector === '.roster-import input, .roster-import textarea, .roster-import button, .roster-list > .section-heading button, .roster-actions button, #roster-filter button') {
+      return [importButton,filterButton,rowButton,els['roster-grant-all']];
+    }
+    return [];
+  };
+  context.document.querySelector = selector => selector === '#roster-load-state [role=alert]'
+    && els['roster-load-state'].innerHTML.includes('role="alert"') ? {} : null;
+  context.fetch = async url => url.endsWith('/grants')
+    ? response({credential:'one-time-credential'})
+    : response({detail:'名册不可用'},503);
+
+  await app.issueGrant(7,1);
+
+  assert.equal(app.state.rosterGrantBusy,false);
+  assert.match(els['roster-load-state'].innerHTML,/role="alert"/);
+  assert.equal(importButton.disabled,true);
+  assert.equal(filterButton.disabled,true);
+  assert.equal(rowButton.disabled,true);
+  assert.equal(els['roster-grant-all'].disabled,true);
 });
 test('bulk credential issuance keeps successful one-time tokens visible after a partial failure', async () => {
   const {app,context,els} = setup();

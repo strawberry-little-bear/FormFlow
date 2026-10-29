@@ -2710,16 +2710,17 @@ async function loadRoster(taskId) {
 
 function setRosterGrantBusy(busy) {
   state.rosterGrantBusy = busy;
-  const controls = document.querySelectorAll?.(".roster-actions button") || [];
-  controls.forEach(button => {
-    button.disabled = busy;
+  const controlsLocked = busy || !!document.querySelector?.("#roster-load-state [role=alert]");
+  const controls = document.querySelectorAll?.(".roster-import input, .roster-import textarea, .roster-import button, .roster-list > .section-heading button, .roster-actions button, #roster-filter button") || [];
+  controls.forEach(control => { control.disabled = controlsLocked; });
+  const rowButtons = document.querySelectorAll?.(".roster-actions button") || [];
+  rowButtons.forEach(button => {
     const entry = state.roster[button.dataset.rosterEntry];
     button.textContent = busy ? "正在处理…" : entry?.granted ? "重发凭证" : "发放凭证";
   });
   const bulkButton = document.getElementById("roster-grant-all");
   if (bulkButton) {
-    const hasLoadError = !!document.querySelector?.("#roster-load-state [role=alert]");
-    bulkButton.disabled = busy || hasLoadError;
+    bulkButton.disabled = controlsLocked;
     bulkButton.textContent = busy ? "正在发放…" : "为全部待发放主体发放";
   }
 }
