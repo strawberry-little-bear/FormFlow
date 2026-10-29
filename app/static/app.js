@@ -4008,11 +4008,18 @@ function refreshSubmitAction() {
   const button = document.querySelector(".submit-action-primary");
   if (!button || !state.receipt) return;
   const unchanged = submissionMatchesReceipt(collectDraftFields(), state.files);
-  button.disabled = state.submitterReadOnly || unchanged;
+  button.disabled = state.submitterReadOnly;
   const label = state.receipt.formal
-    ? unchanged ? "当前版本已提交" : "提交更正版本并重新核对"
+    ? unchanged ? "查看核对记录" : "提交更正版本并重新核对"
     : "提交材料并开始核对";
   button.innerHTML = label + " " + icon("arrow");
+}
+function submitPrimaryAction() {
+  if (state.receipt?.formal && submissionMatchesReceipt(collectDraftFields(), state.files)) {
+    jumpToSubmitResults();
+    return;
+  }
+  return doSubmit();
 }
 function submissionContext() {
   const epoch = state.routeEpoch, key = draftCacheKey(), token = subToken();
@@ -4183,7 +4190,7 @@ async function viewSubmit() {
               <button class="ghost submit-action-save" onclick="saveDraft()" ${ro ? "disabled" : ""}>保存草稿</button>
               <span class="muted" id="draft-hint">${draft.draft_version ? `草稿版本 ${draft.draft_version}` : "尚未保存草稿"}${draft.updated_at ? ` · ${esc(fmtTime(draft.updated_at))}` : ""}</span>
             </div>
-            <div class="submit-primary-dock"><button class="submit-action-primary" onclick="doSubmit()" ${ro || submissionMatchesReceipt(draft.fields, state.files, receipt) ? "disabled" : ""}>${receipt.formal && submissionMatchesReceipt(draft.fields, state.files, receipt) ? "当前版本已提交" : receipt.formal ? "提交更正版本并重新核对" : "提交材料并开始核对"} ${icon("arrow")}</button></div>
+            <div class="submit-primary-dock"><button class="submit-action-primary" onclick="submitPrimaryAction()" ${ro ? "disabled" : ""}>${receipt.formal && submissionMatchesReceipt(draft.fields, state.files, receipt) ? "查看核对记录" : receipt.formal ? "提交更正版本并重新核对" : "提交材料并开始核对"} ${icon("arrow")}</button></div>
             <div id="receipt-out"></div>
           </section>
           <aside class="submit-side">

@@ -47,6 +47,7 @@ vm.runInContext(source + '\nthis.app = {state, route, useVersionAsBase, loadDesi
   context.app.submissionMatchesReceipt = context.submissionMatchesReceipt;
   context.app.cacheSubmissionDraft = vm.runInContext('cacheSubmissionDraft', context);
   context.app.refreshSubmitAction = context.refreshSubmitAction;
+  context.app.submitPrimaryAction = context.submitPrimaryAction;
   context.app.deliverySnapshotStatusHtml = context.deliverySnapshotStatusHtml;
   context.app.afterSlotUpload = context.afterSlotUpload;
   context.app.agentRuntimeContractIssue = context.agentRuntimeContractIssue;
@@ -3336,6 +3337,7 @@ test('submitter actions keep the primary action readable on narrow screens', () 
   assert.match(source, /submit-action-reload/);
   assert.match(source, /submit-action-save/);
   assert.match(source, /submit-action-primary/);
+  assert.match(source, /onclick="submitPrimaryAction\(\)"/);
   assert.match(source, /class="submit-primary-dock"><button class="submit-action-primary"/);
   assert.match(styleSource, /@media\(max-width:360px\)[\s\S]*submit-actions > button\.ghost\.sm\.submit-action-reload \{ min-height:42px/);
   assert.match(styleSource, /@media\(max-width:480px\)[\s\S]*submit-primary-dock\.is-docked \{[\s\S]*position:fixed/);
@@ -3458,8 +3460,8 @@ test('creating a snapshot ignores repeated clicks while the request is pending',
   assert.equal(button.innerHTML, '固定一份新快照');
 });
 
-test('unchanged formal content disables correction until a field or attachment changes', () => {
-  const {app, document, fields} = setup();
+test('unchanged formal content routes the primary action to results; changed content enables correction', async () => {
+  const {context, app, document, fields, els} = setup();
   const button = element();
   document.querySelector = selector => selector === '.submit-action-primary' ? button : null;
   app.state.receipt = {formal:true, fields:{name:'old'}, slot_file_ids:{report:['file-a']}};
@@ -3467,12 +3469,20 @@ test('unchanged formal content disables correction until a field or attachment c
   assert.equal(app.submissionMatchesReceipt({name:'old'}, app.state.files), true);
   app.state.submitterReadOnly = false;
   app.refreshSubmitAction();
-  assert.equal(button.disabled, true);
-  assert.match(button.innerHTML, /当前版本已提交/);
+  assert.equal(button.disabled, false);
+  assert.match(button.innerHTML, /查看核对记录/);
+  let submitted = false;
+  context.doSubmit = () => { submitted = true; };
+  await app.submitPrimaryAction();
+  assert.equal(els['my-results-card'].scrolled, true);
+  assert.equal(els['my-results-card'].focused, true);
+  assert.equal(submitted, false);
   fields[0].value = 'new';
   app.refreshSubmitAction();
   assert.equal(button.disabled, false);
   assert.match(button.innerHTML, /提交更正版本并重新核对/);
+  await app.submitPrimaryAction();
+  assert.equal(submitted, true);
   fields[0].value = 'old';
   app.state.files.report.push('file-b');
   app.refreshSubmitAction();
