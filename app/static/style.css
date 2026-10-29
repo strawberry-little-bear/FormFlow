@@ -3979,7 +3979,7 @@ a.wb-next-action:hover, button.wb-next-action:hover { background:var(--brand-dee
   .submit-actions { gap:7px; }
   .submit-actions .submit-action-reload,
   .submit-actions .submit-action-primary { flex-basis:100%; }
-  .submit-actions .submit-action-reload { min-height:42px; text-align:center; white-space:nowrap; overflow:visible; text-overflow:clip; }
+  .submit-actions > button.ghost.sm.submit-action-reload { min-height:42px; text-align:center; white-space:nowrap; overflow:visible; text-overflow:clip; }
 }
 
 /* ---------------------------------------------------------------- 设计台：版本与发布摘要 */

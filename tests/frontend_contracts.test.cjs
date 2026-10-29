@@ -2997,7 +2997,8 @@ test('submitter actions keep the primary action readable on narrow screens', () 
   assert.match(source, /submit-action-reload/);
   assert.match(source, /submit-action-save/);
   assert.match(source, /submit-action-primary/);
-  assert.match(styleSource, /@media\(max-width:360px\)[\s\S]*submit-action-reload[\s\S]*submit-action-primary/);
+  assert.match(styleSource, /@media\(max-width:360px\)[\s\S]*submit-actions > button\.ghost\.sm\.submit-action-reload \{ min-height:42px/);
+  assert.match(styleSource, /@media\(max-width:360px\)[\s\S]*submit-action-primary/);
 });
 test('review summary explains when manual decisions are included in satisfied totals', async () => {
   const env=setup(), page=reviewPage(reviewScope('a'));
