@@ -153,7 +153,10 @@ function showTaskListFromPresentation() {
   const target = document.querySelector?.('.task-section');
   if (!target) return;
   const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
-  requestAnimationFrame?.(() => target.scrollIntoView?.({behavior: reduceMotion ? 'auto' : 'smooth', block: 'start'}));
+  requestAnimationFrame?.(() => {
+    target.scrollIntoView?.({behavior: reduceMotion ? 'auto' : 'smooth', block: 'start'});
+    target.focus?.({preventScroll: true});
+  });
 }
 function openDemoEvidenceFold() {
   const details = document.querySelector?.(".demo-route-evidence-fold");
@@ -1256,7 +1259,7 @@ async function viewTasks() {
       <div class="page-heading-actions"><button class="ghost presentation-agent-jump" onclick="jumpToAgentTour()">${icon("sparkle")} 查看 Agent 架构</button><button id="presentation-toggle" class="ghost presentation-toggle" aria-pressed="false" onclick="togglePresentationMode()">${icon("expand")} 进入展示视图</button><button onclick="openDialog('create-dialog', this)">${icon("plus")} 新建收集任务</button></div></div>
     <div id="flash" role="status"></div>
     <div id="task-stats" class="overview-stats"></div>
-    <section class="card task-section"><div class="section-toolbar"><div class="task-filters" role="group" aria-label="任务状态筛选">
+    <section class="card task-section" tabindex="-1" aria-label="我的任务列表"><div class="section-toolbar"><div class="task-filters" role="group" aria-label="任务状态筛选">
       <button class="filter active" data-filter="all" onclick="filterTasks('all')">全部任务</button>
       <button class="filter" data-filter="collecting" onclick="filterTasks('collecting')">收集中</button>
       <button class="filter" data-filter="draft" onclick="filterTasks('draft')">草稿</button>

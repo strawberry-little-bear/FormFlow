@@ -1006,6 +1006,7 @@ test('show my tasks exits presentation mode and scrolls the list into view', () 
   const taskSection = element();
   const scrollCalls = [];
   taskSection.scrollIntoView = options => scrollCalls.push(options);
+  taskSection.focus = options => { taskSection.focused = true; taskSection.focusOptions = options; };
   context.document.querySelector = selector => selector === '.task-section' ? taskSection : null;
   context.window.matchMedia = () => ({matches: false});
 
@@ -1016,12 +1017,16 @@ test('show my tasks exits presentation mode and scrolls the list into view', () 
   assert.equal(context.sessionStorage.getItem('ff_tasks_presentation'), null);
   assert.equal(scrollCalls[0].behavior, 'smooth');
   assert.equal(scrollCalls[0].block, 'start');
+  assert.equal(taskSection.focused, true);
+  assert.equal(taskSection.focusOptions.preventScroll, true);
+  assert.match(source, /<section class="card task-section" tabindex="-1" aria-label="我的任务列表"/);
 
   context.window.matchMedia = () => ({matches: true});
   app.setPresentationMode(true);
   vm.runInContext('showTaskListFromPresentation()', context);
   assert.equal(scrollCalls[1].behavior, 'auto');
   assert.equal(scrollCalls[1].block, 'start');
+  assert.equal(taskSection.focused, true);
 });
 test('presentation agent shortcut opens the walkthrough and moves keyboard focus', () => {
   const {context} = setup();
