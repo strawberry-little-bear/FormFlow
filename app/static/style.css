@@ -5427,6 +5427,13 @@ body.presentation-mode #app.task-home-empty .task-section { display:block; }
 
 .design-jump-nav { display:none; }
 #design-chat, #draft-panel { scroll-margin-top:76px; }
+@media (min-width:981px) {
+  .login-panel h2 { margin-bottom:18px; }
+  .login-panel .tip { margin-bottom:22px; }
+  .login-panel .tabs { min-height:44px; margin:16px 0 30px; }
+  .login-panel .demo-hint { margin-top:18px; padding:14px 16px; }
+  .login-panel input { min-height:48px; }
+}
 @media (max-width:700px) {
   .design-jump-nav {
     position:sticky;
