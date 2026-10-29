@@ -298,3 +298,5 @@ git diff --check
 - [交互修复记录](docs/interaction-optimization.md)：历史进展、自动化与浏览器验证分开记录。
 
 按项目约定**仅在 `main` 开发**，开始和提交前同步远端；不创建额外功能分支、不强推、不改写已发布历史。提交身份为 `strawberry-little-bear`，邮箱 `182593643+strawberry-little-bear@users.noreply.github.com`。
+
+2026-10-29 任务首页收敛：已有任务时，普通工作区只突出任务列表；完整 Agent 路线、运行时信息与架构导览通过“进入展示视图”保留。无任务时继续显示首个任务引导。Python 全量 448 项、前端契约 211 项通过，JS 语法及差异空白检查通过。

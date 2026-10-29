@@ -5404,6 +5404,12 @@ body.presentation-mode .demo-route-audience { display:none; }
   body.presentation-mode .agent-tour-boundary b { font-size:12px; }
 }
 
+/* Keep populated workspaces focused; the full tour remains in presentation mode. */
+body:not(.presentation-mode) #app:not(.task-home-empty) #demo-route,
+body:not(.presentation-mode) #app:not(.task-home-empty) .workspace-intro,
+body:not(.presentation-mode) #app:not(.task-home-empty) .workspace-runtime-strip,
+body:not(.presentation-mode) #app:not(.task-home-empty) .agent-tour { display:none; }
+
 /* Put the first task action ahead of sections that only help once work exists. */
 #app.task-home-empty #demo-route,
 #app.task-home-empty .workspace-intro,

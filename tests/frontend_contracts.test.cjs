@@ -661,13 +661,15 @@ test('MCP snapshot gives explicit pending, refresh and error states', () => {
   assert.match(app.mcpSnapshotHtml(), /正在刷新只读快照/);
   assert.match(styleSource, /\.mcp-snapshot-state\.error/);
 });
-test('empty task home prioritizes first-task creation while populated workspaces restore showcase sections', () => {
+test('task home keeps populated workspaces focused and preserves the full showcase in presentation mode', () => {
   const {app, els} = setup();
   app.setEmptyTaskHome(true);
   assert.equal(els.app.classList.contains('task-home-empty'), true);
   app.setEmptyTaskHome(false);
   assert.equal(els.app.classList.contains('task-home-empty'), false);
+  assert.match(styleSource, /body:not\(\.presentation-mode\) #app:not\(\.task-home-empty\) #demo-route,[\s\S]*body:not\(\.presentation-mode\) #app:not\(\.task-home-empty\) \.agent-tour \{ display:none; \}/);
   assert.match(styleSource, /#app\.task-home-empty #demo-route[\s\S]*#app\.task-home-empty \.task-section \.section-toolbar \{ display:none; \}/);
+  assert.match(styleSource, /body\.presentation-mode \.workspace-runtime-strip \{ display:none; \}/);
 });
 test('demo route exposes organizer and submitter lanes for a complete showcase', () => {
   const {app} = setup();
