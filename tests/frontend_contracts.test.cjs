@@ -2368,6 +2368,9 @@ test('confirmed issues remain visible as problems in review and submitter detail
 });
 test('human resolution moves raw unknown out of submitter todo without hiding evidence', async () => {
   const {app,els,context} = setup();
+  let refreshDelay = null;
+  context.setTimeout = (_callback, delay) => { refreshDelay = delay; return 1; };
+  context.clearTimeout = () => {};
   context.fetch=async()=>response({summary:'规则通过（待人工验收）',buckets:{},details:[{
     rule_id:'R',result:'unknown',explanation:'机器原先未读到',evidence:[{quote:'原文已核对'}],
     decision:{decision:'confirm_pass',reason:'人工核对原文通过',resolves:true}}]});
@@ -2377,6 +2380,7 @@ test('human resolution moves raw unknown out of submitter todo without hiding ev
   assert.match(els['my-results'].innerHTML,/人工核对原文通过/);
   assert.match(els['my-results'].innerHTML,/系统当时还不能确认这一项/);
   assert.match(els['my-results'].innerHTML,/组织者后续人工核对结果/);
+  assert.equal(refreshDelay,30000);
 });
 
 
