@@ -20,3 +20,9 @@
 - 同一隔离服务的 Showcase Harness 在 1440、1366、390、320px 完成 28 条路由，均无横向溢出、控制台/页面错误或异常 HTTP 响应。机器报告保存在被 Git 忽略的 `data/ux-review-2026-10-30-contrast/`。
 - 单字品牌标识仍是 axe 自动对比度判读项；真实屏幕阅读器与辅助技术用户测试仍未覆盖。
 - 2026-10-30 补扫已登录的提交者逐步填写流程（赵六虚构凭证）：对话滚动区 `tabIndex=0`，axe 明确违规 0 项，控制台错误 0 项；axe 仍将渐变或复杂背景上的文本列为 `incomplete`，不计作确认违规。
+
+## 提交者页可选扫描入口
+
+`scripts/ux_accessibility_check.cjs` 默认扫描组织者与提交者登录入口及组织者工作区。设置 `FORMFLOW_ACCESSIBILITY_CREDENTIAL` 后，脚本会继续使用该提交者凭证登录并扫描逐步填写表单；凭证只从当前进程环境读取，不写入报告。`FORMFLOW_ACCESSIBILITY_BASE` 可指定本地演示地址，`FORMFLOW_ACCESSIBILITY_OUT` 可指定 JSON 报告目录。axe-core 仍是可选的外部依赖，可用 `FORMFLOW_AXE_MODULE` 指定模块位置。
+
+2026-10-30 在隔离 SQLite 虚构种子、空模型密钥和提交者登录凭证下运行新入口：组织者登录及六个工作区页、提交者登录、已登录提交者表单，共 9 页；明确违规 0 项，浏览器控制台错误、页面异常和 HTTP 失败均为 0。渐变背景文字仍由 axe 列为 `incomplete`，不是确认违规；自动扫描不能替代屏幕阅读器和真实辅助技术用户测试。凭证及逐页机器报告保存在 `%TEMP%` 临时目录，不提交到仓库。
