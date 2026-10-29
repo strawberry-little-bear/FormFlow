@@ -802,6 +802,8 @@ function renderNav() {
   const activeHash = parts[0] === "review" ? `#/workbench/${taskId}` : location.hash;
   nav.innerHTML = '<span class="nav-caption">工作空间</span>' + items.map(([href, label, ic], i) =>
     `${i === 1 && taskId ? '<span class="nav-caption task-caption">当前任务</span>' : ''}<a href="${href}" ${activeHash === href ? 'aria-current="page"' : ''} class="${activeHash === href ? "active" : ""}">${icon(ic)}${label}</a>`).join("");
+  const activeLink = nav.querySelector("a.active");
+  if (activeLink && nav.scrollWidth > nav.clientWidth) activeLink.scrollIntoView({block: "nearest", inline: "nearest"});
 }
 
 function logout() {

@@ -51,6 +51,19 @@ async function captureRouteEvidence(page, viewport, route) {
       const rect = heading.getBoundingClientRect();
       return rect.top >= -4 && rect.bottom <= window.innerHeight;
     })(),
+    activeNav: (() => {
+      const nav = document.querySelector('#nav');
+      const active = nav?.querySelector('a.active');
+      if (!nav || !active) return {exists: false, visible: false, scrollLeft: 0};
+      const navRect = nav.getBoundingClientRect();
+      const activeRect = active.getBoundingClientRect();
+      return {
+        exists: true,
+        visible: activeRect.left >= navRect.left - 1 && activeRect.right <= navRect.right + 1,
+        scrollLeft: Math.round(nav.scrollLeft),
+        label: active.textContent.replace(/\s+/g, ' ').trim(),
+      };
+    })(),
   }));
   const screenshot = OUT
     ? path.posix.join('screenshots', viewport.name, `${route.name}.png`)
@@ -284,11 +297,13 @@ async function main() {
             scrollY: evidence.scrollY,
             headingBounds: evidence.headingBounds,
             headingInViewport: evidence.headingInViewport,
+            activeNav: evidence.activeNav,
             screenshot: evidence.screenshot,
             designScroll,
             ok: missing.length === 0 && !loadingStuck
               && evidence.hash === route.hash && !!evidence.heading
               && evidence.scrollY <= 2 && evidence.headingInViewport
+              && evidence.activeNav.exists && evidence.activeNav.visible
               && (!designScroll || designScroll.ok),
             missing,
             loadingStuck,
@@ -326,6 +341,8 @@ async function main() {
       || !route.heading
       || route.scrollY > 2
       || !route.headingInViewport
+      || !route.activeNav?.exists
+      || !route.activeNav?.visible
       || route.accessibility?.unnamed?.length
       || route.accessibility?.unlabeledFields?.length
       || !route.accessibility?.hasRouteFocusTarget)) report.passed = false;

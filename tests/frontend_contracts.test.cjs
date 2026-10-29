@@ -1761,6 +1761,16 @@ test('dual identity navigation reflects the current role and review highlights w
   assert.equal(els['role-label'].textContent,'组织者');
   assert.match(els.nav.innerHTML, /href="#\/workbench\/1" aria-current="page"/);
 });
+test('overflowing narrow navigation scrolls the active route into view', () => {
+  const {app,context,els}=setup();
+  context.localStorage.setItem('ff_org_token','org-test');
+  context.location.hash='#/delivery/1';
+  let scrolled=false;
+  els.nav.scrollWidth=900;els.nav.clientWidth=280;
+  els.nav.querySelector=selector=>selector==='a.active'?{scrollIntoView(options){scrolled=true;assert.deepEqual({...options},{block:'nearest',inline:'nearest'});}}:null;
+  app.renderNav();
+  assert.equal(scrolled,true);
+});
 test('results poll only while pending, preserve explanation and ignore stale responses', async () => {
   const {app,context,els}=setup();let next,clears=0;
   context.setTimeout=fn=>{next=fn;return 1;};context.clearTimeout=()=>{clears++;next=null;};
