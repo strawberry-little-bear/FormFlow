@@ -1084,6 +1084,12 @@ test('showcase browser harness checks and captures the login first screen at eac
   assert.match(showcaseHarnessSource, /captureRouteEvidence\(page, viewport, \{name: 'login'\}\)/);
   assert.match(showcaseHarnessSource, /viewportReport\.loginSurface = await enterDemo\(page, viewport\)/);
 });
+test('desktop login spacing and input targets stay scoped away from compact layouts', () => {
+  assert.match(styleSource, /@media\s*\(min-width:\s*981px\)\s*\{\s*\.login-panel h2 \{ margin-bottom:18px; \}/);
+  assert.match(styleSource, /\.login-panel \.tabs \{ min-height:44px; margin:16px 0 30px; \}/);
+  assert.match(styleSource, /\.login-panel input \{ min-height:48px; \}/);
+  assert.match(indexSource, /style\.css\?v=20261030-6/);
+});
 test('demo entry appears before credential fields on the organizer login tab', () => {
   const {app, els} = setup();
   app.viewLogin();
