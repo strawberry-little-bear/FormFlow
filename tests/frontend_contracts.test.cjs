@@ -1910,6 +1910,10 @@ test('submitter next-step band follows draft and review state without inventing 
   context.jumpToSubmitResults();
   assert.equal(els['my-results-card'].scrolled,true);
   assert.equal(els['my-results-card'].focused,true);
+  assert.match(source,/id="my-results-card"[^>]*aria-labelledby="my-results-heading"/);
+  assert.match(source,/id="my-results-heading">这份材料核对到哪了/);
+  assert.match(styleSource,/\.my-results-card\s*\{[^}]*scroll-margin-top:\s*88px/s);
+  assert.match(styleSource,/@media\(max-width:700px\)\s*\{\s*\.my-results-card\s*\{[^}]*scroll-margin-top:\s*16px/s);
   assert.match(styleSource,/\.submit-next-step/);
 });
 test('result load failure is visible and does not replace existing results', async () => {

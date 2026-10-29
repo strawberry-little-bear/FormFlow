@@ -4140,7 +4140,7 @@ async function viewSubmit() {
             </section>
           </aside>
         </div>
-        <section id="my-results-card" class="card my-results-card" tabindex="-1"><div class="section-heading"><div><div class="eyebrow">材料进度</div><h2>这份材料核对到哪了</h2></div><span class="muted">提交后的状态与下一步</span></div><div id="my-results"><p class="muted">—</p></div></section>
+        <section id="my-results-card" class="card my-results-card" tabindex="-1" aria-labelledby="my-results-heading"><div class="section-heading"><div><div class="eyebrow">材料进度</div><h2 id="my-results-heading">这份材料核对到哪了</h2></div><span class="muted">提交后的状态与下一步</span></div><div id="my-results"><p class="muted">—</p></div></section>
       </div>`;
     document.querySelectorAll("[data-field]").forEach(el =>
       el.addEventListener("input", () => {

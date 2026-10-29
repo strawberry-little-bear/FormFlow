@@ -4030,7 +4030,7 @@ a.wb-next-action:hover, button.wb-next-action:hover { background:var(--brand-dee
 }
 
 /* 提交者检查结果：嵌套内容不再套卡片，保持单层阅读 */
-.my-results-card { padding:22px 24px; }
+.my-results-card { padding:22px 24px; scroll-margin-top:88px; }
 .my-results-card .card {
   border:0; padding:0; margin:0; border-radius:0; background:transparent;
 }
@@ -4047,7 +4047,7 @@ a.wb-next-action:hover, button.wb-next-action:hover { background:var(--brand-dee
 .result-next-step b { display:block; color:var(--brand-deep); font-size:11px; margin-bottom:3px; }
 .result-next-step p { margin:0; color:#484c57; font-size:12px; line-height:1.7; }
 @media(max-width:700px) {
-  .my-results-card { padding:17px; }
+  .my-results-card { padding:17px; scroll-margin-top:16px; }
   .result-rule-card h3 { font-size:14px; }
 }
 
