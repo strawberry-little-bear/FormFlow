@@ -89,6 +89,44 @@ fs.mkdirSync(OUT, { recursive: true });
     if (!formalGuidanceVisible) throw new Error('Formal submission still shows pre-submission guidance.');
     await page.screenshot({ path: path.join(OUT, 'submitter-receipt.png'), fullPage: true });
 
+    const checkResultsJump = async width => {
+      const button = page.locator('button:has-text("查看核对记录")').first();
+      if (!await button.count()) throw new Error(`正式提交后缺少核对记录入口：${width}px`);
+      await button.click();
+      await page.waitForFunction(() => {
+        const target = document.querySelector('#my-results-card');
+        return target && document.activeElement === target
+          && target.getBoundingClientRect().top >= 0
+          && target.getBoundingClientRect().top < 140;
+      });
+      const evidence = await page.evaluate(() => {
+        const target = document.querySelector('#my-results-card');
+        const heading = document.querySelector('#my-results-heading');
+        const topbar = document.querySelector('.topbar');
+        const targetRect = target.getBoundingClientRect();
+        const headingRect = heading.getBoundingClientRect();
+        const topbarRect = topbar?.getBoundingClientRect();
+        return {
+          viewport: document.documentElement.clientWidth,
+          focused: document.activeElement === target,
+          targetTop: Math.round(targetRect.top),
+          headingTop: Math.round(headingRect.top),
+          headingBottom: Math.round(headingRect.bottom),
+          topbarBottom: topbar && getComputedStyle(topbar).display !== 'none' ? Math.round(topbarRect.bottom) : 0,
+          accessibleName: target.getAttribute('aria-labelledby') === 'my-results-heading' ? heading.textContent.trim() : '',
+          scrollMarginTop: getComputedStyle(target).scrollMarginTop,
+        };
+      });
+      const visibleBelowStickyBar = evidence.headingTop >= evidence.topbarBottom
+        && evidence.headingBottom <= (await page.evaluate(() => innerHeight));
+      if (!evidence.focused || !evidence.accessibleName || !visibleBelowStickyBar) {
+        throw new Error(`核对记录跳转未将标题和焦点带入可见区域：${JSON.stringify(evidence)}`);
+      }
+      return evidence;
+    };
+
+    const resultsNavigation = { desktop: await checkResultsJump(1440) };
+
     const mobile = [];
     for (const width of [390, 320]) {
       await page.setViewportSize({ width, height: 844 });
@@ -104,6 +142,7 @@ fs.mkdirSync(OUT, { recursive: true });
         };
       });
       mobile.push({ width, ...measurement });
+      if (width === 320) resultsNavigation.mobile320 = await checkResultsJump(width);
       await page.screenshot({
         path: path.join(OUT, `submitter-receipt-${width}.png`),
         fullPage: true,
@@ -121,6 +160,7 @@ fs.mkdirSync(OUT, { recursive: true });
       submitStatus: submitted.status(),
       receiptVisible: await page.getByText(/已正式提交 · v1/).count() > 0,
       formalGuidanceVisible,
+      resultsNavigation,
       mobile,
       consoleErrors,
       pageErrors,

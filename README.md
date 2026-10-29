@@ -88,6 +88,14 @@ FORMFLOW_SHOWCASE_BASE=http://127.0.0.1:8000 node scripts/showcase_check.cjs
 
 它会在 1440、1366、390、320px 下走登录、展示首页、需求设计、工作台、复核、交付和两个无效 ID 失败态；检查关键入口、展示模式退出后的任务列表可见性与键盘焦点、加载占位是否被替换、横向溢出、控制台错误及非预期 HTTP 失败。将 `FORMFLOW_SHOWCASE_OUT` 设为输出目录后，报告会写入该目录下的 `showcase-results.json`，每条路由还会保存对应视口截图到 `screenshots/<视口>/<路由>.png`；报告记录实际 URL hash 与页面标题，并在路由不匹配或缺少标题时判失败，避免截图和验收路由错配。该脚本只读访问演示服务，不创建或修改任务数据。
 
+提交者完整流程使用独立走查脚本，并会实际上传、保存和提交虚构材料，因此只能指向隔离的演示数据库：
+
+```bash
+FORMFLOW_WALKTHROUGH_CREDENTIAL=your-demo-token node scripts/ux_submitter_full_walkthrough.cjs
+```
+
+该流程覆盖凭证登录、表单、附件、服务器草稿恢复、正式提交和回执；在桌面与 320px 手机视口点击“查看核对记录”，验证焦点、可访问名称及结果标题未被粘性导航栏遮住。报告和截图默认写入 `docs/ux-review-2026-10-25/submitter-full/`，也可用 `FORMFLOW_WALKTHROUGH_OUT` 指定输出目录。
+
 API 与 Worker 日志保存在 `data/demo/logs/`。停止命令只处理启动器登记的演示进程；若 8000 端口被其他程序占用，启动会报错且保留现有演示数据。
 
 停止服务：`python scripts/start_demo.py --stop`。停止命令会使用启动器记录的 API 与 Worker 进程，不依赖端口参数。
