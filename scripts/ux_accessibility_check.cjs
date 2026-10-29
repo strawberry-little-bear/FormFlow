@@ -4,6 +4,7 @@ const path = require('node:path');
 const { launchChromium } = require('./ux_browser.cjs');
 
 const BASE = process.env.FORMFLOW_ACCESSIBILITY_BASE || 'http://127.0.0.1:8000';
+const SUBMITTER_CREDENTIAL = process.env.FORMFLOW_ACCESSIBILITY_CREDENTIAL?.trim() || '';
 const OUT = process.env.FORMFLOW_ACCESSIBILITY_OUT
   ? path.resolve(process.env.FORMFLOW_ACCESSIBILITY_OUT)
   : null;
@@ -107,6 +108,15 @@ async function main() {
     await page.addScriptTag({ path: axePath });
     const submitter = await summarizePage(page);
     scans.push({ label: 'submitter-entry', route: '#/login (submitter tab)', ...submitter });
+
+    if (SUBMITTER_CREDENTIAL) {
+      await page.locator('#lg-cred').fill(SUBMITTER_CREDENTIAL);
+      await page.locator('button:has-text("进入我的提交空间")').click();
+      await page.locator('#field-name').waitFor();
+      await page.addScriptTag({ path: axePath });
+      const submitterForm = await summarizePage(page);
+      scans.push({ label: 'submitter-form', route: 'authenticated submitter form', ...submitterForm });
+    }
   } finally {
     await context.close();
     await browser.close();
