@@ -546,6 +546,13 @@ test('presentation task home leads with the product promise while normal task ho
   assert.match(source, /id="task-home-lead"/);
   assert.match(source, /paintTaskHomeHeading\(\);/);
 });
+test('task status filters expose the initial selected state to assistive technology', () => {
+  assert.match(source, /class="filter active" data-filter="all" aria-pressed="true"/);
+  for (const filter of ['collecting', 'draft', 'done']) {
+    assert.match(source, new RegExp(`class="filter" data-filter="${filter}" aria-pressed="false"`));
+  }
+  assert.match(source, /el\.setAttribute\("aria-pressed", String\(el\.dataset\.filter === filter\)\)/);
+});
 test('showcase state rail gives the current route and human gate direct next actions', () => {
   const {app} = setup();
   const html = app.demoRouteHtml({id:7, name:'演示任务', status:'collecting', demo_route:{
@@ -1067,6 +1074,8 @@ test('showcase browser harness verifies the task list receives accessible focus'
   assert.match(showcaseHarnessSource, /taskListLabel !== '我的任务列表'/);
   assert.match(showcaseHarnessSource, /actualHash: evidence\.hash/);
   assert.match(showcaseHarnessSource, /heading: evidence\.heading/);
+  assert.match(showcaseHarnessSource, /taskFilterState\.filter\(item => item\.pressed === 'true'\)\.length === 1/);
+  assert.match(showcaseHarnessSource, /item\.filter === 'all'\)\?\.pressed === 'true'/);
   assert.match(showcaseHarnessSource, /path\.posix\.join\('screenshots', viewport\.name, `\$\{route\.name\}\.png`\)/);
   assert.match(showcaseHarnessSource, /route\.actualHash !== route\.hash/);
   assert.match(showcaseHarnessSource, /inspectDesignScroll\(page, viewport\)/);
