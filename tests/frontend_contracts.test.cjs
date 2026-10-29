@@ -1807,6 +1807,7 @@ test('results poll only while pending, preserve explanation and ignore stale res
 });
 test('submitter progress summarizes buckets in plain language rather than exposing rule IDs', async () => {
   const {app,context,els}=setup();
+  context.setTimeout=()=>41;context.clearTimeout=()=>{};
   context.fetch=async()=>response({summary:'待补正',revision:1,buckets:{
     blocking:['r_term_match'],unknown:['r_name_clear'],human:['r_final_review'],incomplete:[],pending_jobs:[]},
     details:[
@@ -1827,6 +1828,7 @@ test('submitter progress summarizes buckets in plain language rather than exposi
 });
 test('submitter separates organizer-only review work from submitter actions', async () => {
   const {app,context,els}=setup();
+  context.setTimeout=()=>41;context.clearTimeout=()=>{};
   context.fetch=async()=>response({summary:'检查未完成',revision:1,buckets:{blocking:[],unknown:['r_name_clear'],human:['r_final_review'],incomplete:['r_semantic'],pending_jobs:[]},details:[
     {rule_id:'r_name_clear',result:'unknown',requirement:{statement:'姓名清晰可读'},explanation:'需要组织者核对'},
     {rule_id:'r_final_review',result:'manual_pending',requirement:{statement:'组织者人工核对'},explanation:'等待人工'},
@@ -1837,6 +1839,25 @@ test('submitter separates organizer-only review work from submitter actions', as
   assert.match(els['my-results'].innerHTML,/组织者待办（3）/);
   assert.match(els['my-results'].innerHTML,/不需要为它们重复提交材料/);
   assert.doesNotMatch(els['my-results'].innerHTML,/需要一起处理（3）/);
+});
+test('submitter checks for organizer review updates every 30 seconds and stops after resolution', async () => {
+  const {app,context,els}=setup();
+  app.state.me={};
+  app.state.receipt={formal:true,revision:1};
+  let scheduled, delay, scheduleCount = 0, calls = 0;
+  context.setTimeout=(fn,ms)=>{scheduled=fn;delay=ms;scheduleCount++;return scheduleCount;};
+  context.clearTimeout=()=>{};
+  context.fetch=async()=>response(++calls === 1
+    ? {summary:'待人工',revision:1,buckets:{blocking:[],unknown:[],human:['r_final_review'],incomplete:[],pending_jobs:[]},details:[
+      {rule_id:'r_final_review',result:'manual_pending',requirement:{statement:'组织者人工核对'}}]}
+    : {summary:'已验收',revision:1,buckets:{blocking:[],unknown:[],human:[],incomplete:[],pending_jobs:[]},details:[]});
+  await app.loadMyResults();
+  assert.equal(delay,30000);
+  assert.match(els['submit-next-step'].innerHTML,/组织者核对中/);
+  await scheduled();
+  assert.equal(calls,2);
+  assert.match(els['submit-next-step'].innerHTML,/这份提交已经验收/);
+  assert.equal(scheduleCount,1);
 });
 test('submitter next-step band follows draft and review state without inventing a second status', () => {
   const {app} = setup();
@@ -1855,7 +1876,7 @@ test('submitter next-step band follows draft and review state without inventing 
   assert.match(html,/等待组织者最终验收/);
   html = app.submitterNextStepHtml({formal:true, summary:'待人工', buckets:{human:['r1']}});
   assert.match(html,/组织者核对中，你无需重复提交/);
-  assert.match(html,/正式版本和回执已保留/);
+  assert.match(html,/页面打开时每 30 秒检查核对进度/);
   html = app.submitterNextStepHtml({formal:true, summary:'规则通过'});
   assert.match(html,/材料检查已完成/);
   html = app.submitterNextStepHtml({formal:true});

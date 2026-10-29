@@ -674,7 +674,7 @@ function submitterNextStepHtml({formal = false, readOnly = false, issues = [], s
   } else if (human || summary === "待人工") {
     kicker = "等待确认"; title = "组织者核对中，你无需重复提交";
     detail = human
-      ? "当前正式版本和回执已保留；组织者完成核对后，这里会更新下一步。"
+      ? "当前正式版本和回执已保留；页面打开时每 30 秒检查核对进度，完成后会显示下一步。"
       : "当前检查记录需要组织者确认；正式版本和回执已保留，你不需要重复提交。";
     badge = "组织者核对";
   } else if (incomplete || summary === "检查未完成") {
@@ -4386,8 +4386,12 @@ async function loadMyResults() {
     if (document.getElementById("ap-content")) document.getElementById("ap-content").value = reason;
     if (document.getElementById("ap-rule")) document.getElementById("ap-rule").value = rule;
     restoreTextFocus(focus);
-    if ((b.pending_jobs || []).length || ["queued", "running", "retry_wait"].includes(r.run_status)) {
+    const hasPendingRun = (b.pending_jobs || []).length || ["queued", "running", "retry_wait"].includes(r.run_status);
+    const hasOrganizerTodo = (b.unknown || []).length + (b.human || []).length + (b.incomplete || []).length;
+    if (hasPendingRun) {
       _resultsTimer = setTimeout(loadMyResults, 3000);
+    } else if (hasOrganizerTodo) {
+      _resultsTimer = setTimeout(loadMyResults, 30000);
     }
   } catch (e) {
     if (epoch !== state.routeEpoch || token !== subToken() || requestId !== state.resultsRequestId) return;
