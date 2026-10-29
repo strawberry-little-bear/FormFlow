@@ -302,6 +302,18 @@ async function main() {
             overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
           }));
           const accessibility = await inspectAccessibilitySurface(page);
+          const rosterRecovery = route.name === 'roster-invalid'
+            ? await page.evaluate(() => {
+              const state = document.querySelector('#roster-load-state');
+              const rect = state?.getBoundingClientRect();
+              const controls = [...document.querySelectorAll('.roster-import input, .roster-import textarea, .roster-import button, .roster-list > .section-heading button, #roster-filter button')];
+              return {
+                noticeVisible: !!state && !!rect && rect.top >= 0 && rect.bottom <= window.innerHeight,
+                noticeText: state?.innerText?.replace(/\\s+/g, ' ').trim() || '',
+                controlsDisabled: controls.length > 0 && controls.every(control => control.disabled),
+              };
+            })
+            : null;
           const evidence = await captureRouteEvidence(page, viewport, route);
           const designScroll = route.name === 'design' ? await inspectDesignScroll(page, viewport) : null;
           viewportReport.routes.push({
@@ -319,11 +331,15 @@ async function main() {
               && evidence.hash === route.hash && !!evidence.heading
               && evidence.scrollY <= 2 && evidence.headingInViewport
               && evidence.activeNav.exists && evidence.activeNav.visible
+              && (!rosterRecovery || (rosterRecovery.noticeVisible
+                && rosterRecovery.noticeText.includes('名册暂时无法读取')
+                && rosterRecovery.controlsDisabled))
               && (!designScroll || designScroll.ok),
             missing,
             loadingStuck,
             overflow,
             accessibility,
+            rosterRecovery,
           });
         }
         viewportReport.overflow = await page.evaluate(() => ({
