@@ -819,6 +819,9 @@ function logout() {
 /* ---------------------------------------------------------------- 登录 */
 function viewLogin(initialTab = "org", notice = "") {
   const submitterTab = initialTab === "sub";
+  const organizerReturn = localStorage.getItem(ORG_KEY)
+    ? '<p class="kv" style="margin-top:10px"><a href="#/tasks">返回组织者任务列表</a></p>'
+    : "";
   document.getElementById("app").innerHTML = `
   <div class="login-wrap">
     <div class="login-hero">
@@ -872,7 +875,8 @@ function viewLogin(initialTab = "org", notice = "") {
         <textarea id="lg-cred" placeholder="粘贴组织者发放的提交凭证（形如 v9MhIdcn_1_EUt...）"
           oninput="cacheSubmissionDraft()" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();doSubLogin()}"></textarea>
         <button onclick="doSubLogin()" style="width:100%">进入我的提交空间</button>
-        <p class="kv" style="margin-top:10px">找不到凭证了？联系组织者重新发一份；新凭证发出后，旧凭证会失效。</p>
+        <p class="kv" style="margin-top:10px">体验本机演示时，首次初始化显示的提交凭证在启动器终端中。找不到凭证了？联系组织者重新发一份；新凭证发出后，旧凭证会失效。</p>
+        ${organizerReturn}
       </div>
     </div>
   </div>`;

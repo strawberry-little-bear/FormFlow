@@ -104,6 +104,17 @@ test('login explains the constrained agent boundary before authentication', () =
   assert.match(html, /发布前由组织者确认/);
   assert.doesNotMatch(html, /聊几句就能出表/);
 });
+test('submitter login explains where demo credentials appear and only offers organizer return when signed in', () => {
+  const {app, context, els} = setup();
+  app.viewLogin('sub');
+  assert.match(els.app.innerHTML, /首次初始化显示的提交凭证在启动器终端中/);
+  assert.match(els.app.innerHTML, /联系组织者重新发一份/);
+  assert.doesNotMatch(els.app.innerHTML, /返回组织者任务列表/);
+
+  context.localStorage.setItem('ff_org_token', 'org-test');
+  app.viewLogin('sub');
+  assert.match(els.app.innerHTML, /href="#\/tasks">返回组织者任务列表/);
+});
 test('login feature icons use shared SVGs and the document has an inline favicon', () => {
   const {app, els} = setup();
   app.viewLogin();
