@@ -7,6 +7,7 @@ const source = fs.readFileSync(path.join(__dirname, '../app/static/app.js'), 'ut
   .replace(/\nroute\(\);\s*$/, '\n');
 const styleSource = fs.readFileSync(path.join(__dirname, '../app/static/style.css'), 'utf8');
 const indexSource = fs.readFileSync(path.join(__dirname, '../app/static/index.html'), 'utf8');
+const showcaseHarnessSource = fs.readFileSync(path.join(__dirname, '../scripts/showcase_check.cjs'), 'utf8');
 
 function storage() {
   const data = new Map();
@@ -1027,6 +1028,12 @@ test('show my tasks exits presentation mode and scrolls the list into view', () 
   assert.equal(scrollCalls[1].behavior, 'auto');
   assert.equal(scrollCalls[1].block, 'start');
   assert.equal(taskSection.focused, true);
+});
+test('showcase browser harness verifies the task list receives accessible focus', () => {
+  assert.match(showcaseHarnessSource, /taskListFocused: document\.activeElement === taskSection/);
+  assert.match(showcaseHarnessSource, /taskListLabel: taskSection\?\.getAttribute\('aria-label'\)/);
+  assert.match(showcaseHarnessSource, /!viewport\.presentationExit\?\.taskListFocused/);
+  assert.match(showcaseHarnessSource, /taskListLabel !== '我的任务列表'/);
 });
 test('presentation agent shortcut opens the walkthrough and moves keyboard focus', () => {
   const {context} = setup();

@@ -135,6 +135,8 @@ async function exitPresentationToTaskList(page) {
       exitedPresentation: !document.body.classList.contains('presentation-mode'),
       taskListVisible: !!taskSection && style?.display !== 'none' && style?.visibility !== 'hidden',
       taskListInViewport: !!rect && Math.abs(rect.top) < 4 && rect.bottom > 0,
+      taskListFocused: document.activeElement === taskSection,
+      taskListLabel: taskSection?.getAttribute('aria-label') || '',
       taskListBounds: rect ? {top: Math.round(rect.top), bottom: Math.round(rect.bottom), height: Math.round(rect.height)} : null,
       hasTaskHeading: document.body.innerText.includes('我的任务'),
     };
@@ -220,6 +222,8 @@ async function main() {
       || !viewport.presentationExit?.exitedPresentation
       || !viewport.presentationExit?.taskListVisible
       || !viewport.presentationExit?.taskListInViewport
+      || !viewport.presentationExit?.taskListFocused
+      || viewport.presentationExit?.taskListLabel !== '我的任务列表'
       || !viewport.presentationExit?.hasTaskHeading) {
       report.passed = false;
     }
