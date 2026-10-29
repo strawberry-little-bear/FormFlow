@@ -523,6 +523,7 @@ test('demo route puts both audience paths in a compact first-look summary', () =
   assert.ok(html.indexOf('demo-route-role-summary') < html.indexOf('demo-route-quick-read'));
   assert.ok(html.indexOf('demo-route-quick-read') < html.indexOf('AGENT CONTROL PLANE'));
   assert.match(styleSource, /\.demo-route-role-summary-grid \{ display:grid; grid-template-columns:repeat\(2,minmax\(0,1fr\)\);/);
+  assert.match(styleSource, /\.demo-route-role-card-main small \{ color:#626874;/);
   assert.match(styleSource, /@media \(max-width:600px\) \{[\s\S]*\.demo-route-role-summary-grid \{ grid-template-columns:1fr;/);
   assert.match(styleSource, /body\.presentation-mode \.demo-route-audience \{ display:none; \}/);
 });
