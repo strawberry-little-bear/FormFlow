@@ -1806,6 +1806,36 @@ test('results poll only while pending, preserve explanation and ignore stale res
   pending.resolve(response({summary:'old context'}));await loading;
   assert.equal(els['my-results'].innerHTML,before);
 });
+test('submitter keeps checking while the organizer still needs to accept the revision', async () => {
+  const {app,context}=setup();
+  const scheduled=[];
+  context.setTimeout=(fn,ms)=>{scheduled.push({fn,ms});return scheduled.length;};
+  context.clearTimeout=()=>{};
+  let calls=0;
+  context.fetch=async()=>response(++calls===1
+    ? {summary:'规则通过（待人工验收）',run_status:'success',buckets:{},details:[]}
+    : {summary:'已验收',run_status:'success',buckets:{},details:[]});
+  await app.loadMyResults();
+  assert.equal(scheduled[0].ms,30000);
+  await scheduled.shift().fn();
+  assert.equal(calls,2);
+  assert.equal(scheduled.length,0);
+});
+test('submitter keeps retrying acceptance status after a transient refresh failure', async () => {
+  const {app,context,windowListeners}=setup();
+  const scheduled=[];
+  context.setTimeout=(fn,ms)=>{scheduled.push({fn,ms});return scheduled.length;};
+  context.clearTimeout=()=>{};
+  let calls=0;
+  context.fetch=async()=>++calls===2
+    ? response({detail:'temporarily unavailable'},503)
+    : response({summary:'规则通过（待人工验收）',run_status:'success',buckets:{},details:[]});
+  await app.loadMyResults();
+  await scheduled.shift().fn();
+  assert.equal(scheduled.at(-1).ms,30000);
+  await windowListeners.online();
+  assert.equal(calls,3);
+});
 test('submitter progress summarizes buckets in plain language rather than exposing rule IDs', async () => {
   const {app,context,els}=setup();
   context.setTimeout=()=>41;context.clearTimeout=()=>{};
@@ -1894,6 +1924,7 @@ test('submitter next-step band follows draft and review state without inventing 
   assert.doesNotMatch(html,/等待材料核对完成/);
   html = app.submitterNextStepHtml({formal:true, summary:'规则通过（待人工验收）', buckets:{}});
   assert.match(html,/等待组织者最终验收/);
+  assert.match(html,/每 30 秒检查核对进度/);
   html = app.submitterNextStepHtml({formal:true, summary:'待人工', buckets:{human:['r1']}});
   assert.match(html,/组织者核对中，你无需重复提交/);
   assert.match(html,/页面打开时每 30 秒检查核对进度/);

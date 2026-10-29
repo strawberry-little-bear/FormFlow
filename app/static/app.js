@@ -685,7 +685,7 @@ function submitterNextStepHtml({formal = false, readOnly = false, issues = [], s
     detail = `第 ${revision || "当前"} 版已经收到，检查完成后这里会自动更新。`; badge = "核对中";
   } else if (summary === "规则通过（待人工验收）") {
     tone = "ok"; kicker = "最后一步"; title = "等待组织者最终验收";
-    detail = "规则检查已完成，是否验收仍由组织者确认；你无需重复提交相同材料。"; badge = "待验收";
+    detail = "页面打开时每 30 秒检查核对进度；组织者确认验收后这里会更新，你无需重复提交。"; badge = "待验收";
   } else if (summary === "规则通过") {
     tone = "ok"; kicker = "已完成"; title = "材料检查已完成";
     detail = "当前版本没有需要你处理的事项；如任务需要人工验收，组织者会继续确认。"; badge = "检查完成";
@@ -4311,6 +4311,7 @@ async function loadMyResults() {
   const wasAwaitingFollowUp = (previousBuckets.unknown || []).length
     + (previousBuckets.human || []).length + (previousBuckets.incomplete || []).length > 0
     || (previousBuckets.pending_jobs || []).length > 0
+    || state.submitterResults?.summary === "规则通过（待人工验收）"
     || ["queued", "running", "retry_wait"].includes(state.submitterResults?.run_status);
   try {
     const r = await api("/api/me/results", { sub: true });
@@ -4401,7 +4402,8 @@ async function loadMyResults() {
     if (document.getElementById("ap-rule")) document.getElementById("ap-rule").value = rule;
     restoreTextFocus(focus);
     const hasPendingRun = (b.pending_jobs || []).length || ["queued", "running", "retry_wait"].includes(r.run_status);
-    const hasOrganizerTodo = (b.unknown || []).length + (b.human || []).length + (b.incomplete || []).length;
+    const hasOrganizerTodo = (b.unknown || []).length + (b.human || []).length + (b.incomplete || []).length
+      || r.summary === "规则通过（待人工验收）";
     if (hasPendingRun) {
       _resultsTimer = setTimeout(loadMyResults, 3000);
     } else if (hasOrganizerTodo) {
