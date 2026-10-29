@@ -4101,9 +4101,9 @@ async function viewSubmit() {
             <div class="submit-actions">
               <button class="ghost sm submit-action-reload" onclick="reloadServerDraft()">重新加载服务器草稿</button>
               <button class="ghost submit-action-save" onclick="saveDraft()" ${ro ? "disabled" : ""}>保存草稿</button>
-              <button class="submit-action-primary" onclick="doSubmit()" ${ro ? "disabled" : ""}>${receipt.formal ? "提交更正版本并重新核对" : "提交材料并开始核对"} ${icon("arrow")}</button>
               <span class="muted" id="draft-hint">${draft.draft_version ? `草稿版本 ${draft.draft_version}` : "尚未保存草稿"}${draft.updated_at ? ` · ${esc(fmtTime(draft.updated_at))}` : ""}</span>
             </div>
+            <div class="submit-primary-dock"><button class="submit-action-primary" onclick="doSubmit()" ${ro ? "disabled" : ""}>${receipt.formal ? "提交更正版本并重新核对" : "提交材料并开始核对"} ${icon("arrow")}</button></div>
             <div id="receipt-out"></div>
           </section>
           <aside class="submit-side">

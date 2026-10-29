@@ -3774,6 +3774,8 @@ a.wb-next-action:hover, button.wb-next-action:hover { background:var(--brand-dee
   border-top:1px solid var(--line-soft); margin-top:20px; padding-top:16px;
 }
 .submit-actions .muted { margin-left:auto; font-size:10px; }
+.submit-primary-dock { display:flex; justify-content:flex-end; margin-top:12px; }
+.submit-primary-dock button { min-width:220px; }
 .submit-side { display:flex; flex-direction:column; gap:16px; position:sticky; top:20px; }
 .submit-side > .card { margin-bottom:0; padding:20px; }
 .submit-side h2 { font-size:16px; }
@@ -3965,8 +3967,16 @@ a.wb-next-action:hover, button.wb-next-action:hover { background:var(--brand-dee
   .submit-actions .submit-action-reload,
   .submit-actions .submit-action-save { flex:1 1 calc(50% - 4px); }
   .submit-actions .submit-action-reload { padding-left:8px; padding-right:8px; white-space:nowrap; font-size:11px; }
-  .submit-actions .submit-action-primary {
-    flex:1 1 100%; min-height:44px; order:3; white-space:normal;
+  .submit-form-card { padding-bottom:88px; }
+  .submit-primary-dock {
+    position:fixed; z-index:50; left:0; right:0; bottom:0; justify-content:center;
+    margin:0; padding:10px 12px calc(10px + env(safe-area-inset-bottom));
+    border-top:1px solid var(--line); background:rgba(255,255,255,.98);
+    box-shadow:0 -5px 18px rgba(25,34,48,.10);
+  }
+  .submit-primary-dock button {
+    width:min(100%, 620px); min-width:0; min-height:48px; margin:0;
+    white-space:normal; line-height:1.35;
   }
 }
 @media(max-width:420px) {
