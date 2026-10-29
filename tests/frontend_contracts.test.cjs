@@ -33,11 +33,13 @@ function setup(sharedStorage = storage()) {
   els['login-err'].style = {};
   els['field-name'] = fields[0];
   const body = Object.assign(element(), {dataset: {page: 'tasks'}});
-  const document = {body, getElementById: id => els[id] || null,
+  const document = {body, documentElement: {style: {setProperty(name, value) { this[name] = value; }}}, getElementById: id => els[id] || null,
     querySelectorAll: sel => sel === '[data-field]' ? fields : [], querySelector: () => null};
   const windowListeners = {};
+  const viewportListeners = {};
+  const visualViewport = {height: 844, offsetTop: 0, addEventListener(name, fn) {viewportListeners[name] = fn;}};
   const context = vm.createContext({document, localStorage: storage(), sessionStorage: sharedStorage,
-    window: {addEventListener(name, fn) {windowListeners[name] = fn;}}, navigator: {onLine: true}, location: {hash:'#/submit'}, Intl, URLSearchParams, FormData,
+    window: {innerHeight: 844, visualViewport, addEventListener(name, fn) {windowListeners[name] = fn;}}, navigator: {onLine: true}, location: {hash:'#/submit'}, Intl, URLSearchParams, FormData,
     requestAnimationFrame: fn => fn(),
     setTimeout, clearTimeout, confirm: () => true, console,
     fetch: async () => {throw new Error('Unexpected request');}});
@@ -49,7 +51,7 @@ function setup(sharedStorage = storage()) {
     draftVersion:1, fileMeta:{}, sub:{mode:'chat',phase:'fields',fIdx:0, fields:[{id:'name'}],slots:[],answers:{}}});
   context.window.confirm = () => true;
   context.localStorage.setItem('ff_sub_token', 'test-only-credential');
-  return {context, app:context.app, els, fields, windowListeners};
+  return {context, app:context.app, document, els, fields, windowListeners, viewportListeners, visualViewport};
 }
 function response(data, status = 200) {
   return {ok:status < 400,status,text:async()=>JSON.stringify(data),json:async()=>data};
@@ -3045,6 +3047,21 @@ test('submitter actions keep the primary action readable on narrow screens', () 
   assert.match(styleSource, /@media\(max-width:360px\)[\s\S]*submit-actions > button\.ghost\.sm\.submit-action-reload \{ min-height:42px/);
   assert.match(styleSource, /@media\(max-width:480px\)[\s\S]*submit-primary-dock \{[\s\S]*position:fixed/);
   assert.match(styleSource, /submit-primary-dock button \{[\s\S]*min-height:48px/);
+});
+test('submitter dock follows the visible viewport above a virtual keyboard', () => {
+  const {context, document, visualViewport, viewportListeners} = setup();
+  const style = document.documentElement.style;
+  visualViewport.height = 500;
+  context.syncSubmitDockViewport();
+  assert.equal(style['--submit-dock-viewport-inset'], '344px');
+  visualViewport.offsetTop = 24;
+  context.syncSubmitDockViewport();
+  assert.equal(style['--submit-dock-viewport-inset'], '320px');
+  visualViewport.height = 844;
+  visualViewport.offsetTop = 0;
+  viewportListeners.resize();
+  assert.equal(style['--submit-dock-viewport-inset'], '0px');
+  assert.equal(typeof viewportListeners.scroll, 'function');
 });
 test('review summary explains when manual decisions are included in satisfied totals', async () => {
   const env=setup(), page=reviewPage(reviewScope('a'));

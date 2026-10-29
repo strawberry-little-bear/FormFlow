@@ -254,8 +254,17 @@ window.addEventListener("keydown", event => {
   }
 });
 window.addEventListener("resize", () => {
+  syncSubmitDockViewport();
   if (state.presentationMode && document.body?.dataset?.page === "tasks") applyPresentationMode();
 });
+function syncSubmitDockViewport() {
+  const viewport = window.visualViewport;
+  if (!viewport || !document.documentElement?.style) return;
+  const inset = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
+  document.documentElement.style.setProperty("--submit-dock-viewport-inset", `${Math.round(inset)}px`);
+}
+window.visualViewport?.addEventListener("resize", syncSubmitDockViewport);
+window.visualViewport?.addEventListener("scroll", syncSubmitDockViewport);
 window.addEventListener("online", () => {
   if (state.agentRequest?.status === "checking") return checkAgentRequestNow();
   if (state.me?.subject && subToken() && location.hash.startsWith("#/submit")) return loadMyResults();

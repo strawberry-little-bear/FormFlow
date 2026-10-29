@@ -3969,7 +3969,7 @@ a.wb-next-action:hover, button.wb-next-action:hover { background:var(--brand-dee
   .submit-actions .submit-action-reload { padding-left:8px; padding-right:8px; white-space:nowrap; font-size:11px; }
   .submit-form-card { padding-bottom:88px; }
   .submit-primary-dock {
-    position:fixed; z-index:50; left:0; right:0; bottom:0; justify-content:center;
+    position:fixed; z-index:50; left:0; right:0; bottom:var(--submit-dock-viewport-inset, 0px); justify-content:center;
     margin:0; padding:10px 12px calc(10px + env(safe-area-inset-bottom));
     border-top:1px solid var(--line); background:rgba(255,255,255,.98);
     box-shadow:0 -5px 18px rgba(25,34,48,.10);
