@@ -4707,7 +4707,7 @@ async function viewDelivery(taskId) {
         <select id="snap-kind"><option value="formal">正式（仅已验收）</option><option value="preview">整理预览（全部列出）</option></select>
         <p class="field-help">${icon("delivery")} 正式快照只纳入已验收版本；预览快照列出全部主体并标明排除原因。每次点击都会生成一份新的独立快照，已有快照不会被覆盖。</p>
         <div id="delivery-snapshot-status" class="delivery-current-status" role="status" aria-live="polite">正在读取最近快照…</div>
-        <button onclick="createSnapshot(${taskId})">固定一份新快照 ${icon("arrow")}</button>
+        <button id="create-snapshot" onclick="createSnapshot(${taskId})">固定一份新快照 ${icon("arrow")}</button>
       </section>
       <section class="card delivery-note"><div class="eyebrow">02 / EXPORT</div><h2>导出说明</h2>
         <ul class="check-list"><li>CSV 汇总每个主体的登记信息、版本、回执与验收状态。</li><li>ZIP 按交付命名规则打包材料原件。</li><li>导出基于快照，不在导出时读取最新数据。</li></ul>
@@ -4841,14 +4841,28 @@ function paintSnapshot(snapshotId, manifest, evidence = null) {
   </section>`;
 }
 async function createSnapshot(taskId) {
-  await guard(async () => {
-    const kind = document.getElementById("snap-kind").value;
-    const r = await api(`/api/tasks/${taskId}/snapshots`,
-                        { method: "POST", form: { kind } });
-    paintSnapshot(r.snapshot_id, JSON.parse(r.manifest), r.agent_evidence);
-    setFlash(`快照 #${r.snapshot_id} 已固定`, "ok");
-    await loadDeliveryHistory(taskId);
-  });
+  const button = document.getElementById("create-snapshot");
+  if (!button || button.disabled) return;
+  const original = button.innerHTML;
+  button.disabled = true;
+  button.setAttribute("aria-busy", "true");
+  button.innerHTML = "正在固定快照…";
+  try {
+    await guard(async () => {
+      const kind = document.getElementById("snap-kind").value;
+      const r = await api(`/api/tasks/${taskId}/snapshots`,
+                          { method: "POST", form: { kind } });
+      paintSnapshot(r.snapshot_id, JSON.parse(r.manifest), r.agent_evidence);
+      setFlash(`快照 #${r.snapshot_id} 已固定`, "ok");
+      await loadDeliveryHistory(taskId);
+    });
+  } finally {
+    if (button.isConnected !== false) {
+      button.disabled = false;
+      button.setAttribute("aria-busy", "false");
+      button.innerHTML = original;
+    }
+  }
 }
 async function runExport(snapId, targetId = "dl") {
   await guard(async () => {
