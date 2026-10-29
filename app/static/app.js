@@ -1290,10 +1290,10 @@ async function viewTasks() {
     <div id="flash" role="status"></div>
     <div id="task-stats" class="overview-stats"></div>
     <section class="card task-section" tabindex="-1" aria-label="我的任务列表"><div class="section-toolbar"><div class="task-filters" role="group" aria-label="任务状态筛选">
-      <button class="filter active" data-filter="all" onclick="filterTasks('all')">全部任务</button>
-      <button class="filter" data-filter="collecting" onclick="filterTasks('collecting')">收集中</button>
-      <button class="filter" data-filter="draft" onclick="filterTasks('draft')">草稿</button>
-      <button class="filter" data-filter="done" onclick="filterTasks('done')">已结束</button></div>
+      <button class="filter active" data-filter="all" aria-pressed="true" onclick="filterTasks('all')">全部任务</button>
+      <button class="filter" data-filter="collecting" aria-pressed="false" onclick="filterTasks('collecting')">收集中</button>
+      <button class="filter" data-filter="draft" aria-pressed="false" onclick="filterTasks('draft')">草稿</button>
+      <button class="filter" data-filter="done" aria-pressed="false" onclick="filterTasks('done')">已结束</button></div>
       <label class="search-box">${icon("search")}<input id="task-search" aria-label="搜索任务" placeholder="搜索任务名称…" oninput="paintTasks()"></label></div>
       <div id="task-list" aria-live="polite"><p class="empty">正在读取任务…</p></div></section>
     <p class="workspace-note">${icon("delivery")} 正式提交保留版本记录，交付时按固定快照整理。</p>

@@ -302,6 +302,10 @@ async function main() {
             overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
           }));
           const accessibility = await inspectAccessibilitySurface(page);
+          const taskFilterState = route.name === 'tasks'
+            ? await page.evaluate(() => [...document.querySelectorAll('.task-filters [data-filter]')]
+              .map(button => ({filter: button.dataset.filter, pressed: button.getAttribute('aria-pressed')})))
+            : null;
           const rosterRecovery = route.name === 'roster-invalid'
             ? await page.evaluate(() => {
               const state = document.querySelector('#roster-load-state');
@@ -327,10 +331,14 @@ async function main() {
             activeNav: evidence.activeNav,
             screenshot: evidence.screenshot,
             designScroll,
+            taskFilterState,
             ok: missing.length === 0 && !loadingStuck
               && evidence.hash === route.hash && !!evidence.heading
               && evidence.scrollY <= 2 && evidence.headingInViewport
               && evidence.activeNav.exists && evidence.activeNav.visible
+              && (!taskFilterState || (taskFilterState.length === 4
+                && taskFilterState.filter(item => item.pressed === 'true').length === 1
+                && taskFilterState.find(item => item.filter === 'all')?.pressed === 'true'))
               && (!rosterRecovery || (rosterRecovery.noticeVisible
                 && rosterRecovery.noticeText.includes('名册暂时无法读取')
                 && rosterRecovery.controlsDisabled))
