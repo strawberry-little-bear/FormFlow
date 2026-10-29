@@ -1076,6 +1076,9 @@ test('showcase browser harness verifies the task list receives accessible focus'
   assert.match(showcaseHarnessSource, /heading: evidence\.heading/);
   assert.match(showcaseHarnessSource, /taskFilterState\.filter\(item => item\.pressed === 'true'\)\.length === 1/);
   assert.match(showcaseHarnessSource, /item\.filter === 'all'\)\?\.pressed === 'true'/);
+  assert.match(showcaseHarnessSource, /for \(const filter of \['collecting', 'draft', 'done', 'all'\]\)/);
+  assert.match(showcaseHarnessSource, /\.task-filters \[data-filter="\$\{filter\}"\]`\)\.click\(\)/);
+  assert.match(showcaseHarnessSource, /taskFilterInteraction\.every\(item => item\.exactlyOneSelected && item\.expectedSelected\)/);
   assert.match(showcaseHarnessSource, /path\.posix\.join\('screenshots', viewport\.name, `\$\{route\.name\}\.png`\)/);
   assert.match(showcaseHarnessSource, /route\.actualHash !== route\.hash/);
   assert.match(showcaseHarnessSource, /inspectDesignScroll\(page, viewport\)/);

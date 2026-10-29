@@ -319,6 +319,25 @@ async function main() {
             })
             : null;
           const evidence = await captureRouteEvidence(page, viewport, route);
+          const taskFilterInteraction = route.name === 'tasks'
+            ? await (async () => {
+              const interactions = [];
+              for (const filter of ['collecting', 'draft', 'done', 'all']) {
+                await page.locator(`.task-filters [data-filter="${filter}"]`).click();
+                interactions.push(await page.evaluate(expected => {
+                  const buttons = [...document.querySelectorAll('.task-filters [data-filter]')];
+                  const pressed = buttons.filter(button => button.getAttribute('aria-pressed') === 'true');
+                  return {
+                    filter: expected,
+                    selected: pressed.map(button => button.dataset.filter),
+                    exactlyOneSelected: pressed.length === 1,
+                    expectedSelected: pressed.length === 1 && pressed[0].dataset.filter === expected,
+                  };
+                }, filter));
+              }
+              return interactions;
+            })()
+            : null;
           const designScroll = route.name === 'design' ? await inspectDesignScroll(page, viewport) : null;
           viewportReport.routes.push({
             name: route.name,
@@ -332,6 +351,7 @@ async function main() {
             screenshot: evidence.screenshot,
             designScroll,
             taskFilterState,
+            taskFilterInteraction,
             ok: missing.length === 0 && !loadingStuck
               && evidence.hash === route.hash && !!evidence.heading
               && evidence.scrollY <= 2 && evidence.headingInViewport
@@ -339,6 +359,8 @@ async function main() {
               && (!taskFilterState || (taskFilterState.length === 4
                 && taskFilterState.filter(item => item.pressed === 'true').length === 1
                 && taskFilterState.find(item => item.filter === 'all')?.pressed === 'true'))
+              && (!taskFilterInteraction || (taskFilterInteraction.length === 4
+                && taskFilterInteraction.every(item => item.exactlyOneSelected && item.expectedSelected)))
               && (!rosterRecovery || (rosterRecovery.noticeVisible
                 && rosterRecovery.noticeText.includes('名册暂时无法读取')
                 && rosterRecovery.controlsDisabled))
