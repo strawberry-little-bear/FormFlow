@@ -95,9 +95,14 @@ fs.mkdirSync(OUT, { recursive: true });
       await button.click();
       await page.waitForFunction(() => {
         const target = document.querySelector('#my-results-card');
-        return target && document.activeElement === target
-          && target.getBoundingClientRect().top >= 0
-          && target.getBoundingClientRect().top < 140;
+        const heading = document.querySelector('#my-results-heading');
+        const topbar = document.querySelector('.topbar');
+        if (!target || !heading || document.activeElement !== target) return false;
+        const headingRect = heading.getBoundingClientRect();
+        const topbarRect = topbar?.getBoundingClientRect();
+        const topbarBottom = topbar && getComputedStyle(topbar).display !== 'none' ? topbarRect.bottom : 0;
+        const targetTop = target.getBoundingClientRect().top;
+        return headingRect.top >= topbarBottom && headingRect.bottom <= innerHeight && targetTop <= 180;
       });
       const evidence = await page.evaluate(() => {
         const target = document.querySelector('#my-results-card');

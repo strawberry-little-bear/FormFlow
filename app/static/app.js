@@ -4076,6 +4076,7 @@ async function viewSubmit() {
     const receiptHtml = receipt.formal
       ? `<div class="receipt"><div><span class="eyebrow">RECEIPT</span><b>已正式提交 · v${receipt.revision}</b><span class="receipt-no">${esc(receipt.receipt)}</span></div><div class="receipt-meta"><span>提交时间</span><b>${esc(fmtTime(receipt.formal_submitted_at))}</b></div></div>${receiptFilesHtml(receipt)}`
       : `<div class="receipt pending"><div><span class="eyebrow">RECEIPT</span><b>尚未正式提交</b><span>保存草稿不会形成报名；正式提交后会得到固定回执。</span></div></div>`;
+    const resultsHtml = `<section id="my-results-card" class="card my-results-card" tabindex="-1" aria-labelledby="my-results-heading"><div class="section-heading"><div><div class="eyebrow">材料进度</div><h2 id="my-results-heading">这份材料核对到哪了</h2></div><span class="muted">提交后的状态与下一步</span></div><div id="my-results"><p class="muted">—</p></div></section>`;
 
     document.getElementById("sub").innerHTML = `
       <div class="submit-shell">
@@ -4088,6 +4089,7 @@ async function viewSubmit() {
           ${receiptHtml}
         </section>
         <div id="submit-next-step">${submitterNextStepHtml({formal: !!receipt.formal, readOnly: ro, issues: []})}</div>
+        ${receipt.formal ? resultsHtml : ""}
         <div class="submit-layout">
           <section class="card submit-form-card">
               <div class="submit-card-head"><div><div class="eyebrow">FORM</div><h2>填写与上传</h2></div>
@@ -4140,7 +4142,7 @@ async function viewSubmit() {
             </section>
           </aside>
         </div>
-        <section id="my-results-card" class="card my-results-card" tabindex="-1" aria-labelledby="my-results-heading"><div class="section-heading"><div><div class="eyebrow">材料进度</div><h2 id="my-results-heading">这份材料核对到哪了</h2></div><span class="muted">提交后的状态与下一步</span></div><div id="my-results"><p class="muted">—</p></div></section>
+        ${receipt.formal ? "" : resultsHtml}
       </div>`;
     document.querySelectorAll("[data-field]").forEach(el =>
       el.addEventListener("input", () => {
