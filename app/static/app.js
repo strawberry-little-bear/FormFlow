@@ -693,7 +693,14 @@ function submitterNextStepHtml({formal = false, readOnly = false, issues = [], s
     kicker = "正在读取"; title = "正在读取这份提交的核对结果";
     detail = "回执已经生成，正在读取当前版本的检查状态；已提交内容不会丢失。"; badge = "读取中";
   }
-  return `<section class="submit-next-step ${tone}" aria-live="polite"><div><span class="eyebrow">${esc(kicker)}</span><h2>${esc(title)}</h2><p>${esc(detail)}</p></div><span class="badge ${tone === "warn" ? "warn" : tone === "ok" ? "ok" : ""}">${esc(badge)}</span></section>`;
+  return `<section class="submit-next-step ${tone}" aria-live="polite"><div><span class="eyebrow">${esc(kicker)}</span><h2>${esc(title)}</h2><p>${esc(detail)}</p></div>${formal ? `<button class="ghost sm" type="button" onclick="jumpToSubmitResults()">查看核对记录 ${icon("arrow")}</button>` : ""}<span class="badge ${tone === "warn" ? "warn" : tone === "ok" ? "ok" : ""}">${esc(badge)}</span></section>`;
+}
+function jumpToSubmitResults() {
+  const target = document.getElementById("my-results-card");
+  if (!target) return;
+  const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+  target.scrollIntoView?.({behavior: reduceMotion ? "auto" : "smooth", block: "start"});
+  target.focus?.({preventScroll: true});
 }
 const ruleCard = (r) => {
   const explanation = submitterExplanation(r), nextStep = submitterNextStep(r);
@@ -4133,7 +4140,7 @@ async function viewSubmit() {
             </section>
           </aside>
         </div>
-        <section class="card my-results-card"><div class="section-heading"><div><div class="eyebrow">材料进度</div><h2>这份材料核对到哪了</h2></div><span class="muted">提交后的状态与下一步</span></div><div id="my-results"><p class="muted">—</p></div></section>
+        <section id="my-results-card" class="card my-results-card" tabindex="-1"><div class="section-heading"><div><div class="eyebrow">材料进度</div><h2>这份材料核对到哪了</h2></div><span class="muted">提交后的状态与下一步</span></div><div id="my-results"><p class="muted">—</p></div></section>
       </div>`;
     document.querySelectorAll("[data-field]").forEach(el =>
       el.addEventListener("input", () => {
