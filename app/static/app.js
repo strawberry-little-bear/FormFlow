@@ -1842,8 +1842,15 @@ function paintTasks() {
 async function createTask() {
   const btn = document.getElementById("create-submit");
   if (btn.disabled) return;
-  const name = document.getElementById("tk-name").value.trim();
-  if (!name) return;
+  const nameInput = document.getElementById("tk-name");
+  const error = document.getElementById("create-error");
+  const name = nameInput.value.trim();
+  if (!name) {
+    error.textContent = "任务名称不能只有空白字符。";
+    nameInput.focus();
+    return;
+  }
+  error.textContent = "";
   btn.disabled = true;
   try {
     const r = await api("/api/tasks", { method: "POST", form: { name, mode: document.getElementById("tk-mode").value, subject_kind: document.getElementById("tk-kind").value } });
