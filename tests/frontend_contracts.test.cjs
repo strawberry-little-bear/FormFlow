@@ -467,6 +467,9 @@ test('demo route puts a quick read of focus, runtime, MCP and next action before
   assert.match(styleSource, /\.demo-route-quick-read \{/);
   assert.match(styleSource, /\.demo-route-quick-link \{/);
   assert.match(styleSource, /\.demo-route-quick-index \{/);
+  assert.match(styleSource, /\.demo-route-quick-index \{[^}]*color:#626775/);
+  assert.match(styleSource, /\.design-progress-index \{[^}]*color:#626775/);
+  assert.match(styleSource, /\.demo-route-live-timeline-index \{ color:#626775/);
   assert.match(styleSource, /@media \(max-width:600px\) \{[\s\S]*\.demo-route-quick-read \{ grid-template-columns:repeat\(2,minmax\(0,1fr\)\);/);
   assert.match(styleSource, /@media \(max-width:360px\) \{[\s\S]*\.demo-route-quick-read \{ grid-template-columns:1fr;/);
 });
@@ -601,6 +604,8 @@ test('showcase run stages expose an interactive selected detail panel', () => {
   const html = app.demoRouteHtml({id:7, name:'演示任务', status:'collecting', demo_route:{review_signal:{status:'success', run_source:'simulation', pages_read:2, coverage_complete:true}}});
   assert.match(html, /data-run-stage="materials"/);
   assert.match(html, /data-run-stage="semantic"/);
+  assert.doesNotMatch(html, /data-run-stage="[^"]+"[^>]*aria-label=/);
+  assert.doesNotMatch(html, /demo-route-role-card (?:organizer|submitter)"[^>]*aria-label=/);
   assert.match(html, /id="demo-route-stage-detail"/);
   assert.match(html, /class="demo-route-stage-replay"/);
   assert.match(styleSource, /\.demo-route-live-timeline li\.selected/);

@@ -4512,7 +4512,7 @@ body.presentation-mode .agent-tour details > summary { padding:16px 0; }
 .design-progress-steps li.current { border-color:#cfc5f0; border-top-color:#7356c6; background:#f8f6ff; }
 .design-progress-steps li.ready { border-color:#d9eadf; border-top-color:#3d966f; background:#f7fcf8; }
 .design-progress-steps li.done { border-color:#d9eadf; border-top-color:#66a886; background:#fbfefc; }
-.design-progress-index { display:block; color:#8b8798; font-size:9px; letter-spacing:.05em; font-weight:700; }
+.design-progress-index { display:block; color:#626775; font-size:9px; letter-spacing:.05em; font-weight:700; }
 .design-progress-steps li.current .design-progress-index { color:#6a50b8; }
 .design-progress-steps li.ready .design-progress-index { color:#2d7d59; }
 .design-progress-steps li b { display:block; margin-top:4px; color:var(--ink); font-size:11px; line-height:1.4; }
@@ -4603,7 +4603,7 @@ body.presentation-mode .presentation-task-context {
 .demo-route-quick-item small,
 .demo-route-quick-next small { color:#69717e; font-size:9px; line-height:1.4; overflow-wrap:anywhere; }
 .demo-route-quick-item { position:relative; border-left:3px solid #a4a9b3; background:#fff; }
-.demo-route-quick-index { display:inline-flex; align-items:center; justify-content:center; align-self:flex-start; width:18px; height:16px; margin-bottom:3px; border:1px solid #dfe2e8; border-radius:3px; color:#747b87; background:#fff; font-size:8px; font-variant-numeric:tabular-nums; line-height:1; }
+.demo-route-quick-index { display:inline-flex; align-items:center; justify-content:center; align-self:flex-start; width:18px; height:16px; margin-bottom:3px; border:1px solid #dfe2e8; border-radius:3px; color:#626775; background:#fff; font-size:8px; font-variant-numeric:tabular-nums; line-height:1; }
 .demo-route-quick-next { position:relative; }
 .demo-route-quick-next > .demo-route-quick-index { position:absolute; top:7px; right:8px; margin:0; }
 .demo-route-quick-item.route { border-color:#7259c7; background:#f8f6ff; }
@@ -4911,7 +4911,7 @@ body.presentation-mode .presentation-task-context {
 }
 .demo-route-live-timeline li > button:hover { background:#fafbfc; }
 .demo-route-live-timeline li > button:focus-visible { outline:3px solid #d9d0f7; outline-offset:2px; border-radius:3px; }
-.demo-route-live-timeline-index { color:#69717e; font-size:8px; font-weight:750; line-height:1.45; }
+.demo-route-live-timeline-index { color:#626775; font-size:8px; font-weight:750; line-height:1.45; }
 .demo-route-live-timeline-copy { display:flex; flex-direction:column; gap:1px; min-width:0; }
 .demo-route-live-timeline b { color:#4b5360; font-size:9px; line-height:1.35; }
 .demo-route-live-timeline strong { color:#343a46; font-size:10px; line-height:1.35; overflow-wrap:anywhere; }
