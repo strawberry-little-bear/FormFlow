@@ -4110,7 +4110,7 @@ async function viewSubmit() {
               <div class="tabs" role="tablist" aria-label="填写方式"><button role="tab" id="submode-form" aria-selected="true" aria-controls="sub-fields-card" tabindex="0" onkeydown="moveSubmitModeTab(event)" onclick="setSubMode('form')">完整表单</button><button role="tab" id="submode-chat" aria-selected="false" aria-controls="sub-chat-card" tabindex="-1" onkeydown="moveSubmitModeTab(event)" onclick="setSubMode('chat')" ${ro ? "disabled" : ""}>需要帮助？逐步填写</button></div></div>
             <div class="card" id="sub-chat-card" role="tabpanel" aria-labelledby="submode-chat" hidden>
               <div class="step-flow"><span class="st on" id="sub-st-1"><span class="dot">1</span>登记信息</span><span class="arw"></span><span class="st" id="sub-st-2"><span class="dot">2</span>上传材料</span><span class="arw"></span><span class="st" id="sub-st-3"><span class="dot">3</span>核对提交</span></div>
-              <div class="chat"><div class="chat-scroll" id="sub-chat-scroll"></div></div>
+              <div class="chat"><div class="chat-scroll" id="sub-chat-scroll" role="log" aria-label="逐步填写对话记录" tabindex="0"></div></div>
               <p class="field-help">逐步填写与下方表单是同一份草稿，答案实时同步；向导不调用模型，也不代替材料检查。</p>
             </div>
             <div id="submission-errors" class="submission-errors" role="alert" tabindex="-1" hidden></div>
