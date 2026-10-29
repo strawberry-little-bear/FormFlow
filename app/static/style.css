@@ -5263,9 +5263,10 @@ body.presentation-mode .presentation-task-context {
   .demo-route-architecture { gap:10px; margin-top:11px; padding:10px 0; }
   .demo-route-architecture-flow { grid-template-columns:1fr 1fr; gap:6px; }
   .demo-route-architecture-step { padding:7px; }
-  .demo-route-architecture-step b { font-size:10px; }
+  .demo-route-architecture-lead small,
+  .demo-route-architecture-step b,
   .demo-route-architecture-step code,
-  .demo-route-architecture-step small { font-size:9px; }
+  .demo-route-architecture-step small { font-size:12px; line-height:1.45; }
   .demo-route-architecture .runtime-mode { max-width:100%; overflow-wrap:anywhere; white-space:normal; }
   .demo-route-architecture-foot { align-items:flex-start; flex-direction:column; gap:2px; }
   .demo-route-notice { align-items:flex-start; flex-direction:column; gap:4px; }

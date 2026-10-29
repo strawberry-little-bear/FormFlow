@@ -191,6 +191,9 @@ test('login remains readable at 200 percent narrow widths', () => {
   assert.match(styleSource, /@media\(min-width:341px\) and \(max-width:420px\)[\s\S]*\.hero-flow-steps em,\.hero-flow-note \{ display:none; \}/);
   assert.match(styleSource, /@media\(min-width:341px\) and \(max-width:420px\)[\s\S]*\.login-panel \{ padding:12px 24px; \}/);
 });
+test('mobile agent architecture descriptions stay readable and wrap', () => {
+  assert.match(styleSource, /@media \(max-width:600px\)[\s\S]*\.demo-route-architecture-lead small,\s*\.demo-route-architecture-step b,\s*\.demo-route-architecture-step code,\s*\.demo-route-architecture-step small \{ font-size:12px; line-height:1\.45; \}/);
+});
 test('login route can open directly on the submitter tab', () => {
   const {app, context, els} = setup();
   context.location.hash = '#/login?role=sub';
