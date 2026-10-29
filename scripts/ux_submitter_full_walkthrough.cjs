@@ -89,13 +89,26 @@ fs.mkdirSync(OUT, { recursive: true });
     if (!formalGuidanceVisible) throw new Error('Formal submission still shows pre-submission guidance.');
     await page.screenshot({ path: path.join(OUT, 'submitter-receipt.png'), fullPage: true });
 
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.reload({ waitUntil: 'networkidle' });
-    const mobile = await page.evaluate(() => ({
-      viewport: document.documentElement.clientWidth,
-      document: document.documentElement.scrollWidth,
-    }));
-    await page.screenshot({ path: path.join(OUT, 'submitter-receipt-390.png'), fullPage: true });
+    const mobile = [];
+    for (const width of [390, 320]) {
+      await page.setViewportSize({ width, height: 844 });
+      await page.reload({ waitUntil: 'networkidle' });
+      const measurement = await page.evaluate(() => {
+        const button = document.querySelector('.submit-primary-dock button');
+        const rect = button?.getBoundingClientRect();
+        return {
+          viewport: document.documentElement.clientWidth,
+          document: document.documentElement.scrollWidth,
+          actionHeight: rect ? Math.round(rect.height) : 0,
+          actionVisible: !!rect && rect.top >= 0 && rect.bottom <= window.innerHeight,
+        };
+      });
+      mobile.push({ width, ...measurement });
+      await page.screenshot({
+        path: path.join(OUT, `submitter-receipt-${width}.png`),
+        fullPage: true,
+      });
+    }
 
     const report = {
       base: BASE,
@@ -115,7 +128,13 @@ fs.mkdirSync(OUT, { recursive: true });
     };
     fs.writeFileSync(path.join(OUT, 'submitter-results.json'), `${JSON.stringify(report, null, 2)}\n`);
     console.log(JSON.stringify(report, null, 2));
-    if (!report.receiptVisible || !report.formalGuidanceVisible || mobile.document > mobile.viewport || consoleErrors.length || pageErrors.length || badResponses.length) {
+    const mobilePassed = mobile.length === 2 && mobile.every(viewport =>
+      viewport.viewport === viewport.width
+      && viewport.document === viewport.width
+      && viewport.actionVisible
+      && viewport.actionHeight >= 48
+    );
+    if (!report.receiptVisible || !report.formalGuidanceVisible || !mobilePassed || consoleErrors.length || pageErrors.length || badResponses.length) {
       process.exitCode = 1;
     }
   } finally {
