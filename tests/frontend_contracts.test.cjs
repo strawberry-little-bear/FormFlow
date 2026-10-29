@@ -1051,6 +1051,9 @@ test('showcase browser harness verifies the task list receives accessible focus'
   assert.match(showcaseHarnessSource, /heading: evidence\.heading/);
   assert.match(showcaseHarnessSource, /path\.posix\.join\('screenshots', viewport\.name, `\$\{route\.name\}\.png`\)/);
   assert.match(showcaseHarnessSource, /route\.actualHash !== route\.hash/);
+  assert.match(showcaseHarnessSource, /inspectDesignScroll\(page, viewport\)/);
+  assert.match(showcaseHarnessSource, /position === 'sticky' && result\.panelInViewport && result\.headingInViewport/);
+  assert.match(showcaseHarnessSource, /!designScroll \|\| designScroll\.ok/);
 });
 test('showcase browser harness checks and captures the login first screen at each viewport', () => {
   assert.match(showcaseHarnessSource, /loginSurface: null/);

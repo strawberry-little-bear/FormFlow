@@ -136,6 +136,32 @@ async function inspectAccessibilitySurface(page) {
   });
 }
 
+async function inspectDesignScroll(page, viewport) {
+  if (viewport.width <= 980) return null;
+  await page.evaluate(() => window.scrollTo(0, Math.min(560, document.documentElement.scrollHeight - window.innerHeight)));
+  await page.waitForTimeout(150);
+  const result = await page.evaluate(() => {
+    const panel = document.querySelector('#design-chat');
+    const heading = panel?.querySelector('.agent-heading');
+    const rect = panel?.getBoundingClientRect();
+    const headingRect = heading?.getBoundingClientRect();
+    return {
+      scrollY: Math.round(window.scrollY),
+      position: panel ? getComputedStyle(panel).position : '',
+      top: rect ? Math.round(rect.top) : null,
+      bottom: rect ? Math.round(rect.bottom) : null,
+      panelInViewport: !!rect && rect.top >= 0 && rect.bottom <= window.innerHeight,
+      headingInViewport: !!headingRect && headingRect.top >= 0 && headingRect.bottom <= window.innerHeight,
+    };
+  });
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.waitForTimeout(100);
+  return {
+    ...result,
+    ok: result.scrollY > 0 && result.position === 'sticky' && result.panelInViewport && result.headingInViewport,
+  };
+}
+
 async function enterDemo(page) {
   await page.goto(`${BASE}/#/login`, { waitUntil: 'networkidle' });
   await waitForPaint(page);
@@ -248,6 +274,7 @@ async function main() {
           }));
           const accessibility = await inspectAccessibilitySurface(page);
           const evidence = await captureRouteEvidence(page, viewport, route);
+          const designScroll = route.name === 'design' ? await inspectDesignScroll(page, viewport) : null;
           viewportReport.routes.push({
             name: route.name,
             hash: route.hash,
@@ -257,9 +284,11 @@ async function main() {
             headingBounds: evidence.headingBounds,
             headingInViewport: evidence.headingInViewport,
             screenshot: evidence.screenshot,
+            designScroll,
             ok: missing.length === 0 && !loadingStuck
               && evidence.hash === route.hash && !!evidence.heading
-              && evidence.scrollY <= 2 && evidence.headingInViewport,
+              && evidence.scrollY <= 2 && evidence.headingInViewport
+              && (!designScroll || designScroll.ok),
             missing,
             loadingStuck,
             overflow,
