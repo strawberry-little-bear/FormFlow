@@ -15,6 +15,7 @@ const OUT = process.env.FORMFLOW_SHOWCASE_OUT
   : null;
 const VIEWPORTS = [
   { name: 'desktop', width: 1440, height: 950 },
+  { name: 'laptop-768', width: 1366, height: 768 },
   { name: 'mobile-390', width: 390, height: 844 },
   { name: 'mobile-320', width: 320, height: 760 },
 ];

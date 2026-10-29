@@ -1043,6 +1043,7 @@ test('show my tasks exits presentation mode and scrolls the list into view', () 
   assert.equal(taskSection.focused, true);
 });
 test('showcase browser harness verifies the task list receives accessible focus', () => {
+  assert.match(showcaseHarnessSource, /name: 'laptop-768', width: 1366, height: 768/);
   assert.match(showcaseHarnessSource, /taskListFocused: document\.activeElement === taskSection/);
   assert.match(showcaseHarnessSource, /taskListLabel: taskSection\?\.getAttribute\('aria-label'\)/);
   assert.match(showcaseHarnessSource, /!viewport\.presentationExit\?\.taskListFocused/);
