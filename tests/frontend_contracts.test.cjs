@@ -1768,9 +1768,11 @@ test('a late review failure cannot flash an error onto a different page', async 
 test('roster controls stay locked while loading, then unlock only after success', async () => {
   const {app,context,els}=setup();
   const controls=[{disabled:false},{disabled:false}];
-  context.document.querySelectorAll=()=>controls;
+  let selector='';
+  context.document.querySelectorAll=value=>{selector=value;return controls;};
   const pending=deferred();context.fetch=()=>pending.promise;
   const loading=app.loadRoster(1);
+  assert.match(selector,/\.roster-actions button/,'row-level grant and reissue actions must be locked during refresh');
   assert.ok(controls.every(control=>control.disabled));
   assert.match(els['roster-load-state'].innerHTML,/正在读取名册/);
   pending.resolve(response({entries:[],total:0,granted:0,exempt:0}));
