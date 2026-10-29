@@ -1048,6 +1048,8 @@ test('showcase browser harness verifies the task list receives accessible focus'
   assert.match(showcaseHarnessSource, /name: 'laptop-768', width: 1366, height: 768/);
   assert.match(showcaseHarnessSource, /taskListFocused: document\.activeElement === taskSection/);
   assert.match(showcaseHarnessSource, /taskListLabel: taskSection\?\.getAttribute\('aria-label'\)/);
+  assert.match(showcaseHarnessSource, /showcaseVisibleInPresentation/);
+  assert.match(showcaseHarnessSource, /taskHomeExtrasHidden/);
   assert.match(showcaseHarnessSource, /!viewport\.presentationExit\?\.taskListFocused/);
   assert.match(showcaseHarnessSource, /taskListLabel !== '我的任务列表'/);
   assert.match(showcaseHarnessSource, /actualHash: evidence\.hash/);

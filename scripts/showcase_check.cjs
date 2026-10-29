@@ -214,6 +214,11 @@ async function enterDemo(page, viewport) {
 async function exitPresentationToTaskList(page) {
   const exit = page.locator('button[aria-label="退出展示视图并查看我的任务"]');
   if (!await exit.count()) throw new Error('展示首页缺少“查看我的任务”入口');
+  const showcaseVisibleInPresentation = await page.evaluate(() => {
+    const section = document.querySelector('.agent-tour');
+    return document.body.classList.contains('presentation-mode')
+      && !!section && getComputedStyle(section).display !== 'none';
+  });
   await exit.click();
   await waitForPaint(page);
   await page.waitForFunction(() => {
@@ -222,12 +227,16 @@ async function exitPresentationToTaskList(page) {
     const rect = taskSection.getBoundingClientRect();
     return Math.abs(rect.top) < 4 && rect.bottom > 0;
   }, null, { timeout: 5000 }).catch(() => {});
-  return page.evaluate(() => {
+  const taskListState = await page.evaluate(() => {
     const taskSection = document.querySelector('.task-section');
     const style = taskSection ? getComputedStyle(taskSection) : null;
     const rect = taskSection?.getBoundingClientRect();
     return {
       exitedPresentation: !document.body.classList.contains('presentation-mode'),
+      taskHomeExtrasHidden: ['#demo-route', '.workspace-intro', '.workspace-runtime-strip', '.agent-tour'].every(selector => {
+        const element = document.querySelector(selector);
+        return !element || getComputedStyle(element).display === 'none';
+      }),
       taskListVisible: !!taskSection && style?.display !== 'none' && style?.visibility !== 'hidden',
       taskListInViewport: !!rect && Math.abs(rect.top) < 4 && rect.bottom > 0,
       taskListFocused: document.activeElement === taskSection,
@@ -236,6 +245,7 @@ async function exitPresentationToTaskList(page) {
       hasTaskHeading: document.body.innerText.includes('我的任务'),
     };
   });
+  return {...taskListState, showcaseVisibleInPresentation};
 }
 
 async function main() {
@@ -333,6 +343,8 @@ async function main() {
   for (const viewport of report.viewports) {
     if (!viewport.loginSurface?.ok || viewport.overflow?.overflow || viewport.errors.length || viewport.badResponses.length
       || !viewport.presentationExit?.exitedPresentation
+      || !viewport.presentationExit?.showcaseVisibleInPresentation
+      || !viewport.presentationExit?.taskHomeExtrasHidden
       || !viewport.presentationExit?.taskListVisible
       || !viewport.presentationExit?.taskListInViewport
       || !viewport.presentationExit?.taskListFocused
