@@ -772,8 +772,9 @@ dialog.wide { width:min(720px,calc(100vw - 32px)); }
 .agent-request-card > button { flex:none; }
 .agent-panel { position:sticky; top:97px; margin:0; padding:0; overflow:hidden; }
 #design-chat.agent-panel {
-  height:min(1000px, calc(100vh - 118px));
-  min-height:540px;
+  height:auto;
+  min-height:0;
+  max-height:calc(100vh - 118px);
   overflow-y:auto;
   overscroll-behavior:contain;
   scrollbar-gutter:stable;
@@ -2067,9 +2068,9 @@ dialog p {
   margin-left:auto
 }
 .chat {
-  height:calc(100vh - 425px);
-  min-height:485px;
-  max-height:800px
+  height:360px;
+  min-height:320px;
+  max-height:460px
 }
 .chat-scroll {
   padding:25px 19px;

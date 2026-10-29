@@ -3188,6 +3188,18 @@ test('submitter actions keep the primary action readable on narrow screens', () 
   assert.match(styleSource, /@media\(max-width:480px\)[\s\S]*submit-primary-dock \{[\s\S]*position:fixed/);
   assert.match(styleSource, /submit-primary-dock button \{[\s\S]*min-height:48px/);
 });
+
+test('desktop design chat stays compact while narrow layouts keep their dedicated height', () => {
+  const designPanel = styleSource.match(/#design-chat\.agent-panel\s*\{([^}]*)\}/);
+  const desktopChat = styleSource.match(/\.chat\s*\{\s*height:360px;\s*min-height:320px;\s*max-height:460px\s*\}/);
+  assert.ok(designPanel);
+  assert.match(designPanel[1], /height:auto/);
+  assert.match(designPanel[1], /max-height:calc\(100vh - 118px\)/);
+  assert.match(designPanel[1], /overflow-y:auto/);
+  assert.ok(desktopChat);
+  assert.match(styleSource, /@media\(max-width:980px\)[\s\S]*\.chat\s*\{\s*height:530px/);
+  assert.match(styleSource, /@media\s*\(max-width:700px\)[\s\S]*\.chat\s*\{\s*height:64vh/);
+});
 test('submitter dock follows the visible viewport above a virtual keyboard', () => {
   const {context, document, visualViewport, viewportListeners} = setup();
   const style = document.documentElement.style;
