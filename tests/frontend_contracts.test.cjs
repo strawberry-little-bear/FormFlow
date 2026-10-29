@@ -28,7 +28,7 @@ function element(value = '') {
 function setup(sharedStorage = storage()) {
   const els = Object.fromEntries(['sub', 'draft-hint', 'flash', 'receipt-out', 'decision-submit', 'presentation-toggle', 'lg-cred',
     'review-conflict', 'login-err', 'dc-type', 'dc-rule', 'dc-reason', 'dc-exp', 'acceptance-reason', 'acceptance-submit',
-    'review-draft-status', 'submission-errors', 'field-error-name', 'dl', 'delivery-history-list', 'delivery-history-more-error', 'snap-view', 'create-snapshot', 'snap-kind', 'app', 'rv', 'rv-name', 'my-results', 'my-results-card', 'submit-next-step', 'nav', 'role-label', 'wb-next-step', 'btn-logout', 'workspace-agent-mode', 'workspace-agent-status', 'agent-tour-mode', 'agent-tour-availability', 'agent-runtime-mode', 'agent-runtime-status', 'grant-out', 'roster-name', 'roster-stats', 'roster-filter', 'roster-results-status', 'roster-table'].map(id => [id, element()]));
+    'review-draft-status', 'submission-errors', 'field-error-name', 'dl', 'delivery-history-list', 'delivery-history-more-error', 'snap-view', 'create-snapshot', 'snap-kind', 'app', 'rv', 'rv-name', 'my-results', 'my-results-card', 'submit-next-step', 'nav', 'role-label', 'wb-next-step', 'btn-logout', 'workspace-agent-mode', 'workspace-agent-status', 'agent-tour-mode', 'agent-tour-availability', 'agent-runtime-mode', 'agent-runtime-status', 'grant-out', 'roster-name', 'roster-stats', 'roster-filter', 'roster-results-status', 'roster-table', 'roster-load-state'].map(id => [id, element()]));
   const fields = [Object.assign(element('old'), {dataset: {field:'name'}})];
   els['login-err'].style = {};
   els['field-name'] = fields[0];
@@ -1765,18 +1765,37 @@ test('a late review failure cannot flash an error onto a different page', async 
   pending.resolve(response({detail:'old failure'},500));await loading;
   assert.equal(els.flash.innerHTML,'');
 });
-test('roster request failure exits loading and offers retry without enabling mutations', async () => {
+test('roster controls stay locked while loading, then unlock only after success', async () => {
+  const {app,context,els}=setup();
+  const controls=[{disabled:false},{disabled:false}];
+  context.document.querySelectorAll=()=>controls;
+  const pending=deferred();context.fetch=()=>pending.promise;
+  const loading=app.loadRoster(1);
+  assert.ok(controls.every(control=>control.disabled));
+  assert.match(els['roster-load-state'].innerHTML,/正在读取名册/);
+  pending.resolve(response({entries:[],total:0,granted:0,exempt:0}));
+  assert.equal(await loading,true);
+  assert.ok(controls.every(control=>!control.disabled));
+  assert.equal(els['roster-load-state'].innerHTML,'');
+});
+test('roster request failure replaces loading with a prominent recovery state and keeps mutations locked', async () => {
   const {app,context,els}=setup();
   const controls=[{disabled:false},{disabled:false}];
   context.document.querySelectorAll=()=>controls;
   let reads=0;
   context.fetch=async()=>++reads===1?response({detail:'Not Found'},404):response({entries:[],total:0,granted:0,exempt:0});
   await app.loadRoster(9999);
-  assert.match(els['roster-table'].innerHTML,/名册暂时无法读取/);
-  assert.match(els['roster-table'].innerHTML,/重试加载名册/);
-  assert.doesNotMatch(els['roster-table'].innerHTML,/正在读取名册/);
+  assert.match(els['roster-load-state'].innerHTML,/名册暂时无法读取/);
+  assert.match(els['roster-load-state'].innerHTML,/重试加载名册/);
+  assert.doesNotMatch(els['roster-load-state'].innerHTML,/正在读取名册/);
+  assert.equal(els['roster-table'].innerHTML,'');
   assert.ok(controls.every(control=>control.disabled));
-  await app.loadRoster(1);
+  const pending=deferred();context.fetch=()=>pending.promise;
+  const retry=app.loadRoster(9999);
+  assert.ok(controls.every(control=>control.disabled));
+  assert.match(els['roster-load-state'].innerHTML,/正在读取名册/);
+  pending.resolve(response({entries:[],total:0,granted:0,exempt:0}));
+  await retry;
   assert.ok(controls.every(control=>!control.disabled));
 });
 test('dual identity navigation reflects the current role and review highlights workbench', () => {
