@@ -28,7 +28,7 @@ function element(value = '') {
 function setup(sharedStorage = storage()) {
   const els = Object.fromEntries(['sub', 'draft-hint', 'flash', 'receipt-out', 'decision-submit', 'presentation-toggle', 'lg-cred',
     'review-conflict', 'login-err', 'dc-type', 'dc-rule', 'dc-reason', 'dc-exp', 'acceptance-reason', 'acceptance-submit',
-    'review-draft-status', 'submission-errors', 'field-error-name', 'dl', 'delivery-history-list', 'delivery-history-more-error', 'snap-view', 'app', 'rv', 'rv-name', 'my-results', 'submit-next-step', 'nav', 'role-label', 'wb-next-step', 'btn-logout', 'workspace-agent-mode', 'workspace-agent-status', 'agent-tour-mode', 'agent-tour-availability', 'agent-runtime-mode', 'agent-runtime-status', 'grant-out', 'roster-name', 'roster-stats', 'roster-filter', 'roster-results-status', 'roster-table'].map(id => [id, element()]));
+    'review-draft-status', 'submission-errors', 'field-error-name', 'dl', 'delivery-history-list', 'delivery-history-more-error', 'snap-view', 'create-snapshot', 'snap-kind', 'app', 'rv', 'rv-name', 'my-results', 'submit-next-step', 'nav', 'role-label', 'wb-next-step', 'btn-logout', 'workspace-agent-mode', 'workspace-agent-status', 'agent-tour-mode', 'agent-tour-availability', 'agent-runtime-mode', 'agent-runtime-status', 'grant-out', 'roster-name', 'roster-stats', 'roster-filter', 'roster-results-status', 'roster-table'].map(id => [id, element()]));
   const fields = [Object.assign(element('old'), {dataset: {field:'name'}})];
   els['login-err'].style = {};
   els['field-name'] = fields[0];
@@ -3157,4 +3157,29 @@ test('review route with no subject shows a Chinese empty state without making an
 test('a missing server review scope fails closed instead of reusing a revision-only draft', async () => {
   const env=setup(),page=reviewPage(null);await openReview(env,page);
   assert.equal(env.app.state.reviewContext,null);assert.match(env.els.rv.innerHTML,/复核范围缺失/);
+});
+
+test('creating a snapshot ignores repeated clicks while the request is pending', async () => {
+  const env = setup();
+  const button = env.els['create-snapshot'];
+  button.innerHTML = '固定一份新快照';
+  env.els['snap-kind'].value = 'formal';
+  let resolveRequest;
+  let requests = 0;
+  env.context.fetch = () => {
+    requests += 1;
+    return new Promise(resolve => { resolveRequest = resolve; });
+  };
+
+  const first = env.context.createSnapshot(1);
+  assert.equal(button.disabled, true);
+  assert.equal(button.getAttribute('aria-busy'), 'true');
+  await env.context.createSnapshot(1);
+  assert.equal(requests, 1);
+
+  resolveRequest({ok:false, status:503, text:async () => JSON.stringify({detail:'暂时不可用'})});
+  await first;
+  assert.equal(button.disabled, false);
+  assert.equal(button.getAttribute('aria-busy'), 'false');
+  assert.equal(button.innerHTML, '固定一份新快照');
 });
