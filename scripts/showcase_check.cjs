@@ -121,12 +121,21 @@ async function exitPresentationToTaskList(page) {
   if (!await exit.count()) throw new Error('展示首页缺少“查看我的任务”入口');
   await exit.click();
   await waitForPaint(page);
+  await page.waitForFunction(() => {
+    const taskSection = document.querySelector('.task-section');
+    if (!taskSection) return false;
+    const rect = taskSection.getBoundingClientRect();
+    return Math.abs(rect.top) < 4 && rect.bottom > 0;
+  }, null, { timeout: 5000 }).catch(() => {});
   return page.evaluate(() => {
     const taskSection = document.querySelector('.task-section');
     const style = taskSection ? getComputedStyle(taskSection) : null;
+    const rect = taskSection?.getBoundingClientRect();
     return {
       exitedPresentation: !document.body.classList.contains('presentation-mode'),
       taskListVisible: !!taskSection && style?.display !== 'none' && style?.visibility !== 'hidden',
+      taskListInViewport: !!rect && Math.abs(rect.top) < 4 && rect.bottom > 0,
+      taskListBounds: rect ? {top: Math.round(rect.top), bottom: Math.round(rect.bottom), height: Math.round(rect.height)} : null,
       hasTaskHeading: document.body.innerText.includes('我的任务'),
     };
   });
@@ -210,6 +219,7 @@ async function main() {
     if (viewport.overflow?.overflow || viewport.errors.length || viewport.badResponses.length
       || !viewport.presentationExit?.exitedPresentation
       || !viewport.presentationExit?.taskListVisible
+      || !viewport.presentationExit?.taskListInViewport
       || !viewport.presentationExit?.hasTaskHeading) {
       report.passed = false;
     }

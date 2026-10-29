@@ -37,6 +37,7 @@ function setup(sharedStorage = storage()) {
   const windowListeners = {};
   const context = vm.createContext({document, localStorage: storage(), sessionStorage: sharedStorage,
     window: {addEventListener(name, fn) {windowListeners[name] = fn;}}, navigator: {onLine: true}, location: {hash:'#/submit'}, Intl, URLSearchParams, FormData,
+    requestAnimationFrame: fn => fn(),
     setTimeout, clearTimeout, confirm: () => true, console,
     fetch: async () => {throw new Error('Unexpected request');}});
   vm.runInContext(source + '\nthis.app = {state, route, useVersionAsBase, loadDesignVersion, cacheDesignInputs, restoreDesignInputs, recoverDesignInput, recoverDesignInput, paintChat, runAgent, runExport, deliveryHistoryHtml, deliverySnapshotStatusHtml, loadDeliveryHistory, inspectSnapshot, paintSnapshot, agentEvidenceSummaryHtml, canPublishDesign, publishDiffHtml, designVersionImpactHtml, publishGovernanceHtml, publishBp, confirmPublish, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, fmtTimeShort, designReadinessHtml, designProgressHtml, applyDraft, draftFingerprint, collectDraftFields, cacheSubmissionDraft, paintSubmitterNextStep, submitterNextStepHtml, setSubMode, moveSubmitModeTab, setDesignTab, moveDesignTab, refreshSlotConditions, wbMatches, api, apiError, submitDecision, saveDraft, doSubmit, doSubLogin, uploadSlot, deleteSlotFile, cacheReviewDraft, discardReviewDraft, logout, nextPendingReview, setReviewFilter, setReviewTraceFilter, selectReviewRule, viewReview, reviewRevisionHistoryHtml, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, chooseWorkbenchNextStep, workbenchNextStepHtml, agentRunCard, agentTourHtml, agentTourRuntimeHtml, runtimeSelfTestHtml, submitterGuidance, ruleCard, receiptFilesHtml, submissionIssues, checkAgentRequestNow, resumePendingAgentRequest, savePendingAgentRequest, agentRequestProgressHtml, retryAgent, pollAgentRequest, showSubmissionIssues, initSubChat, demoRouteTask, demoRouteHtml, demoRouteCueHtml, copyDemoRouteCue, agentArchitectureRailHtml, agentQuickReadHtml, agentShowcaseHtml, runStageReplayHtml, paintAgentShowcase, jumpToRunStage, mcpSnapshotHtml, renderDemoRoute, paintWorkspaceAgentStatus, paintAgentRuntime, paintAgentRuntimeContractIssue, viewLogin, viewSubmit, switchLoginTab, moveLoginTab, setFlash, openDialog, readPresentationMode, showcaseReturnHtml, applyPresentationMode, setPresentationMode, togglePresentationMode, fillDemoCred, doLogin, issueAllGrants, viewRoster, loadRoster, setRosterFilter, renderRosterTable, showCredential, showCredentialList, setEmptyTaskHome};', context);
@@ -999,6 +1000,28 @@ test('presentation view is session-scoped, reversible, and keyboard discoverable
   assert.ok(taskIndex >= 0 && routeIndex > taskIndex, 'normal task home should lead with the real task list');
   assert.ok(runtimeIndex > routeIndex, 'showcase route should lead the agent explanation');
   assert.equal((source.match(/id="demo-route"/g) || []).length, 1, 'task page should mount one demo route container');
+});
+test('show my tasks exits presentation mode and scrolls the list into view', () => {
+  const {app, context} = setup();
+  const taskSection = element();
+  const scrollCalls = [];
+  taskSection.scrollIntoView = options => scrollCalls.push(options);
+  context.document.querySelector = selector => selector === '.task-section' ? taskSection : null;
+  context.window.matchMedia = () => ({matches: false});
+
+  app.setPresentationMode(true);
+  vm.runInContext('showTaskListFromPresentation()', context);
+
+  assert.equal(app.state.presentationMode, false);
+  assert.equal(context.sessionStorage.getItem('ff_tasks_presentation'), null);
+  assert.equal(scrollCalls[0].behavior, 'smooth');
+  assert.equal(scrollCalls[0].block, 'start');
+
+  context.window.matchMedia = () => ({matches: true});
+  app.setPresentationMode(true);
+  vm.runInContext('showTaskListFromPresentation()', context);
+  assert.equal(scrollCalls[1].behavior, 'auto');
+  assert.equal(scrollCalls[1].block, 'start');
 });
 test('presentation agent shortcut opens the walkthrough and moves keyboard focus', () => {
   const {context} = setup();
