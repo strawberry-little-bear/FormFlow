@@ -137,12 +137,33 @@ async function inspectAccessibilitySurface(page) {
 }
 
 async function enterDemo(page) {
-  await page.goto(BASE, { waitUntil: 'networkidle' });
+  await page.goto(`${BASE}/#/login`, { waitUntil: 'networkidle' });
+  await waitForPaint(page);
   const button = page.locator('button.demo-btn');
+  const loginEvidence = await captureRouteEvidence(page, {name: 'login'}, {name: 'login'});
+  const loginSurface = {
+    ...loginEvidence,
+    hasDemoEntry: await button.isVisible().catch(() => false),
+    accessibility: await inspectAccessibilitySurface(page),
+    overflow: await page.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+      overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+    })),
+  };
+  loginSurface.ok = loginSurface.hash === '#/login'
+    && !!loginSurface.heading
+    && loginSurface.headingInViewport
+    && loginSurface.hasDemoEntry
+    && !loginSurface.overflow.overflow
+    && !loginSurface.accessibility.unnamed.length
+    && !loginSurface.accessibility.unlabeledFields.length;
+  if (!loginSurface.ok) throw new Error(`登录首屏验收失败：${JSON.stringify(loginSurface)}`);
   if (!await button.count()) throw new Error('登录页缺少“体验演示环境”入口');
   await button.click();
   await page.waitForURL('**/#/tasks', { timeout: 10000 });
   await waitForPaint(page);
+  return loginSurface;
 }
 
 async function exitPresentationToTaskList(page) {
@@ -202,9 +223,9 @@ async function main() {
         }
       });
 
-      const viewportReport = { ...viewport, routes: [], overflow: null, presentationExit: null, errors, badResponses };
+      const viewportReport = { ...viewport, loginSurface: null, routes: [], overflow: null, presentationExit: null, errors, badResponses };
       try {
-        await enterDemo(page);
+        viewportReport.loginSurface = await enterDemo(page);
         viewportReport.presentationExit = await exitPresentationToTaskList(page);
         for (const route of ROUTES) {
           activeRoute = route;
@@ -260,7 +281,7 @@ async function main() {
   }
 
   for (const viewport of report.viewports) {
-    if (viewport.overflow?.overflow || viewport.errors.length || viewport.badResponses.length
+    if (!viewport.loginSurface?.ok || viewport.overflow?.overflow || viewport.errors.length || viewport.badResponses.length
       || !viewport.presentationExit?.exitedPresentation
       || !viewport.presentationExit?.taskListVisible
       || !viewport.presentationExit?.taskListInViewport

@@ -1052,6 +1052,14 @@ test('showcase browser harness verifies the task list receives accessible focus'
   assert.match(showcaseHarnessSource, /path\.posix\.join\('screenshots', viewport\.name, `\$\{route\.name\}\.png`\)/);
   assert.match(showcaseHarnessSource, /route\.actualHash !== route\.hash/);
 });
+test('showcase browser harness checks and captures the login first screen at each viewport', () => {
+  assert.match(showcaseHarnessSource, /loginSurface: null/);
+  assert.match(showcaseHarnessSource, /hasDemoEntry: await button\.isVisible\(\)/);
+  assert.match(showcaseHarnessSource, /loginSurface\.accessibility\.unnamed\.length/);
+  assert.match(showcaseHarnessSource, /loginSurface\.accessibility\.unlabeledFields\.length/);
+  assert.match(showcaseHarnessSource, /!viewport\.loginSurface\?\.ok/);
+  assert.match(showcaseHarnessSource, /captureRouteEvidence\(page, \{name: 'login'\}, \{name: 'login'\}\)/);
+});
 test('presentation agent shortcut opens the walkthrough and moves keyboard focus', () => {
   const {context} = setup();
   const summary = element();
