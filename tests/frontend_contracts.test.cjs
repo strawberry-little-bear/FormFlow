@@ -218,7 +218,13 @@ test('submitter input modes expose tab and panel relationships', () => {
   assert.match(source, /role="tab" id="submode-form"[^>]*aria-selected="true"[^>]*aria-controls="sub-fields-card"[^>]*tabindex="0"[^>]*onkeydown="moveSubmitModeTab\(event\)"/);
   assert.match(source, /role="tab" id="submode-chat"[^>]*aria-selected="false"[^>]*aria-controls="sub-chat-card"[^>]*tabindex="-1"[^>]*onkeydown="moveSubmitModeTab\(event\)"/);
   assert.match(source, /id="sub-chat-card" role="tabpanel" aria-labelledby="submode-chat" hidden/);
+  assert.match(source, /id="sub-chat-scroll" role="log" aria-label="逐步填写对话记录" tabindex="0"/);
   assert.match(source, /id="sub-fields-card" role="tabpanel" aria-labelledby="submode-form"/);
+});
+test('submitter guide helper text uses readable contrast on both message surfaces', () => {
+  const css = fs.readFileSync(path.join(__dirname, '../app/static/style.css'), 'utf8');
+  assert.match(css, /\.msg \.body \.mini\s*\{[^}]*color:\s*#626776/i);
+  assert.match(css, /\.msg\.user \.body \.mini\s*\{[^}]*color:\s*#665888/i);
 });
 test('submitter input modes support roving focus with arrow and Home/End keys', () => {
   const {app, els} = setup();

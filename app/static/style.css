@@ -621,7 +621,7 @@ dialog.wide { width:min(720px,calc(100vw - 32px)); }
   margin-top:9px;
   font-size:11px;
   line-height:1.9;
-  color:#9398a4;
+  color:#626776;
 }
 .msg.user { max-width:92%; padding-left:12px; }
 .msg.user .body {
@@ -630,7 +630,7 @@ dialog.wide { width:min(720px,calc(100vw - 32px)); }
   background:#f0edfa;
   color:#665888;
 }
-.msg.user .body .mini { color:#958bb1; }
+.msg.user .body .mini { color:#665888; }
 .msg .body .mini button { margin-top:9px; }
 .typing { display:inline-flex; gap:4px; padding:4px 2px; }
 .typing i {
@@ -2114,7 +2114,7 @@ dialog p {
   font-size:11px;
   line-height:1.9;
   margin-top:9px;
-  color:#9398a4
+  color:#626776
 }
 .msg.user {
   max-width:92%;
@@ -2127,7 +2127,7 @@ dialog p {
   padding:9px 13px
 }
 .msg.user .body .mini {
-  color:#958bb1
+  color:#665888
 }
 .msg .body .mini button {
   margin-top:9px
