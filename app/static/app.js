@@ -4878,7 +4878,7 @@ function paintSnapshot(snapshotId, manifest, evidence = null) {
       <td>${(entry.files || []).length}</td></tr>`).join("")}</tbody></table></div>
     ${excluded.length ? `<p class="field-help">有 ${excluded.length} 个主体未纳入：正式快照只包含已验收版本，可在工作台逐个人工验收后重新固定。</p>` : ""}
     ${agentEvidenceSummaryHtml(evidence)}
-    <div class="row-actions snapshot-actions"><div class="snapshot-export-action"><button class="ghost" onclick="runExport(${snapshotId})">导出当前快照 ${icon("arrow")}</button><span class="field-help">生成这份快照的 CSV + ZIP</span></div><span id="dl" class="row-actions"></span></div>
+    <div class="row-actions snapshot-actions"><div class="snapshot-export-action"><button id="export-snapshot-${snapshotId}" class="ghost" onclick="runExport(${snapshotId})">导出当前快照 ${icon("arrow")}</button><span class="field-help">生成这份快照的 CSV + ZIP</span></div><span id="dl" class="row-actions"></span></div>
   </section>`;
 }
 async function createSnapshot(taskId) {
@@ -4906,23 +4906,39 @@ async function createSnapshot(taskId) {
   }
 }
 async function runExport(snapId, targetId = "dl") {
-  await guard(async () => {
-    const r = await api(`/api/snapshots/${snapId}/export`, { method: "POST" });
-    state.lastJob = r;
-    const target = document.getElementById(targetId);
-    if (!target) return;
-    if (r.status !== "success" || !r.csv || !r.zip) {
-      target.innerHTML = '<span class="badge bad">未生成可下载文件</span>';
-      setFlash(r.error || `导出作业 #${r.job_id} 未完成，请核对材料后重试`, "err");
+  const button = document.getElementById(`export-snapshot-${snapId}`);
+  if (button?.disabled) return;
+  const original = button?.innerHTML;
+  if (button) {
+    button.disabled = true;
+    button.setAttribute("aria-busy", "true");
+    button.textContent = "正在生成导出…";
+  }
+  try {
+    await guard(async () => {
+      const r = await api(`/api/snapshots/${snapId}/export`, { method: "POST" });
+      state.lastJob = r;
+      const target = document.getElementById(targetId);
+      if (!target) return;
+      if (r.status !== "success" || !r.csv || !r.zip) {
+        target.innerHTML = '<span class="badge bad">未生成可下载文件</span>';
+        setFlash(r.error || `导出作业 #${r.job_id} 未完成，请核对材料后重试`, "err");
+        await loadDeliveryHistory(state.deliveryTaskId);
+        return;
+      }
+      target.innerHTML = `
+        <button class="ghost sm" onclick="downloadFile('/api/exports/${r.job_id}/csv','summary_${r.job_id}.csv')">下载 CSV</button>
+        <button class="ghost sm" onclick="downloadFile('/api/exports/${r.job_id}/zip','materials_${r.job_id}.zip')">下载 ZIP</button>`;
+      setFlash(`导出作业 #${r.job_id} 已生成`, "ok");
       await loadDeliveryHistory(state.deliveryTaskId);
-      return;
+    });
+  } finally {
+    if (button && button.isConnected !== false) {
+      button.disabled = false;
+      button.setAttribute("aria-busy", "false");
+      button.innerHTML = original;
     }
-    target.innerHTML = `
-      <button class="ghost sm" onclick="downloadFile('/api/exports/${r.job_id}/csv','summary_${r.job_id}.csv')">下载 CSV</button>
-      <button class="ghost sm" onclick="downloadFile('/api/exports/${r.job_id}/zip','materials_${r.job_id}.zip')">下载 ZIP</button>`;
-    setFlash(`导出作业 #${r.job_id} 已生成`, "ok");
-    await loadDeliveryHistory(state.deliveryTaskId);
-  });
+  }
 }
 async function downloadFile(url, filename) {
   const r = await fetch(url, { headers: { Authorization: "Bearer " + orgToken() } });

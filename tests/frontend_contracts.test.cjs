@@ -2543,6 +2543,30 @@ test('failed delivery export exposes no CSV or ZIP download controls', async () 
   assert.doesNotMatch(els.dl.innerHTML,/downloadFile/);
   assert.match(els.flash.innerHTML,/快照材料缺失/);
 });
+test('delivery export ignores repeated clicks while the request is pending', async () => {
+  const env=setup(), button=element();
+  button.innerHTML='导出当前快照';
+  env.els['export-snapshot-3']=button;
+  let resolveExport, exportRequests=0;
+  env.context.fetch=async url=>{
+    if(url==='/api/snapshots/3/export') {
+      exportRequests+=1;
+      return new Promise(resolve=>{resolveExport=resolve;});
+    }
+    return response({snapshots:[],has_more:false,next_offset:0});
+  };
+  const first=env.app.runExport(3);
+  assert.equal(button.disabled,true);
+  assert.equal(button.getAttribute('aria-busy'),'true');
+  assert.equal(button.textContent,'正在生成导出…');
+  await env.app.runExport(3);
+  assert.equal(exportRequests,1);
+  resolveExport(response({job_id:8,status:'success',csv:'csv',zip:'zip'}));
+  await first;
+  assert.equal(button.disabled,false);
+  assert.equal(button.getAttribute('aria-busy'),'false');
+  assert.match(button.innerHTML,/导出当前快照/);
+});
 test('submitter-facing result cards explain status in calm plain language without changing the result', () => {
   const {app} = setup();
   const issue = app.ruleCard({rule_id:'R-01', result:'issue', severity:'blocking',
