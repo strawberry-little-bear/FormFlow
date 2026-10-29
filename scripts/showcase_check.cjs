@@ -37,6 +37,19 @@ async function captureRouteEvidence(page, viewport, route) {
   const pageState = await page.evaluate(() => ({
     hash: location.hash,
     heading: document.querySelector('main#app h1, main#app h2, main#app [data-page-title]')?.textContent?.replace(/\s+/g, ' ').trim() || '',
+    scrollY: Math.round(window.scrollY),
+    headingBounds: (() => {
+      const heading = document.querySelector('main#app h1, main#app h2, main#app [data-page-title]');
+      if (!heading) return null;
+      const rect = heading.getBoundingClientRect();
+      return {top: Math.round(rect.top), bottom: Math.round(rect.bottom)};
+    })(),
+    headingInViewport: (() => {
+      const heading = document.querySelector('main#app h1, main#app h2, main#app [data-page-title]');
+      if (!heading) return false;
+      const rect = heading.getBoundingClientRect();
+      return rect.top >= -4 && rect.bottom <= window.innerHeight;
+    })(),
   }));
   const screenshot = OUT
     ? path.posix.join('screenshots', viewport.name, `${route.name}.png`)
@@ -196,6 +209,10 @@ async function main() {
         for (const route of ROUTES) {
           activeRoute = route;
           activeRoute.expectedFailure = route.name.endsWith('-invalid');
+          if (page.url().endsWith(route.hash)) {
+            await page.goto(routeUrl('#/design/1'), { waitUntil: 'networkidle' }).catch(() => {});
+            await waitForPaint(page);
+          }
           await page.goto(routeUrl(route.hash), { waitUntil: 'networkidle' }).catch(() => {});
           await waitForPaint(page);
           await waitForRouteSurface(page, route);
@@ -215,9 +232,13 @@ async function main() {
             hash: route.hash,
             actualHash: evidence.hash,
             heading: evidence.heading,
+            scrollY: evidence.scrollY,
+            headingBounds: evidence.headingBounds,
+            headingInViewport: evidence.headingInViewport,
             screenshot: evidence.screenshot,
             ok: missing.length === 0 && !loadingStuck
-              && evidence.hash === route.hash && !!evidence.heading,
+              && evidence.hash === route.hash && !!evidence.heading
+              && evidence.scrollY <= 2 && evidence.headingInViewport,
             missing,
             loadingStuck,
             overflow,
@@ -252,6 +273,8 @@ async function main() {
       || route.overflow?.overflow
       || route.actualHash !== route.hash
       || !route.heading
+      || route.scrollY > 2
+      || !route.headingInViewport
       || route.accessibility?.unnamed?.length
       || route.accessibility?.unlabeledFields?.length
       || !route.accessibility?.hasRouteFocusTarget)) report.passed = false;

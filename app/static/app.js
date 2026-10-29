@@ -707,6 +707,7 @@ const ruleCard = (r) => {
 
 /* ---------------------------------------------------------------- 路由 */
 function route() {
+  window.scrollTo?.({top: 0, left: 0, behavior: "instant"});
   cacheSubmissionDraft();
   cacheReviewDraft();
   cacheDesignInputs();
