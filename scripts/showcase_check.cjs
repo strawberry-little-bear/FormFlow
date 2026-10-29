@@ -176,14 +176,18 @@ async function inspectDesignScroll(page, viewport) {
   };
 }
 
-async function enterDemo(page) {
+async function enterDemo(page, viewport) {
   await page.goto(`${BASE}/#/login`, { waitUntil: 'networkidle' });
   await waitForPaint(page);
   const button = page.locator('button.demo-btn');
-  const loginEvidence = await captureRouteEvidence(page, {name: 'login'}, {name: 'login'});
+  const loginEvidence = await captureRouteEvidence(page, viewport, {name: 'login'});
   const loginSurface = {
     ...loginEvidence,
     hasDemoEntry: await button.isVisible().catch(() => false),
+    demoEntryInViewport: await button.evaluate(node => {
+      const rect = node.getBoundingClientRect();
+      return rect.top >= 0 && rect.bottom <= window.innerHeight;
+    }).catch(() => false),
     accessibility: await inspectAccessibilitySurface(page),
     overflow: await page.evaluate(() => ({
       scrollWidth: document.documentElement.scrollWidth,
@@ -195,6 +199,7 @@ async function enterDemo(page) {
     && !!loginSurface.heading
     && loginSurface.headingInViewport
     && loginSurface.hasDemoEntry
+    && loginSurface.demoEntryInViewport
     && !loginSurface.overflow.overflow
     && !loginSurface.accessibility.unnamed.length
     && !loginSurface.accessibility.unlabeledFields.length;
@@ -265,7 +270,7 @@ async function main() {
 
       const viewportReport = { ...viewport, loginSurface: null, routes: [], overflow: null, presentationExit: null, errors, badResponses };
       try {
-        viewportReport.loginSurface = await enterDemo(page);
+        viewportReport.loginSurface = await enterDemo(page, viewport);
         viewportReport.presentationExit = await exitPresentationToTaskList(page);
         for (const route of ROUTES) {
           activeRoute = route;

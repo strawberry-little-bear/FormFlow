@@ -859,6 +859,10 @@ function viewLogin(initialTab = "org", notice = "") {
       </div>
       <div id="login-err" class="flash err" role="alert" aria-live="assertive" style="display:none"></div>
       <div id="pane-org" role="tabpanel" aria-labelledby="tab-org"${submitterTab ? " hidden" : ""}>
+        <div class="demo-hint" id="demo-hint" style="display:none">
+          <button class="ghost sm demo-btn" onclick="fillDemoCred()">体验演示环境 →</button>
+          <span class="demo-note">演示账号 demo / demo1234，含虚构种子数据</span>
+        </div>
         <label for="lg-user">用户名</label><input id="lg-user" placeholder="请输入用户名" autocomplete="username">
         <label for="lg-pass">密码</label><input id="lg-pass" type="password" placeholder="请输入密码"
           autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
@@ -867,10 +871,6 @@ function viewLogin(initialTab = "org", notice = "") {
           <button class="ghost" onclick="doRegister()">注册并登录</button>
         </div>
         <p class="kv" style="margin-top:10px">第一次使用？直接点「注册并登录」就好，数据只存在你本机。</p>
-        <div class="demo-hint" id="demo-hint" style="display:none">
-          <button class="ghost sm demo-btn" onclick="fillDemoCred()">体验演示环境 →</button>
-          <span class="demo-note">演示账号 demo / demo1234，含虚构种子数据</span>
-        </div>
       </div>
       <div id="pane-sub" role="tabpanel" aria-labelledby="tab-sub"${submitterTab ? "" : " hidden"}>
         <label for="lg-cred">提交凭证</label>

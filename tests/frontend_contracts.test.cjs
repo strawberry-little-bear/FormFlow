@@ -1059,10 +1059,19 @@ test('showcase browser harness verifies the task list receives accessible focus'
 test('showcase browser harness checks and captures the login first screen at each viewport', () => {
   assert.match(showcaseHarnessSource, /loginSurface: null/);
   assert.match(showcaseHarnessSource, /hasDemoEntry: await button\.isVisible\(\)/);
+  assert.match(showcaseHarnessSource, /demoEntryInViewport: await button\.evaluate/);
+  assert.match(showcaseHarnessSource, /&& loginSurface\.demoEntryInViewport/);
   assert.match(showcaseHarnessSource, /loginSurface\.accessibility\.unnamed\.length/);
   assert.match(showcaseHarnessSource, /loginSurface\.accessibility\.unlabeledFields\.length/);
   assert.match(showcaseHarnessSource, /!viewport\.loginSurface\?\.ok/);
-  assert.match(showcaseHarnessSource, /captureRouteEvidence\(page, \{name: 'login'\}, \{name: 'login'\}\)/);
+  assert.match(showcaseHarnessSource, /captureRouteEvidence\(page, viewport, \{name: 'login'\}\)/);
+  assert.match(showcaseHarnessSource, /viewportReport\.loginSurface = await enterDemo\(page, viewport\)/);
+});
+test('demo entry appears before credential fields on the organizer login tab', () => {
+  const {app, els} = setup();
+  app.viewLogin();
+  const html = els.app.innerHTML;
+  assert.ok(html.indexOf('id="demo-hint"') < html.indexOf('for="lg-user"'));
 });
 test('presentation agent shortcut opens the walkthrough and moves keyboard focus', () => {
   const {context} = setup();
