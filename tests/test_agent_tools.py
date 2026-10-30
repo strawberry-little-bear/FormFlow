@@ -196,7 +196,9 @@ def test_budget_is_enforced_before_second_tool_execution(db_session):
 
 
 def test_tool_failure_timeout_and_oversized_result_fail_closed(db_session):
-    slow, context, _ = _fixture(db_session, handler=lambda _ctx, _args: time.sleep(0.06) or
+    # Leave enough margin for Windows runner timer granularity; the harness
+    # timeout remains 50 ms, so this still exercises the same boundary.
+    slow, context, _ = _fixture(db_session, handler=lambda _ctx, _args: time.sleep(0.2) or
                                 ToolResult(status="ok", summary="late"))
     assert slow.invoke("demo.echo", {"value": "x"}, context=context, db=db_session,
                        idempotency_key="timeout").error_code is ToolErrorCode.TIMEOUT
