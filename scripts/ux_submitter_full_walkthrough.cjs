@@ -11,6 +11,29 @@ const OUT = process.env.FORMFLOW_WALKTHROUGH_OUT
   ? path.resolve(process.env.FORMFLOW_WALKTHROUGH_OUT)
   : null;
 
+function minimalPdf(text) {
+  const safe = String(text).replace(/[()\\]/g, '\\$&');
+  const content = `BT /F1 12 Tf 72 720 Td (${safe}) Tj ET`;
+  const objects = [
+    '1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj',
+    '2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj',
+    '3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >> endobj',
+    '4 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj',
+    `5 0 obj << /Length ${Buffer.byteLength(content, 'ascii')} >> stream\n${content}\nendstream endobj`,
+  ];
+  let pdf = '%PDF-1.4\n';
+  const offsets = [0];
+  for (const object of objects) {
+    offsets.push(Buffer.byteLength(pdf, 'ascii'));
+    pdf += `${object}\n`;
+  }
+  const xref = Buffer.byteLength(pdf, 'ascii');
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  for (const offset of offsets.slice(1)) pdf += `${String(offset).padStart(10, '0')} 00000 n \n`;
+  pdf += `trailer << /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return Buffer.from(pdf, 'ascii');
+}
+
 if (!CREDENTIAL) {
   console.error(`Set FORMFLOW_WALKTHROUGH_CREDENTIAL to the credential for ${SUBJECT_NAME}.`);
   process.exit(2);
@@ -45,12 +68,12 @@ fs.mkdirSync(outputDir, { recursive: true });
     await page.locator('#field-term').fill('2026 秋季第 1 期');
     await page.locator('#field-class_name').fill('二班');
     await page.locator('#file-report').setInputFiles({
-      name: `${SUBJECT_NAME}_团课报告.txt`,
-      mimeType: 'text/plain',
-      buffer: Buffer.from(`姓名：${SUBJECT_NAME}\n期次：2026 秋季第 1 期\n活动内容：参加本期团课并完成学习。\n个人收获：对主题有了更系统的理解。`, 'utf8'),
+      name: `${SUBJECT_NAME}_团课报告.pdf`,
+      mimeType: 'application/pdf',
+      buffer: minimalPdf("FormFlow demo report; 2026 term; completed."),
     });
     const selectedFileVisible = await page.locator('.file-picker-wrap:has(#file-report) .file-picker-name').innerText();
-    if (selectedFileVisible !== `${SUBJECT_NAME}_团课报告.txt`) {
+    if (selectedFileVisible !== `${SUBJECT_NAME}_团课报告.pdf`) {
       throw new Error(`Selected file name was not shown: ${selectedFileVisible}`);
     }
 
@@ -59,7 +82,7 @@ fs.mkdirSync(outputDir, { recursive: true });
     await page.locator('#upload-report').click();
     const uploaded = await uploadResponse;
     if (!uploaded.ok()) throw new Error(`Upload failed with HTTP ${uploaded.status()}: ${await uploaded.text()}`);
-    await page.locator('#slot-files-report .file-chip-name').getByText(`${SUBJECT_NAME}_团课报告.txt`, { exact: true }).waitFor();
+    await page.locator('#slot-files-report .file-chip-name').getByText(`${SUBJECT_NAME}_团课报告.pdf`, { exact: true }).waitFor();
 
     const draftResponse = page.waitForResponse(response =>
       response.url().includes('/api/me/draft') && response.request().method() === 'POST');
