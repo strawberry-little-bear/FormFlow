@@ -4878,9 +4878,9 @@ async function viewDelivery(taskId) {
       <section class="card snapshot-panel"><div class="eyebrow">01 / SNAPSHOT</div><h2>固定新快照</h2>
         <label for="snap-kind">快照类型</label>
         <select id="snap-kind"><option value="formal">正式（仅已验收）</option><option value="preview">整理预览（全部列出）</option></select>
-        <p class="field-help">${icon("delivery")} 正式快照只纳入已验收版本；预览快照列出全部主体并标明排除原因。每次点击都会生成一份新的独立快照，已有快照不会被覆盖。</p>
+        <p class="field-help">${icon("delivery")} 正式快照只纳入已验收版本；预览快照列出全部主体并标明排除原因。这里先锁定一份不可变清单，生成 CSV + ZIP 要在打开快照详情后进行。</p>
         <div id="delivery-snapshot-status" class="delivery-current-status" role="status" aria-live="polite">正在读取最近快照…</div>
-        <button id="create-snapshot" onclick="createSnapshot(${taskId})">固定一份新快照 ${icon("arrow")}</button>
+        <button id="create-snapshot" onclick="createSnapshot(${taskId})">固定并查看快照 ${icon("arrow")}</button>
       </section>
       <section class="card delivery-note"><div class="eyebrow">02 / EXPORT</div><h2>导出说明</h2>
         <ul class="check-list"><li>CSV 汇总每个主体的登记信息、版本、回执与验收状态。</li><li>ZIP 按交付命名规则打包材料原件。</li><li>导出基于快照，不在导出时读取最新数据。</li></ul>
@@ -4922,7 +4922,7 @@ function deliverySnapshotStatusHtml(snapshots) {
   const latest = Array.isArray(snapshots) && snapshots.length ? snapshots[0] : null;
   if (!latest) return '<span class="delivery-current-status-label">还没有固定快照</span><span>先生成一份快照，之后才能导出 CSV 和 ZIP。</span>';
   const kind = latest.kind === "formal" ? "正式快照" : "整理预览快照";
-  return `<span class="delivery-current-status-label">最近固定：${kind} #${Number(latest.snapshot_id)}</span><span>${esc(fmtTime(latest.created_at))} · 再次固定会生成新快照，旧包保持不变。</span>`;
+  return `<span class="delivery-current-status-label">最近固定：${kind} #${Number(latest.snapshot_id)}</span><span>${esc(fmtTime(latest.created_at))} · 打开历史条目查看清单，再从快照详情生成 CSV + ZIP。</span>`;
 }
 async function loadDeliveryHistory(taskId, append = false) {
   const epoch = state.routeEpoch, token = orgToken();
@@ -5002,7 +5002,7 @@ function paintSnapshot(snapshotId, manifest, evidence = null) {
   const target = document.getElementById("snap-view");
   if (!target) return;
   target.innerHTML = `<section class="card snapshot-result">
-    <div class="section-heading"><div><div class="eyebrow">SNAPSHOT #${snapshotId}</div><h2>${manifest.kind === "formal" ? "正式快照" : "整理预览快照"}</h2></div><span class="badge ${manifest.kind === "formal" ? "ok" : "info"}">已固定</span></div>
+    <div class="section-heading"><div><div class="eyebrow">CURRENT SNAPSHOT #${snapshotId}</div><h2>${manifest.kind === "formal" ? "正式快照" : "整理预览快照"}</h2></div><span class="badge ${manifest.kind === "formal" ? "ok" : "info"}">已打开 · 不可变</span></div>
     <div class="overview-stats">${[["主体总数", manifest.totals.subjects], ["纳入", manifest.totals.included], ["排除", manifest.totals.excluded], ["蓝图版本", "#" + manifest.blueprint_version_id]].map(([label, value]) => `<div class="overview-stat"><span>${label}</span><strong>${value}</strong><i>${icon("delivery")}</i></div>`).join("")}</div>
     <div class="table-wrap"><table><thead><tr><th>主体</th><th>版本</th><th>纳入</th><th>排除原因</th><th>材料</th></tr></thead>
     <tbody>${(manifest.entries || []).map(entry => `<tr><td>${esc(entry.name)}</td><td>${entry.revision ?? "-"}</td>
@@ -5010,7 +5010,7 @@ function paintSnapshot(snapshotId, manifest, evidence = null) {
       <td>${(entry.files || []).length}</td></tr>`).join("")}</tbody></table></div>
     ${excluded.length ? `<p class="field-help">有 ${excluded.length} 个主体未纳入：正式快照只包含已验收版本，可在工作台逐个人工验收后重新固定。</p>` : ""}
     ${agentEvidenceSummaryHtml(evidence)}
-    <div class="row-actions snapshot-actions"><div class="snapshot-export-action"><button id="export-snapshot-${snapshotId}" class="ghost" onclick="runExport(${snapshotId})">导出当前快照 ${icon("arrow")}</button><span class="field-help">生成这份快照的 CSV + ZIP</span></div><span id="dl" class="row-actions"></span></div>
+    <div class="row-actions snapshot-actions"><div class="snapshot-export-action"><button id="export-snapshot-${snapshotId}" class="ghost" aria-label="导出快照 #${snapshotId} 的 CSV 和 ZIP" onclick="runExport(${snapshotId})">导出快照 #${snapshotId} ${icon("arrow")}</button><span class="field-help">只对这份固定清单生成 CSV + ZIP</span></div><span id="dl" class="row-actions" aria-live="polite"></span></div>
   </section>`;
 }
 async function createSnapshot(taskId) {

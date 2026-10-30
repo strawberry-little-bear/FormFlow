@@ -2723,8 +2723,7 @@ test('delivery snapshot status makes repeat fixation and immutable history expli
   assert.match(empty, /还没有固定快照/);
   assert.match(empty, /先生成一份快照/);
   const current = app.deliverySnapshotStatusHtml([{snapshot_id:12, kind:'formal', created_at:'2026-10-22T04:00:00Z'}]);
-  assert.match(current, /最近固定：正式快照 #12/);
-  assert.match(current, /再次固定会生成新快照，旧包保持不变/);
+  assert.match(current, /打开历史条目查看清单，再从快照详情生成 CSV \+ ZIP/);
   assert.match(source, /id="delivery-snapshot-status"/);
   assert.match(styleSource, /\.delivery-current-status \{/);
 });
@@ -2738,7 +2737,12 @@ test('an old snapshot can be reopened from its immutable manifest', async () => 
       agent_evidence:{schema_version:1,snapshot_id:12,entries:[{subject_id:3,revision_id:8,included:true,run:{status:'success',execution_mode:'offline_replay',tool_trace:[{tool:'review.rule',sequence:1}],rule_results:{satisfied:2}}}]}});
   };
   await app.inspectSnapshot(12);
-  assert.match(els['snap-view'].innerHTML,/SNAPSHOT #12/);
+  assert.match(els['snap-view'].innerHTML,/CURRENT SNAPSHOT #12/);
+  assert.match(els['snap-view'].innerHTML,/已打开 · 不可变/);
+  assert.match(els['snap-view'].innerHTML,/导出快照 #12/);
+  assert.match(els['snap-view'].innerHTML,/只对这份固定清单生成 CSV \+ ZIP/);
+  assert.doesNotMatch(els['snap-view'].innerHTML,/导出当前快照/);
+  assert.equal(els['snap-view'].innerHTML.match(/>导出快照 #12 /g)?.length,1);
   assert.match(els['snap-view'].innerHTML,/张三 &lt;组&gt;/);
   assert.match(els['snap-view'].innerHTML,/Agent 运行证据/);
   assert.match(els['snap-view'].innerHTML,/1 离线 \/ 0 实时/);
@@ -2766,7 +2770,7 @@ test('failed delivery export exposes no CSV or ZIP download controls', async () 
 });
 test('delivery export ignores repeated clicks while the request is pending', async () => {
   const env=setup(), button=element();
-  button.innerHTML='导出当前快照';
+  button.innerHTML='导出快照 #3';
   env.els['export-snapshot-3']=button;
   let resolveExport, exportRequests=0;
   env.context.fetch=async url=>{
@@ -2786,7 +2790,7 @@ test('delivery export ignores repeated clicks while the request is pending', asy
   await first;
   assert.equal(button.disabled,false);
   assert.equal(button.getAttribute('aria-busy'),'false');
-  assert.match(button.innerHTML,/导出当前快照/);
+  assert.match(button.innerHTML,/导出快照 #3/);
 });
 test('submitter-facing result cards explain status in calm plain language without changing the result', () => {
   const {app} = setup();
