@@ -65,3 +65,9 @@
 - 使用 `%TEMP%\formflow-ux-20261030-datetime` 下的独立 SQLite、虚构种子和空模型密钥启动隔离 API。浏览器完成组织者登录、新建任务、选择团课报告模板、发布、导入名册、发放凭证以及提交者首次登录。390px 和 320px 下三个日期控件实测均为 44px；设计、名册和提交者页面均无横向溢出，控制台错误、页面异常、HTTP 失败和 Agent 请求均为 0。
 - `node --test tests/frontend_contracts.test.cjs`：232 项通过；浏览器脚本与应用 JS 语法检查、`git diff --check` 通过。未重跑 Python 全量（本轮为 CSS、契约及浏览器脚本调整）。临时 API 已停止，既有 8147 演示服务和 `data/demo` 未触碰。结果与截图位于 `%TEMP%\formflow-ux-20261030-datetime\evidence`。
 - 可复跑脚本：`scripts/ux_first_task_submitter_entry_walkthrough.cjs`。
+
+## 2026-10-30 当前工作树 Showcase 复核
+
+- 对本地演示服务 `127.0.0.1:8147` 运行只读 Showcase Harness，覆盖 1440、1366、390、320px 共 28 条路由；任务列表退出展示视图后位于首屏，无效名单与复核编号均显示错误说明和恢复入口。
+- 四档视口无横向溢出或卡载入；控件均有可访问名称，任务筛选交互正常。控制台错误、页面异常和失败 HTTP 响应均为 0。机器报告与截图位于 `%TEMP%\formflow-followup-showcase-20261030`。
+- `node tests/frontend_contracts.test.cjs`：232 项通过；`python -m pytest -q`：449 项通过。复核只读复用现有服务，没有重置演示数据；未发现需要新增产品代码修复的问题。
