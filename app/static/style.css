@@ -3938,6 +3938,14 @@ a.wb-next-action:hover, button.wb-next-action:hover { background:var(--brand-dee
   .card, .submit-form-card, .roster-import, .roster-list, .snapshot-panel,
   .delivery-note, .snapshot-result, .evidence-detail, .notes-panel, .decision-panel,
   .remind-panel, .submit-side > .card { padding:17px; }
+  /* Keep the first delivery action visible in a short mobile viewport. */
+  .delivery-layout { gap:12px; margin-bottom:12px; }
+  .delivery-layout > .snapshot-panel,
+  .delivery-layout > .delivery-note { padding:14px 16px; }
+  .snapshot-panel h2, .delivery-note h2 { margin-bottom:7px; }
+  .snapshot-panel .field-help { margin-bottom:3px; line-height:1.6; }
+  .snapshot-panel .delivery-current-status { margin:5px 0 0; padding:6px 8px; }
+  .snapshot-panel button { margin-top:0; }
   .page-heading { gap:10px; }
   .submit-card-head .tabs { max-width:none; width:100%; }
   .submit-actions > button { flex:1; }

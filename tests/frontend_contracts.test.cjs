@@ -3599,6 +3599,12 @@ test('creating a snapshot ignores repeated clicks while the request is pending',
   assert.equal(button.innerHTML, '固定一份新快照');
 });
 
+test('mobile delivery layout keeps the snapshot action compact for short viewports', () => {
+  assert.match(styleSource, /\.delivery-layout > \.snapshot-panel,\s*\.delivery-layout > \.delivery-note \{ padding:14px 16px; \}/);
+  assert.match(styleSource, /\.snapshot-panel \.delivery-current-status \{ margin:5px 0 0; padding:6px 8px; \}/);
+  assert.match(styleSource, /\.snapshot-panel button \{ margin-top:0; \}/);
+});
+
 test('unchanged formal content routes the primary action to results; changed content enables correction', async () => {
   const {context, app, document, fields, els} = setup();
   const button = element();
