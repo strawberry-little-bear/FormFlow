@@ -111,3 +111,9 @@
 - 对照复核页统计和下一步提示时发现两者计数口径不同：人工统计只汇总待人工项，待办队列还包括未解决的问题、未知结论和检查失败；已记录“确认问题”的规则不再进入待办。原提示把整个队列称为“待人工核对”，会让人误以为数字不一致。
 - 下一步提示现称“待处理规则”。前端契约以 `unknown`、`issue`、`failed`、`manual_pending` 和已确认问题混合验证待办计数为 4 项，并确认已处理规则不重复计入。
 - `node --test tests/frontend_contracts.test.cjs`：233 项通过；`node --test tests/frontend_contracts.test.cjs tests/ux_browser.test.cjs`：235 项通过。`node --check app/static/app.js` 与 `git diff --check` 通过。此处只做契约回归，没有重跑 Python 全量或 Showcase；既有 8147 服务与演示数据未改动。
+
+## 2026-10-30 已确认问题的补正提示
+
+- 复核页“下一步”原先只计算尚无组织者决定的规则。组织者已经选择“确认问题”后，规则从组织者待办队列移除，但仍阻止当前版本验收；页面却会说材料规则已处理、继续查看验收前置条件，未说明要等待提交者补正。
+- 现在只要存在已确认问题且没有其他待处理规则，复核页会优先说明当前版本不能验收，并提示提交者补正、重新正式提交后再复核。组织者待办计数仍只统计需要组织者处理的规则。
+- 新增前端契约覆盖“已确认问题、无组织者待办、验收被阻塞”的组合；`node --test tests/frontend_contracts.test.cjs`、`node --check app/static/app.js` 与 `git diff --check` 均通过。复用了只读演示服务，没有改动演示数据。

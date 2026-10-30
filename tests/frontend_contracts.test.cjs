@@ -3519,6 +3519,17 @@ test('review summary points to acceptance when all material rules are handled', 
   assert.match(env.els.rv.innerHTML,/材料规则已处理，可以验收本版本/);
   assert.match(env.els.rv.innerHTML,/查看验收/);
 });
+
+test('review summary explains confirmed issues are waiting for submitter correction', async () => {
+  const env=setup(),page=reviewPage(reviewScope('a'));
+  page.rules=[{rule_id:'A',result:'issue',decision:{decision:'confirm_issue',reason:'缺少签字',resolves:false},requirement:{statement:'签字页齐全'}}];
+  page.acceptance={ready:false,accepted:false,blockers:['A 需补正']};
+  await openReview(env,page);
+  assert.match(env.els.rv.innerHTML,/等待提交者补正 1 项已确认问题/);
+  assert.match(env.els.rv.innerHTML,/当前版本仍不能验收/);
+  assert.match(env.els.rv.innerHTML,/请提交者补正后重新正式提交/);
+  assert.doesNotMatch(env.els.rv.innerHTML,/材料规则已处理，继续查看验收前置条件/);
+});
   const env=setup(),page=reviewPage(reviewScope('a'));
   page.rules=[{rule_id:'A',result:'unknown'},{rule_id:'B',result:'issue',decision:{decision:'confirm_issue'}},
     {rule_id:'C',result:'satisfied'},{rule_id:'D',result:'manual_pending'}];
