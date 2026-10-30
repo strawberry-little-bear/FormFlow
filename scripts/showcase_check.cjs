@@ -309,11 +309,13 @@ async function main() {
           const rosterRecovery = route.name === 'roster-invalid'
             ? await page.evaluate(() => {
               const state = document.querySelector('#roster-load-state');
+              const content = document.querySelector("#roster-content");
               const rect = state?.getBoundingClientRect();
               const controls = [...document.querySelectorAll('.roster-import input, .roster-import textarea, .roster-import button, .roster-list > .section-heading button, #roster-filter button')];
               return {
                 noticeVisible: !!state && !!rect && rect.top >= 0 && rect.bottom <= window.innerHeight,
                 noticeText: state?.innerText?.replace(/\\s+/g, ' ').trim() || '',
+                contentHidden: !content || content.hidden,
                 controlsDisabled: controls.length > 0 && controls.every(control => control.disabled),
               };
             })
@@ -363,6 +365,7 @@ async function main() {
                 && taskFilterInteraction.every(item => item.exactlyOneSelected && item.expectedSelected)))
               && (!rosterRecovery || (rosterRecovery.noticeVisible
                 && rosterRecovery.noticeText.includes('名册暂时无法读取')
+                && rosterRecovery.contentHidden
                 && rosterRecovery.controlsDisabled))
               && (!designScroll || designScroll.ok),
             missing,

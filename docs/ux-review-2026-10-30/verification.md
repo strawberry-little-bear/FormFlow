@@ -66,6 +66,13 @@
 - `node --test tests/frontend_contracts.test.cjs`：232 项通过；浏览器脚本与应用 JS 语法检查、`git diff --check` 通过。未重跑 Python 全量（本轮为 CSS、契约及浏览器脚本调整）。临时 API 已停止，既有 8147 演示服务和 `data/demo` 未触碰。结果与截图位于 `%TEMP%\formflow-ux-20261030-datetime\evidence`。
 - 可复跑脚本：`scripts/ux_first_task_submitter_entry_walkthrough.cjs`。
 
+## 2026-10-30 名册无效路由操作区隐藏
+
+- 无效名册任务编号会显示读取失败原因和恢复入口；之前统计、名单导入和凭证操作仍留在页面上，可能让人误以为这些操作可用。现将其放入默认隐藏的 `#roster-content`，仅在名册 API 成功后显示。加载失败与重试期间操作区继续隐藏；读取成功后正常展示。
+- 前端契约覆盖成功后显示与失败后隐藏，`node --test tests/frontend_contracts.test.cjs`：232 项通过。`python -m pytest -q tests/test_start_demo.py`：25 项通过；应用及 Showcase 脚本语法检查和 `git diff --check` 通过。
+- Showcase Harness 对既有 `127.0.0.1:8147` 服务完成 1440、1366、390、320px 共 28 条路由检查；四个视口的无效名册路由均确认操作区隐藏，路由检查通过且无横向溢出、控制台错误、页面异常或失败 HTTP 响应。此检查只读复用现有演示服务，没有重置或写入演示数据库。
+- 截图与机器报告保存在 `%TEMP%\formflow-roster-failstate-20261030`；前端资源版本更新为 `20261030-14`。
+
 ## 2026-10-30 提交后核对结果刷新
 
 - 首轮提交闭环只确认了 Worker 最终成功，没有等待浏览器结果区离开“排队中”。扩展走查脚本：正式回执出现后等待结果摘要退出排队/检查中状态，最多 120 秒，并同时保存即时回执和最终结果截图。

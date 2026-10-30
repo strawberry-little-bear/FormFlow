@@ -2679,6 +2679,7 @@ async function viewRoster(taskId) {
     ${showcaseReturnHtml("名单与凭证")}
     <div class="page-heading"><div><div class="eyebrow">ROSTER & CREDENTIALS</div><h1>名单与提交凭证<span class="heading-dot">.</span></h1><p>谁来交、谁免交，以及每个人进入提交空间的唯一钥匙。</p></div><a class="ghost" href="#/workbench/${taskId}">去工作台 ${icon("arrow")}</a></div>
     <div id="roster-load-state" aria-live="polite"><p class="muted">正在读取名册…</p></div>
+    <div id="roster-content" hidden>
     <div id="flash" role="status" aria-live="polite"></div>
     <div class="overview-stats" id="roster-stats"></div>
     <p class="workspace-note">${icon("roster")} 名册 = 应交 + 有效免交；应交 = 已正式提交 + 未正式提交。验收、补正和人工待办都是已提交的子集，不能相加成总人数。</p>
@@ -2696,6 +2697,7 @@ async function viewRoster(taskId) {
         <div id="grant-out"></div>
         <p class="field-help">凭证是提交者进入本人提交空间的唯一钥匙，请通过私下渠道发放；同名主体只按名复用提交空间，是否同一人请在复核页人工核对，不自动合并。重发会生成新凭证。</p>
       </section>
+    </div>
     </div>`;
   document.getElementById("roster-raw").addEventListener("input", renderRosterPreview);
   await loadRoster(taskId);
@@ -2746,6 +2748,8 @@ async function loadRoster(taskId) {
       [["名册总数", d.total, "roster"], ["已发放凭证", d.granted, "design"], ["有效免交", d.exempt, "delivery"], ["待发放", Math.max(0, d.total - d.granted - d.exempt), "workbench"]]
         .map(([l, n, ic]) => `<div class="overview-stat"><span>${l}</span><strong>${String(n).padStart(2, "0")}</strong><i>${icon(ic)}</i></div>`).join("");
     renderRosterTable();
+    const content = document.getElementById("roster-content");
+    if (content) content.hidden = false;
     if (loadState) loadState.innerHTML = "";
     controls.forEach(control => { control.disabled = state.rosterGrantBusy; });
     return true;
@@ -2753,6 +2757,8 @@ async function loadRoster(taskId) {
     if (epoch !== state.routeEpoch || requestId !== state.rosterRequestId) return false;
     const table = document.getElementById("roster-table");
     if (table) table.innerHTML = "";
+    const content = document.getElementById("roster-content");
+    if (content) content.hidden = true;
     if (loadState) loadState.innerHTML = `<div class="notice-warn" role="alert"><b>名册暂时无法读取</b><p>${esc(e.message || "请检查任务是否存在，或稍后重试。")}</p><button class="ghost sm" onclick="loadRoster(${taskId})">重试加载名册</button> <a class="ghost sm" href="#/workbench/${taskId}">回到收集工作台</a></div>`;
     return false;
   }

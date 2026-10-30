@@ -28,7 +28,7 @@ function element(value = '') {
 function setup(sharedStorage = storage()) {
   const els = Object.fromEntries(['sub', 'draft-hint', 'flash', 'receipt-out', 'decision-submit', 'presentation-toggle', 'lg-cred',
     'review-conflict', 'login-err', 'dc-type', 'dc-rule', 'dc-reason', 'dc-exp', 'acceptance-reason', 'acceptance-submit',
-    'review-draft-status', 'submission-errors', 'field-error-name', 'dl', 'delivery-history-list', 'delivery-history-more-error', 'snap-view', 'create-snapshot', 'snap-kind', 'create-submit', 'create-error', 'tk-name', 'tk-mode', 'tk-kind', 'create-dialog', 'app', 'rv', 'rv-name', 'my-results', 'my-results-card', 'submit-next-step', 'nav', 'role-label', 'wb-next-step', 'btn-logout', 'workspace-agent-mode', 'workspace-agent-status', 'agent-tour-mode', 'agent-tour-availability', 'agent-runtime-mode', 'agent-runtime-status', 'grant-out', 'roster-name', 'roster-stats', 'roster-filter', 'roster-results-status', 'roster-table', 'roster-load-state', 'roster-grant-all'].map(id => [id, element()]));
+    'review-draft-status', 'submission-errors', 'field-error-name', 'dl', 'delivery-history-list', 'delivery-history-more-error', 'snap-view', 'create-snapshot', 'snap-kind', 'create-submit', 'create-error', 'tk-name', 'tk-mode', 'tk-kind', 'create-dialog', 'app', 'rv', 'rv-name', 'my-results', 'my-results-card', 'submit-next-step', 'nav', 'role-label', 'wb-next-step', 'btn-logout', 'workspace-agent-mode', 'workspace-agent-status', 'agent-tour-mode', 'agent-tour-availability', 'agent-runtime-mode', 'agent-runtime-status', 'grant-out', 'roster-name', 'roster-stats', 'roster-filter', 'roster-results-status', 'roster-table', 'roster-load-state', 'roster-content', 'roster-grant-all'].map(id => [id, element()]));
   const fields = [Object.assign(element('old'), {dataset: {field:'name'}})];
   els['login-err'].style = {};
   els['field-name'] = fields[0];
@@ -1842,6 +1842,7 @@ test('roster controls stay locked while loading, then unlock only after success'
   pending.resolve(response({entries:[],total:0,granted:0,exempt:0}));
   assert.equal(await loading,true);
   assert.ok(controls.every(control=>!control.disabled));
+  assert.equal(els['roster-content'].hidden, false, 'roster operations appear only after a successful read');
   assert.equal(els['roster-load-state'].innerHTML,'');
 });
 test('roster request failure replaces loading with a prominent recovery state and keeps mutations locked', async () => {
@@ -1855,6 +1856,7 @@ test('roster request failure replaces loading with a prominent recovery state an
   assert.match(els['roster-load-state'].innerHTML,/重试加载名册/);
   assert.doesNotMatch(els['roster-load-state'].innerHTML,/正在读取名册/);
   assert.equal(els['roster-table'].innerHTML,'');
+  assert.equal(els['roster-content'].hidden, true, 'failed roster reads hide import and credential operations');
   assert.ok(controls.every(control=>control.disabled));
   const pending=deferred();context.fetch=()=>pending.promise;
   const retry=app.loadRoster(9999);
