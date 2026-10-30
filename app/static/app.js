@@ -4015,10 +4015,11 @@ function refreshSubmitAction() {
   const button = document.querySelector(".submit-action-primary");
   if (!button || !state.receipt) return;
   const unchanged = submissionMatchesReceipt(collectDraftFields(), state.files);
+  const incomplete = submissionIssues(collectDraftFields()).length > 0;
   button.disabled = state.submitterReadOnly;
   const label = state.receipt.formal
-    ? unchanged ? "查看核对记录" : "提交更正版本并重新核对"
-    : "提交材料并开始核对";
+    ? unchanged ? "查看核对记录" : incomplete ? "完成更正后重新核对" : "提交更正版本并重新核对"
+    : incomplete ? "完成登记与上传材料" : "提交材料并开始核对";
   button.innerHTML = label + " " + icon("arrow");
 }
 function submitPrimaryAction() {
@@ -4224,6 +4225,7 @@ async function viewSubmit() {
     refreshSlotConditions(slots);
     initSubChat(fields, slots, ro, me.subject.name, draft.fields || {});
     setSubMode("form");
+    refreshSubmitAction();
     paintSubmitterNextStep();
     if (local) {
       document.getElementById("draft-hint").textContent = localConflict

@@ -3526,3 +3526,21 @@ test('unchanged formal content routes the primary action to results; changed con
   app.refreshSubmitAction();
   assert.equal(button.disabled, false);
 });
+
+test('submitter primary action describes missing required fields and materials before submission', () => {
+  const {app, document, fields} = setup();
+  const button = element();
+  document.querySelector = selector => selector === '.submit-action-primary' ? button : null;
+  app.state.receipt = {formal:false};
+  app.state.sub.fields = [{id:'name', label:'姓名', required:true}];
+  app.state.sub.slots = [{id:'report', label:'团课报告', max_count:1}];
+  app.state.files = {};
+
+  app.refreshSubmitAction();
+  assert.match(button.innerHTML, /完成登记与上传材料/);
+
+  fields[0].value = '李四';
+  app.state.files.report = ['file-a'];
+  app.refreshSubmitAction();
+  assert.match(button.innerHTML, /提交材料并开始核对/);
+});
