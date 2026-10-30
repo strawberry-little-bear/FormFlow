@@ -71,3 +71,11 @@
 - 对本地演示服务 `127.0.0.1:8147` 运行只读 Showcase Harness，覆盖 1440、1366、390、320px 共 28 条路由；任务列表退出展示视图后位于首屏，无效名单与复核编号均显示错误说明和恢复入口。
 - 四档视口无横向溢出或卡载入；控件均有可访问名称，任务筛选交互正常。控制台错误、页面异常和失败 HTTP 响应均为 0。机器报告与截图位于 `%TEMP%\formflow-followup-showcase-20261030`。
 - `node tests/frontend_contracts.test.cjs`：232 项通过；`python -m pytest -q`：449 项通过。复核只读复用现有服务，没有重置演示数据；未发现需要新增产品代码修复的问题。
+
+## 2026-10-30 新建任务首次提交闭环
+
+- 在 `%TEMP%\formflow-first-submit-safe-5ffc9c53498e4588b21237fb86175593` 的隔离 SQLite、虚构种子和空 `FORMFLOW_LLM_API_KEY` 下，完成组织者登录、新建任务、选择并发布模板、导入名册、发放凭证，以及提交者登录、缺项校验、PDF 上传、服务器草稿保存和 v1 正式提交。
+- 走查脚本原先只在组织者页监听 `/api/me/submit`，导致实际成功提交后仍误报请求数为 0。现在组织者与提交者页共享 console/pageerror/HTTP 失败采集，并记录请求来源；最终恰好观察到一条来自提交者页的正式提交 POST。上传、草稿、正式提交响应均为 HTTP 200。
+- Worker 对任务 4 的检查最终状态为 `success`，生成规则结果；不是只依据提交回执的即时“排队中”状态作结论。1440/390/320px 均无横向溢出，Agent 请求、浏览器错误和 HTTP 失败均为 0。
+- `node --test tests/frontend_contracts.test.cjs tests/ux_browser.test.cjs`：234 项通过；Python 全量测试结果见本轮结果。证据和截图位于 `%TEMP%\formflow-first-submit-safe-5ffc9c53498e4588b21237fb86175593\evidence-final`。未覆盖真实模型质量、真实手机或生产部署。
+- 可复跑脚本：`scripts/ux_first_task_submitter_entry_walkthrough.cjs`。
