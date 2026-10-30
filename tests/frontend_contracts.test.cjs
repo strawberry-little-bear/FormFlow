@@ -43,7 +43,7 @@ function setup(sharedStorage = storage()) {
     requestAnimationFrame: fn => fn(),
     setTimeout, clearTimeout, confirm: () => true, console,
     fetch: async () => {throw new Error('Unexpected request');}});
-vm.runInContext(source + '\nthis.app = {state, route, useVersionAsBase, loadDesignVersion, cacheDesignInputs, restoreDesignInputs, recoverDesignInput, recoverDesignInput, paintChat, runAgent, runExport, deliveryHistoryHtml, deliverySnapshotStatusHtml, loadDeliveryHistory, inspectSnapshot, paintSnapshot, agentEvidenceSummaryHtml, canPublishDesign, publishDiffHtml, designVersionImpactHtml, publishGovernanceHtml, publishBp, confirmPublish, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, fmtTimeShort, designReadinessHtml, designProgressHtml, applyDraft, draftFingerprint, collectDraftFields, paintSubmitterNextStep, submitterNextStepHtml, setSubMode, moveSubmitModeTab, setDesignTab, moveDesignTab, refreshSlotConditions, wbMatches, api, apiError, submitDecision, saveDraft, doSubmit, doSubLogin, uploadSlot, deleteSlotFile, cacheReviewDraft, discardReviewDraft, logout, nextPendingReview, setReviewFilter, setReviewTraceFilter, selectReviewRule, viewReview, reviewRevisionHistoryHtml, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, chooseWorkbenchNextStep, workbenchNextStepHtml, agentRunCard, agentTourHtml, agentTourRuntimeHtml, runtimeSelfTestHtml, submitterGuidance, ruleCard, receiptFilesHtml, submissionIssues, checkAgentRequestNow, resumePendingAgentRequest, savePendingAgentRequest, agentRequestProgressHtml, retryAgent, pollAgentRequest, showSubmissionIssues, initSubChat, demoRouteTask, demoRouteHtml, demoRouteCueHtml, copyDemoRouteCue, agentArchitectureRailHtml, agentQuickReadHtml, agentShowcaseHtml, runStageReplayHtml, paintAgentShowcase, jumpToRunStage, mcpSnapshotHtml, renderDemoRoute, paintWorkspaceAgentStatus, paintAgentRuntime, paintAgentRuntimeContractIssue, viewLogin, viewSubmit, switchLoginTab, moveLoginTab, setFlash, openDialog, readPresentationMode, showcaseReturnHtml, applyPresentationMode, setPresentationMode, togglePresentationMode, fillDemoCred, doLogin, issueGrant, issueAllGrants, viewRoster, loadRoster, setRosterFilter, renderRosterTable, showCredential, showCredentialList, setEmptyTaskHome, jumpToSubmitResults, createTask};', context);
+vm.runInContext(source + '\nthis.app = {state, route, useVersionAsBase, loadDesignVersion, cacheDesignInputs, restoreDesignInputs, recoverDesignInput, recoverDesignInput, paintChat, runAgent, runExport, deliveryHistoryHtml, deliverySnapshotStatusHtml, loadDeliveryHistory, inspectSnapshot, paintSnapshot, agentEvidenceSummaryHtml, canPublishDesign, publishDiffHtml, designVersionImpactHtml, publishGovernanceHtml, publishBp, confirmPublish, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, fmtTimeShort, designReadinessHtml, designProgressHtml, applyDraft, quickTemplate, draftFingerprint, collectDraftFields, paintSubmitterNextStep, submitterNextStepHtml, setSubMode, moveSubmitModeTab, setDesignTab, moveDesignTab, refreshSlotConditions, wbMatches, api, apiError, submitDecision, saveDraft, doSubmit, doSubLogin, uploadSlot, deleteSlotFile, cacheReviewDraft, discardReviewDraft, logout, nextPendingReview, setReviewFilter, setReviewTraceFilter, selectReviewRule, viewReview, reviewRevisionHistoryHtml, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, chooseWorkbenchNextStep, workbenchNextStepHtml, agentRunCard, agentTourHtml, agentTourRuntimeHtml, runtimeSelfTestHtml, submitterGuidance, ruleCard, receiptFilesHtml, submissionIssues, checkAgentRequestNow, resumePendingAgentRequest, savePendingAgentRequest, agentRequestProgressHtml, retryAgent, pollAgentRequest, showSubmissionIssues, initSubChat, demoRouteTask, demoRouteHtml, demoRouteCueHtml, copyDemoRouteCue, agentArchitectureRailHtml, agentQuickReadHtml, agentShowcaseHtml, runStageReplayHtml, paintAgentShowcase, jumpToRunStage, mcpSnapshotHtml, renderDemoRoute, paintWorkspaceAgentStatus, paintAgentRuntime, paintAgentRuntimeContractIssue, viewLogin, viewSubmit, switchLoginTab, moveLoginTab, setFlash, openDialog, readPresentationMode, showcaseReturnHtml, applyPresentationMode, setPresentationMode, togglePresentationMode, fillDemoCred, doLogin, issueGrant, issueAllGrants, viewRoster, loadRoster, setRosterFilter, renderRosterTable, showCredential, showCredentialList, setEmptyTaskHome, jumpToSubmitResults, createTask};', context);
   context.app.submissionMatchesReceipt = context.submissionMatchesReceipt;
   context.app.cacheSubmissionDraft = vm.runInContext('cacheSubmissionDraft', context);
   context.app.refreshSubmitAction = context.refreshSubmitAction;
@@ -71,6 +71,35 @@ test('task creation explains whitespace-only names and returns focus to the fiel
   assert.equal(els['create-error'].textContent, '任务名称不能只有空白字符。');
   assert.equal(els['tk-name'].focused, true);
   assert.equal(els['create-submit'].disabled, false);
+});
+
+test('offline design template creates a blueprint and refreshes its version history', async () => {
+  const {app, context} = setup();
+  app.state.taskId = 73;
+  app.state.llmConfigured = false;
+  const requests = [];
+  const blueprint = {task_scope: {name: '团课报告'}, fields: [], slots: [], rules: [], time_policy: {}};
+  const draft = {blueprint, clarifications: []};
+  context.fetch = async (url, options) => {
+    requests.push({url, method: options.method, body: options.body?.toString()});
+    return response(url.endsWith('/draft/template')
+      ? {blueprint_version_id: 91, version: 1, status: 'draft', draft}
+      : {blueprint_version_id: 91, version: 1, status: 'draft', draft, versions: [{id: 91, version: 1, status: 'draft'}], history: []});
+  };
+
+  await app.quickTemplate('class_report');
+
+  assert.deepEqual(requests.map(({url, method}) => [url, method]), [
+    ['/api/tasks/73/draft/template', 'POST'],
+    ['/api/tasks/73/design', 'GET'],
+  ]);
+  assert.equal(requests[0].body, 'template=class_report');
+  assert.equal(app.state.bpId, 91);
+  assert.equal(app.state.designVersions[0].id, 91);
+  assert.equal(app.state.chat.at(-2).html.includes('团课报告'), true);
+  assert.equal(app.state.chat.at(-1).html, '模板已准备好，这只是个起点，不是最终要求。');
+  assert.match(app.state.chat.at(-1).mini, /请核对材料、时间、审核方式和数据用途/);
+  assert.equal(app.state.agentBusy, false);
 });
 
 test('agent runtime rejects missing and stale manifest contracts', () => {
