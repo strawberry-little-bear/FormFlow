@@ -12,6 +12,29 @@ const OUT = process.env.FORMFLOW_WALKTHROUGH_OUT
   ? path.resolve(process.env.FORMFLOW_WALKTHROUGH_OUT)
   : path.join(os.tmpdir(), `formflow-first-task-entry-${Date.now()}`);
 
+function minimalPdf(text) {
+  const escaped = text.replace(/[()\\]/g, '\\$&');
+  const stream = `BT /F1 12 Tf 72 720 Td (${escaped}) Tj ET\n`;
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    `<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}endstream`,
+  ];
+  let pdf = '%PDF-1.4\n';
+  const offsets = [0];
+  objects.forEach((object, index) => {
+    offsets.push(Buffer.byteLength(pdf));
+    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  });
+  const xrefOffset = Buffer.byteLength(pdf);
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  pdf += offsets.slice(1).map(offset => `${String(offset).padStart(10, '0')} 00000 n \n`).join('');
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;
+  return Buffer.from(pdf, 'ascii');
+}
+
 async function dimensions(page) {
   return page.evaluate(() => ({
     width: window.innerWidth,
@@ -28,16 +51,25 @@ async function main() {
   const errors = [];
   const badResponses = [];
   const agentPosts = [];
-  page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
-  page.on('pageerror', error => errors.push(error.message));
-  page.on('response', response => {
-    if (response.status() >= 400) badResponses.push(`${response.status()} ${response.url()}`);
-  });
-  page.on('request', request => {
-    if (request.method() === 'POST' && /\/api\/agent\/requests(?:\?|$)/.test(request.url())) {
-      agentPosts.push(request.url());
-    }
-  });
+  const submitPosts = [];
+  const observePage = (observedPage, name) => {
+    observedPage.on('console', message => {
+      if (message.type() === 'error') errors.push(`${name}: ${message.text()}`);
+    });
+    observedPage.on('pageerror', error => errors.push(`${name}: ${error.message}`));
+    observedPage.on('response', response => {
+      if (response.status() >= 400) badResponses.push(`${name}: ${response.status()} ${response.url()}`);
+    });
+    observedPage.on('request', request => {
+      if (request.method() === 'POST' && /\/api\/agent\/requests(?:\?|$)/.test(request.url())) {
+        agentPosts.push(`${name}: ${request.url()}`);
+      }
+      if (request.method() === 'POST' && /\/api\/me\/submit(?:\?|$)/.test(request.url())) {
+        submitPosts.push(`${name}: ${request.url()}`);
+      }
+    });
+  };
+  observePage(page, 'organizer');
 
   try {
     await page.goto(`${BASE}/#/login`, { waitUntil: 'networkidle' });
@@ -105,6 +137,7 @@ async function main() {
     await page.screenshot({ path: path.join(OUT, 'organizer-roster.png'), fullPage: true });
 
     const submitterPage = await context.newPage();
+    observePage(submitterPage, 'submitter');
     await submitterPage.goto(`${BASE}/#/login?role=sub`, { waitUntil: 'networkidle' });
     await submitterPage.locator('#lg-cred').fill(credential);
     await submitterPage.getByRole('button', { name: '进入我的提交空间' }).click();
@@ -117,6 +150,51 @@ async function main() {
       dimensions: { width: innerWidth, scrollWidth: document.documentElement.scrollWidth, clientWidth: document.documentElement.clientWidth },
     }));
     await submitterPage.screenshot({ path: path.join(OUT, 'submitter-entry.png'), fullPage: true });
+
+    const primary = submitterPage.locator('.submit-action-primary');
+    await primary.click();
+    await submitterPage.locator('#submission-errors').waitFor({ state: 'visible' });
+    const incompleteState = await submitterPage.evaluate(() => ({
+      errors: document.querySelector('#submission-errors')?.innerText.replace(/\s+/g, ' ').trim() || '',
+      focused: document.activeElement?.id || '',
+      submitCount: document.querySelector('#submission-errors')?.innerText.includes('还有 4 项需要核对') || false,
+    }));
+    if (submitPosts.length) throw new Error('incomplete first submission unexpectedly reached the submit API');
+
+    await submitterPage.locator('#field-name').fill('新建任务演示提交者');
+    await submitterPage.locator('#field-term').fill('2026 秋季第 1 期');
+    await submitterPage.locator('#field-class_name').fill('2026 演示班');
+    await submitterPage.locator('#file-report').setInputFiles({
+      name: 'first-task-demo-report.pdf',
+      mimeType: 'application/pdf',
+      buffer: minimalPdf('First task demo report for subject 6'),
+    });
+    const uploadResponsePromise = submitterPage.waitForResponse(response =>
+      response.url().includes('/api/me/files') && response.request().method() === 'POST');
+    await submitterPage.locator('#upload-report').click();
+    const uploadResponse = await uploadResponsePromise;
+    if (!uploadResponse.ok()) throw new Error(`first task PDF upload failed with HTTP ${uploadResponse.status()}`);
+    await submitterPage.locator('#slot-files-report .file-chip-name').getByText('first-task-demo-report.pdf', { exact: true }).waitFor();
+    await submitterPage.screenshot({ path: path.join(OUT, 'submitter-form-complete.png'), fullPage: true });
+
+    const draftResponsePromise = submitterPage.waitForResponse(response =>
+      response.url().includes('/api/me/draft') && response.request().method() === 'POST');
+    await submitterPage.getByRole('button', { name: /保存草稿/ }).click();
+    const draftResponse = await draftResponsePromise;
+    if (!draftResponse.ok()) throw new Error(`first task draft save failed with HTTP ${draftResponse.status()}`);
+    await submitterPage.waitForFunction(() => document.querySelector('#draft-hint')?.textContent.includes('已保存到服务器'));
+
+    const formalSubmitPromise = submitterPage.waitForResponse(response =>
+      response.url().includes('/api/me/submit') && response.request().method() === 'POST');
+    await submitterPage.locator('.submit-action-primary').click();
+    const formalSubmit = await formalSubmitPromise;
+    if (!formalSubmit.ok()) throw new Error(`first task formal submit failed with HTTP ${formalSubmit.status()}`);
+    await submitterPage.getByText(/已正式提交 · v1/).waitFor();
+    await submitterPage.screenshot({ path: path.join(OUT, 'submitter-first-receipt.png'), fullPage: true });
+    const firstReceipt = await submitterPage.evaluate(() => ({
+      body: document.querySelector('main#app')?.innerText.replace(/\s+/g, ' ').trim() || '',
+      heading: document.querySelector('#my-results-heading')?.innerText.replace(/\s+/g, ' ').trim() || '',
+    }));
 
     const mobile = [];
     for (const width of [390, 320]) {
@@ -136,6 +214,12 @@ async function main() {
       designMobile,
       rosterState,
       submitter,
+      incompleteState,
+      firstReceipt,
+      uploadStatus: uploadResponse.status(),
+      draftStatus: draftResponse.status(),
+      formalSubmitStatus: formalSubmit.status(),
+      submitPosts,
       mobile,
       agentPosts,
       errors,
@@ -157,6 +241,11 @@ async function main() {
     if (!rosterState.credentialNotice.includes('私下渠道')) failures.push('one-time credential guidance is missing');
     if (!submitter.title || !submitter.body.includes('新建任务演示提交者')) failures.push('submitter did not reach their own submission space');
     if (!submitter.primaryAction.includes('完成登记与上传材料')) failures.push(`incomplete submitter primary action is misleading: ${submitter.primaryAction}`);
+    if (!incompleteState.submitCount || !incompleteState.errors.includes('请填写「姓名」') || !incompleteState.errors.includes('请上传「团课报告」')) {
+      failures.push(`incomplete first submission did not explain the missing inputs: ${incompleteState.errors}`);
+    }
+    if (!firstReceipt.body.includes('已正式提交 · v1')) failures.push('new-task submitter did not receive the formal receipt');
+    if (submitPosts.length !== 1) failures.push(`expected exactly one valid formal submit request, got ${submitPosts.length}`);
     if (submitter.dimensions.scrollWidth > submitter.dimensions.clientWidth) failures.push('submitter page overflows horizontally');
     if (mobile.some(item => item.submitter.scrollWidth > item.submitter.width || item.roster.scrollWidth > item.roster.width)) {
       failures.push('roster or submitter page overflows on mobile');
