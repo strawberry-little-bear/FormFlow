@@ -137,7 +137,7 @@ FormFlow 提供一个可选的本地 stdio MCP sidecar，供支持 MCP 的桌面
 python scripts/demo_mcp.py
 ```
 
-默认账号是 `demo`，按提示输入 `demo1234`。脚本会通过 MCP stdio 发现工具，再调用任务列表、收集进度、下一步路线和 Agent runtime 查询；收集进度会汇总显示资格待核人数。账号下只有一个任务时自动选择，多任务时可输入任务编号，直接回车使用列表第一项。需要在录屏或无 stdin 的环境复现时，可把密码放入当前进程环境变量后运行 `FORMFLOW_DEMO_PASSWORD=demo1234 python scripts/demo_mcp.py --non-interactive --task-id 1`；PowerShell 对应为 `$env:FORMFLOW_DEMO_PASSWORD='demo1234'; python scripts/demo_mcp.py --non-interactive --task-id 1`。密码、会话 token 和材料内容都不会打印或写入文件。输出只含任务导航摘要与运行边界。HTTP 仅允许本机地址，远程 API 必须使用 HTTPS。
+默认账号是 `demo`，按提示输入 `demo1234`。脚本会通过 MCP stdio 发现工具，再调用任务列表、收集进度、下一步路线和 Agent runtime 查询；收集进度会汇总显示资格待核人数。账号下只有一个任务时自动选择，多任务时可输入任务编号，直接回车使用列表第一项。需要在录屏或无 stdin 的环境复现时，可把密码放入当前进程环境变量后运行 `FORMFLOW_DEMO_PASSWORD=demo1234 python scripts/demo_mcp.py --non-interactive --task-id 1`；PowerShell 对应为 `$env:FORMFLOW_DEMO_PASSWORD='demo1234'; python scripts/demo_mcp.py --non-interactive --task-id 1`。密码、会话 token 和材料内容都不会打印或写入文件。输出只含任务导航摘要与运行边界；重定向或管道输出使用 UTF-8，交互控制台保留系统终端编码。HTTP 仅允许本机地址，远程 API 必须使用 HTTPS。
 
 桌面 MCP 客户端可按下面示例配置 sidecar。不要把真实账号 token 提交到仓库或发给他人：
 

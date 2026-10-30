@@ -5,6 +5,28 @@ from urllib.parse import parse_qs
 from scripts import demo_mcp
 
 
+def test_non_interactive_output_uses_utf8_without_changing_tty_encoding():
+    class Stream:
+        def __init__(self, is_tty):
+            self.is_tty = is_tty
+            self.options = None
+
+        def isatty(self):
+            return self.is_tty
+
+        def reconfigure(self, **options):
+            self.options = options
+
+    pipe = Stream(False)
+    console = Stream(True)
+
+    demo_mcp.configure_output_encoding(pipe)
+    demo_mcp.configure_output_encoding(console)
+
+    assert pipe.options == {"encoding": "utf-8", "errors": "backslashreplace"}
+    assert console.options is None
+
+
 def test_collection_progress_output_includes_eligibility_pending_for_both_modes(capsys):
     roster_counts = {
         "roster": 5,

@@ -18,6 +18,11 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_API_URL = "http://127.0.0.1:8000"
 
 
+def configure_output_encoding(stream) -> None:
+    if not stream.isatty() and hasattr(stream, "reconfigure"):
+        stream.reconfigure(encoding="utf-8", errors="backslashreplace")
+
+
 def validate_api_url(api_url: str) -> str:
     base_url = api_url.rstrip("/")
     parsed = urlparse(base_url)
@@ -142,6 +147,8 @@ async def show_mcp(api_url: str, token: str, requested_task_id: int | None = Non
 def main() -> int:
     import argparse
 
+    configure_output_encoding(sys.stdout)
+    configure_output_encoding(sys.stderr)
     parser = argparse.ArgumentParser(description="演示 FormFlow 组织者只读 MCP sidecar")
     parser.add_argument("--api-url", default=DEFAULT_API_URL, help="本地 API 地址，默认 %(default)s")
     parser.add_argument("--username", default=os.getenv("FORMFLOW_DEMO_USERNAME", "demo"),
