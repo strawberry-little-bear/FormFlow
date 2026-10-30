@@ -13,7 +13,7 @@
 
 ![FormFlow 展示工作区：Agent 架构导览与当前收集任务](docs/ux-review-2026-10-30/showcase-home-current.png)
 
-> 2026-10-30 Showcase: 28 routes across 4 viewport sizes passed, with no horizontal overflow, stuck loading states, console errors, or failed requests.
+> 2026-10-30 只读 Showcase：覆盖 4 档视口、28 条路由，检查通过；无横向溢出、卡载入、控制台错误或失败请求。
 
 > 当前为本地可演示的黑客松作品，已实现从发布要求、收件、检查、补正到人工验收及快照交付的核心闭环。尚未完成真实业务试点、模型质量评估和公网部署安全验收；截图与演示人物、材料均为虚构。
 
