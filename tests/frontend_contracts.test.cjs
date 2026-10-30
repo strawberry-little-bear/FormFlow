@@ -29,12 +29,15 @@ function setup(sharedStorage = storage()) {
   const els = Object.fromEntries(['sub', 'draft-hint', 'flash', 'receipt-out', 'decision-submit', 'presentation-toggle', 'lg-cred',
     'review-conflict', 'login-err', 'dc-type', 'dc-rule', 'dc-reason', 'dc-exp', 'acceptance-reason', 'acceptance-submit',
     'review-draft-status', 'submission-errors', 'field-error-name', 'dl', 'delivery-history-list', 'delivery-history-more-error', 'snap-view', 'create-snapshot', 'snap-kind', 'create-submit', 'create-error', 'tk-name', 'tk-mode', 'tk-kind', 'create-dialog', 'app', 'rv', 'rv-name', 'my-results', 'my-results-card', 'submit-next-step', 'nav', 'role-label', 'wb-next-step', 'btn-logout', 'workspace-agent-mode', 'workspace-agent-status', 'agent-tour-mode', 'agent-tour-availability', 'agent-runtime-mode', 'agent-runtime-status', 'grant-out', 'roster-name', 'roster-stats', 'roster-filter', 'roster-results-status', 'roster-table', 'roster-load-state', 'roster-content', 'roster-grant-all'].map(id => [id, element()]));
+  els['task-list'] = element();
+  els['task-search'] = element();
+  const taskFilters = ['all', 'collecting', 'draft', 'done'].map(filter => Object.assign(element(), {dataset: {filter}}));
   const fields = [Object.assign(element('old'), {dataset: {field:'name'}})];
   els['login-err'].style = {};
   els['field-name'] = fields[0];
   const body = Object.assign(element(), {dataset: {page: 'tasks'}});
   const document = {body, documentElement: {style: {setProperty(name, value) { this[name] = value; }}}, getElementById: id => els[id] || null,
-    querySelectorAll: sel => sel === '[data-field]' ? fields : [], querySelector: () => null};
+    querySelectorAll: sel => sel === '[data-field]' ? fields : sel === '[data-filter]' ? taskFilters : [], querySelector: () => null};
   const windowListeners = {};
   const viewportListeners = {};
   const visualViewport = {height: 844, offsetTop: 0, addEventListener(name, fn) {viewportListeners[name] = fn;}};
@@ -43,7 +46,7 @@ function setup(sharedStorage = storage()) {
     requestAnimationFrame: fn => fn(),
     setTimeout, clearTimeout, confirm: () => true, console,
     fetch: async () => {throw new Error('Unexpected request');}});
-vm.runInContext(source + '\nthis.app = {state, route, useVersionAsBase, loadDesignVersion, cacheDesignInputs, restoreDesignInputs, recoverDesignInput, recoverDesignInput, paintChat, runAgent, runExport, deliveryHistoryHtml, deliverySnapshotStatusHtml, loadDeliveryHistory, inspectSnapshot, paintSnapshot, agentEvidenceSummaryHtml, canPublishDesign, publishDiffHtml, designVersionImpactHtml, publishGovernanceHtml, publishBp, confirmPublish, saveTimePolicy, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, fmtTimeShort, designReadinessHtml, designProgressHtml, applyDraft, quickTemplate, draftFingerprint, collectDraftFields, paintSubmitterNextStep, submitterNextStepHtml, setSubMode, moveSubmitModeTab, setDesignTab, moveDesignTab, refreshSlotConditions, wbMatches, api, apiError, submitDecision, saveDraft, doSubmit, doSubLogin, uploadSlot, deleteSlotFile, cacheReviewDraft, discardReviewDraft, logout, nextPendingReview, setReviewFilter, setReviewTraceFilter, selectReviewRule, viewReview, reviewRevisionHistoryHtml, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, chooseWorkbenchNextStep, workbenchNextStepHtml, agentRunCard, agentTourHtml, agentTourRuntimeHtml, runtimeSelfTestHtml, submitterGuidance, ruleCard, receiptFilesHtml, submissionIssues, checkAgentRequestNow, resumePendingAgentRequest, savePendingAgentRequest, agentRequestProgressHtml, retryAgent, pollAgentRequest, showSubmissionIssues, refreshSubmissionValidation, initSubChat, demoRouteTask, demoRouteHtml, demoRouteCueHtml, copyDemoRouteCue, agentArchitectureRailHtml, agentQuickReadHtml, agentShowcaseHtml, runStageReplayHtml, paintAgentShowcase, jumpToRunStage, mcpSnapshotHtml, renderDemoRoute, paintWorkspaceAgentStatus, paintAgentRuntime, paintAgentRuntimeContractIssue, viewLogin, viewSubmit, switchLoginTab, moveLoginTab, setFlash, openDialog, readPresentationMode, showcaseReturnHtml, applyPresentationMode, setPresentationMode, togglePresentationMode, fillDemoCred, doLogin, issueGrant, issueAllGrants, viewRoster, loadRoster, setRosterFilter, renderRosterTable, showCredential, showCredentialList, setEmptyTaskHome, jumpToSubmitResults, createTask};', context);
+vm.runInContext(source + '\nthis.app = {state, route, useVersionAsBase, loadDesignVersion, cacheDesignInputs, restoreDesignInputs, recoverDesignInput, recoverDesignInput, paintChat, runAgent, runExport, deliveryHistoryHtml, deliverySnapshotStatusHtml, loadDeliveryHistory, inspectSnapshot, paintSnapshot, agentEvidenceSummaryHtml, canPublishDesign, publishDiffHtml, designVersionImpactHtml, publishGovernanceHtml, publishBp, confirmPublish, saveTimePolicy, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, fmtTimeShort, designReadinessHtml, designProgressHtml, applyDraft, quickTemplate, draftFingerprint, collectDraftFields, paintSubmitterNextStep, submitterNextStepHtml, setSubMode, moveSubmitModeTab, setDesignTab, moveDesignTab, refreshSlotConditions, wbMatches, api, apiError, submitDecision, saveDraft, doSubmit, doSubLogin, uploadSlot, deleteSlotFile, cacheReviewDraft, discardReviewDraft, logout, nextPendingReview, setReviewFilter, setReviewTraceFilter, selectReviewRule, viewReview, reviewRevisionHistoryHtml, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, chooseWorkbenchNextStep, workbenchNextStepHtml, agentRunCard, agentTourHtml, agentTourRuntimeHtml, runtimeSelfTestHtml, submitterGuidance, ruleCard, receiptFilesHtml, submissionIssues, checkAgentRequestNow, resumePendingAgentRequest, savePendingAgentRequest, agentRequestProgressHtml, retryAgent, pollAgentRequest, showSubmissionIssues, refreshSubmissionValidation, initSubChat, demoRouteTask, demoRouteHtml, demoRouteCueHtml, copyDemoRouteCue, agentArchitectureRailHtml, agentQuickReadHtml, agentShowcaseHtml, runStageReplayHtml, paintAgentShowcase, jumpToRunStage, mcpSnapshotHtml, renderDemoRoute, paintWorkspaceAgentStatus, paintAgentRuntime, paintAgentRuntimeContractIssue, viewLogin, viewSubmit, switchLoginTab, moveLoginTab, setFlash, openDialog, readPresentationMode, showcaseReturnHtml, applyPresentationMode, setPresentationMode, togglePresentationMode, fillDemoCred, doLogin, issueGrant, issueAllGrants, viewRoster, loadRoster, setRosterFilter, renderRosterTable, showCredential, showCredentialList, setEmptyTaskHome, jumpToSubmitResults, filterTasks, clearTaskFilters, paintTasks, createTask};', context);
   context.app.submissionMatchesReceipt = context.submissionMatchesReceipt;
   context.app.cacheSubmissionDraft = vm.runInContext('cacheSubmissionDraft', context);
   context.app.refreshSubmitAction = context.refreshSubmitAction;
@@ -55,7 +58,7 @@ vm.runInContext(source + '\nthis.app = {state, route, useVersionAsBase, loadDesi
     draftVersion:1, fileMeta:{}, sub:{mode:'chat',phase:'fields',fIdx:0, fields:[{id:'name'}],slots:[],answers:{}}});
   context.window.confirm = () => true;
   context.localStorage.setItem('ff_sub_token', 'test-only-credential');
-  return {context, app:context.app, document, els, fields, windowListeners, viewportListeners, visualViewport};
+  return {context, app:context.app, document, els, fields, taskFilters, windowListeners, viewportListeners, visualViewport};
 }
 function response(data, status = 200) {
   return {ok:status < 400,status,text:async()=>JSON.stringify(data),json:async()=>data};
@@ -71,6 +74,27 @@ test('task creation explains whitespace-only names and returns focus to the fiel
   assert.equal(els['create-error'].textContent, '任务名称不能只有空白字符。');
   assert.equal(els['tk-name'].focused, true);
   assert.equal(els['create-submit'].disabled, false);
+});
+
+test('empty task filters offer a reset action that restores the full list', () => {
+  const {app, els, taskFilters} = setup();
+  app.state.tasks = [{id: 1, name: '团课报告', status: 'collecting', mode: 'roster', created_at: '2026-10-30T00:00:00Z'}];
+  app.state.taskFilter = 'draft';
+  els['task-search'].value = '不存在的任务';
+
+  app.paintTasks();
+
+  assert.match(els['task-list'].innerHTML, /没有符合条件的任务/);
+  assert.match(els['task-list'].innerHTML, /清除搜索和筛选/);
+
+  app.clearTaskFilters();
+
+  assert.equal(app.state.taskFilter, 'all');
+  assert.equal(els['task-search'].value, '');
+  assert.equal(els['task-search'].focused, true);
+  assert.equal(taskFilters.filter(button => button.getAttribute('aria-pressed') === 'true').length, 1);
+  assert.equal(taskFilters.find(button => button.dataset.filter === 'all').getAttribute('aria-pressed'), 'true');
+  assert.match(els['task-list'].innerHTML, /团课报告/);
 });
 
 test('offline design template creates a blueprint and refreshes its version history', async () => {
@@ -1119,6 +1143,9 @@ test('showcase browser harness verifies the task list receives accessible focus'
   assert.match(showcaseHarnessSource, /for \(const filter of \['collecting', 'draft', 'done', 'all'\]\)/);
   assert.match(showcaseHarnessSource, /\.task-filters \[data-filter="\$\{filter\}"\]`\)\.click\(\)/);
   assert.match(showcaseHarnessSource, /taskFilterInteraction\.every\(item => item\.exactlyOneSelected && item\.expectedSelected\)/);
+  assert.match(showcaseHarnessSource, /name: '清除搜索和筛选'/);
+  assert.match(showcaseHarnessSource, /taskFilterReset\.searchValue === ''/);
+  assert.match(showcaseHarnessSource, /taskFilterReset\.taskCountAfterReset > 0/);
   assert.match(showcaseHarnessSource, /path\.posix\.join\('screenshots', viewport\.name, `\$\{route\.name\}\.png`\)/);
   assert.match(showcaseHarnessSource, /route\.actualHash !== route\.hash/);
   assert.match(showcaseHarnessSource, /inspectDesignScroll\(page, viewport\)/);
