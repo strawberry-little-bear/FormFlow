@@ -56,6 +56,22 @@ async function main() {
     await page.getByText('模板已准备好，这只是个起点，不是最终要求。').waitFor();
     await page.locator('#draft-panel .version-picker select').waitFor({ state: 'visible' });
 
+    const designMobile = [];
+    for (const width of [390, 320]) {
+      await page.setViewportSize({ width, height: 844 });
+      await page.waitForTimeout(100);
+      const state = await page.evaluate(() => ({
+        width: innerWidth,
+        scrollWidth: document.documentElement.scrollWidth,
+        clientWidth: document.documentElement.clientWidth,
+        inputs: [...document.querySelectorAll('.time-policy-editor input[type="datetime-local"]')]
+          .map(input => ({ id: input.id, height: input.getBoundingClientRect().height })),
+      }));
+      designMobile.push(state);
+      await page.screenshot({ path: path.join(OUT, `design-${width}.png`), fullPage: true });
+    }
+    await page.setViewportSize({ width: 1440, height: 1000 });
+
     const taskId = Number(new URL(page.url()).hash.match(/design\/(\d+)/)?.[1]);
     const publishButton = page.locator('[data-publish]');
     await publishButton.waitFor({ state: 'visible' });
@@ -117,6 +133,7 @@ async function main() {
       taskId,
       taskName,
       published,
+      designMobile,
       rosterState,
       submitter,
       mobile,
@@ -130,6 +147,10 @@ async function main() {
     const failures = [];
     if (!Number.isInteger(taskId)) failures.push('created task id is missing');
     if (!published.includes('已发布')) failures.push('template version was not published');
+    if (designMobile.some(item => item.inputs.length !== 3 || item.inputs.some(input => input.height < 44))) {
+      failures.push('design time policy inputs do not all meet the 44px minimum height');
+    }
+    if (designMobile.some(item => item.scrollWidth > item.width)) failures.push('design page overflows horizontally on mobile');
     if (!rosterState.entries.some(entry => entry.includes('新建任务演示提交者') && entry.includes('已发放'))) {
       failures.push('roster does not show the imported submitter as issued');
     }

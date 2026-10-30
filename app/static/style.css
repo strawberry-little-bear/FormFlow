@@ -4454,7 +4454,7 @@ body.presentation-mode .agent-tour details > summary { padding:16px 0; }
 .time-policy-editor { display:grid; gap:6px; margin-top:12px; padding-top:10px; border-top:1px solid var(--line-soft); }
 .time-policy-editor .field-help { margin:0 0 3px; }
 .time-policy-editor label { color:#626776; font-size:11px; }
-.time-policy-editor input { width:100%; min-width:0; min-height:36px; padding:6px 8px; border:1px solid var(--line); border-radius:6px; background:#fff; color:var(--ink); font:inherit; }
+.time-policy-editor input { width:100%; min-width:0; min-height:44px; padding:6px 8px; border:1px solid var(--line); border-radius:6px; background:#fff; color:var(--ink); font:inherit; }
 .time-policy-actions { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-top:3px; }
 .time-policy-actions [role="status"] { min-width:0; color:#626776; font-size:11px; overflow-wrap:anywhere; }
 .time-policy-actions .inline-error { color:#a33b34; }
