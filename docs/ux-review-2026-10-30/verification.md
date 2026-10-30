@@ -105,3 +105,9 @@
 - `node --test tests/frontend_contracts.test.cjs tests/ux_browser.test.cjs`：235 项通过；`python -m pytest -q`：450 项通过。`git diff --check` 通过。
 - 当前本地 `HEAD` 与已获取的 GitHub `origin/main` 文件树相同。工作区已有的走查截图、JSON 和临时文件保持未提交；没有发现新的业务缺陷，因此本轮只更新验证记录与 README。
 - 本轮复核未覆盖真实模型质量、实体手机和生产部署。现有演示服务与种子数据未重置。
+
+## 2026-10-30 复核页待办摘要文案
+
+- 对照复核页统计和下一步提示时发现两者计数口径不同：人工统计只汇总待人工项，待办队列还包括未解决的问题、未知结论和检查失败；已记录“确认问题”的规则不再进入待办。原提示把整个队列称为“待人工核对”，会让人误以为数字不一致。
+- 下一步提示现称“待处理规则”。前端契约以 `unknown`、`issue`、`failed`、`manual_pending` 和已确认问题混合验证待办计数为 4 项，并确认已处理规则不重复计入。
+- `node --test tests/frontend_contracts.test.cjs`：233 项通过；`node --test tests/frontend_contracts.test.cjs tests/ux_browser.test.cjs`：235 项通过。`node --check app/static/app.js` 与 `git diff --check` 通过。此处只做契约回归，没有重跑 Python 全量或 Showcase；既有 8147 服务与演示数据未改动。
