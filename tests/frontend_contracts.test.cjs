@@ -1900,7 +1900,7 @@ test('results poll only while pending, preserve explanation and ignore stale res
   assert.equal(els['my-results'].innerHTML,before);
 });
 test('submitter keeps checking while the organizer still needs to accept the revision', async () => {
-  const {app,context}=setup();
+  const {app,context,els}=setup();
   const scheduled=[];
   context.setTimeout=(fn,ms)=>{scheduled.push({fn,ms});return scheduled.length;};
   context.clearTimeout=()=>{};
@@ -1910,6 +1910,8 @@ test('submitter keeps checking while the organizer still needs to accept the rev
     : {summary:'已验收',run_status:'success',buckets:{},details:[]});
   await app.loadMyResults();
   assert.equal(scheduled[0].ms,30000);
+  assert.match(els['my-results'].innerHTML,/规则检查已完成；当前没有可单独展示的核对明细，最终验收由组织者完成/);
+  assert.doesNotMatch(els['my-results'].innerHTML,/检查完成后会在这里更新/);
   await scheduled.shift().fn();
   assert.equal(calls,2);
   assert.equal(scheduled.length,0);
