@@ -364,6 +364,22 @@ async function main() {
               return interactions;
             })()
             : null;
+          const taskFilterReset = route.name === 'tasks'
+            ? await (async () => {
+              const search = page.locator('#task-search');
+              await search.fill('__no_matching_task__');
+              const reset = page.getByRole('button', {name: '清除搜索和筛选'});
+              const resetVisible = await reset.isVisible().catch(() => false);
+              if (resetVisible) await reset.click();
+              const selected = await page.locator('.task-filters [data-filter="all"]').getAttribute('aria-pressed');
+              return {
+                resetVisible,
+                searchValue: await search.inputValue(),
+                allSelected: selected === 'true',
+                taskCountAfterReset: await page.locator('.task-item').count(),
+              };
+            })()
+            : null;
           const designScroll = route.name === 'design' ? await inspectDesignScroll(page, viewport) : null;
           viewportReport.routes.push({
             name: route.name,
@@ -378,6 +394,7 @@ async function main() {
             designScroll,
             taskFilterState,
             taskFilterInteraction,
+            taskFilterReset,
             ok: missing.length === 0 && !loadingStuck
               && evidence.hash === route.hash && !!evidence.heading
               && evidence.scrollY <= 2 && evidence.headingInViewport
@@ -387,6 +404,10 @@ async function main() {
                 && taskFilterState.find(item => item.filter === 'all')?.pressed === 'true'))
               && (!taskFilterInteraction || (taskFilterInteraction.length === 4
                 && taskFilterInteraction.every(item => item.exactlyOneSelected && item.expectedSelected)))
+              && (!taskFilterReset || (taskFilterReset.resetVisible
+                && taskFilterReset.searchValue === ''
+                && taskFilterReset.allSelected
+                && taskFilterReset.taskCountAfterReset > 0))
               && (!rosterRecovery || (rosterRecovery.noticeVisible
                 && rosterRecovery.noticeText.includes('名册暂时无法读取')
                 && rosterRecovery.contentHidden
@@ -403,6 +424,7 @@ async function main() {
             accessibility,
             rosterRecovery,
             workbenchRefresh,
+            taskFilterReset,
           });
         }
         viewportReport.overflow = await page.evaluate(() => ({
