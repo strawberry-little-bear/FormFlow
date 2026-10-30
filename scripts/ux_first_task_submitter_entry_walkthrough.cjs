@@ -43,6 +43,45 @@ async function dimensions(page) {
   }));
 }
 
+async function submitActionMetrics(page) {
+  return page.evaluate(() => Object.fromEntries([
+    ['reload', '.submit-action-reload'],
+    ['save', '.submit-action-save'],
+    ['primary', '.submit-action-primary'],
+  ].map(([name, selector]) => {
+    const button = document.querySelector(selector);
+    if (!button) return [name, null];
+    const rect = button.getBoundingClientRect();
+    const labelRects = [];
+    const walker = document.createTreeWalker(button, NodeFilter.SHOW_TEXT);
+    while (walker.nextNode()) {
+      if (!walker.currentNode.textContent.trim()) continue;
+      const range = document.createRange();
+      range.selectNodeContents(walker.currentNode);
+      labelRects.push(...[...range.getClientRects()].map(labelRect => ({
+        left: labelRect.left,
+        right: labelRect.right,
+        top: labelRect.top,
+        bottom: labelRect.bottom,
+      })));
+    }
+    return [name, {
+      text: button.innerText.replace(/\s+/g, ' ').trim(),
+      height: rect.height,
+      width: rect.width,
+      clientHeight: button.clientHeight,
+      scrollHeight: button.scrollHeight,
+      clientWidth: button.clientWidth,
+      scrollWidth: button.scrollWidth,
+      labelFits: labelRects.length > 0 && labelRects.every(labelRect =>
+        labelRect.left >= rect.left - 1
+        && labelRect.right <= rect.right + 1
+        && labelRect.top >= rect.top - 1
+        && labelRect.bottom <= rect.bottom + 1),
+    }];
+  })));
+}
+
 async function main() {
   fs.mkdirSync(OUT, { recursive: true });
   const browser = await launchChromium({ headless: true });
@@ -209,7 +248,11 @@ async function main() {
       await submitterPage.setViewportSize({ width, height: 844 });
       await page.setViewportSize({ width, height: 844 });
       await page.waitForTimeout(100);
-      mobile.push({ submitter: await dimensions(submitterPage), roster: await dimensions(page) });
+      mobile.push({
+        submitter: await dimensions(submitterPage),
+        roster: await dimensions(page),
+        submitActions: await submitActionMetrics(submitterPage),
+      });
       await page.screenshot({ path: path.join(OUT, `organizer-roster-${width}.png`), fullPage: true });
       await submitterPage.screenshot({ path: path.join(OUT, `submitter-entry-${width}.png`), fullPage: true });
     }
@@ -265,6 +308,21 @@ async function main() {
     if (submitter.dimensions.scrollWidth > submitter.dimensions.clientWidth) failures.push('submitter page overflows horizontally');
     if (mobile.some(item => item.submitter.scrollWidth > item.submitter.width || item.roster.scrollWidth > item.roster.width)) {
       failures.push('roster or submitter page overflows on mobile');
+    }
+    for (const item of mobile) {
+      const actions = item.submitActions;
+      if (!actions.reload || !actions.save || !actions.primary) {
+        failures.push(`submitter actions are missing at ${item.submitter.width}px`);
+        continue;
+      }
+      if (actions.reload.height < 42 || actions.save.height < 42 || actions.primary.height < 48) {
+        failures.push(`submitter actions are too short at ${item.submitter.width}px: ${JSON.stringify(actions)}`);
+      }
+      if ([actions.reload, actions.save, actions.primary].some(action => !action.labelFits
+        || action.scrollHeight > action.clientHeight + 1
+        || action.scrollWidth > action.clientWidth + 1)) {
+        failures.push(`submitter action label is clipped at ${item.submitter.width}px: ${JSON.stringify(actions)}`);
+      }
     }
     if (agentPosts.length) failures.push('offline path unexpectedly posted an AI request');
     if (errors.length) failures.push('browser raised console or page errors');
