@@ -427,3 +427,5 @@ git diff --check
 2026-10-30 CI 维护：将 GitHub Actions 的 checkout、Python 和 Node 设置 action 升级到当前 v7 major，消除旧 Node 20 runtime 的迁移警告；保留 Python 3.12、Node.js 22 和双平台矩阵不变。
 
 2026-10-30 CI 闭环复核：最新 GitHub Actions 运行 `41042093193` 在 `ubuntu-latest` 与 `windows-latest` 均成功；两端都先生成 `data/samples/`，随后 Python **450 项**、前端契约 **238 项**、前端与浏览器脚本语法检查全部通过。此前反复失败的四个根因已收口：忽略的解析样本未生成、Ubuntu 不支持 `mbcs`、Windows 异步契约测试误取消后续用例、旧 Action 使用 Node 20。带 Worker 的隔离首次任务闭环也通过：新建任务、发布模板、导入名册、发凭证、上传、草稿、正式提交、无密钥降级检查、快照与 CSV/ZIP 导出均完成；1440/390/320px 无横向溢出，控制台错误和失败请求为 0。
+
+2026-10-30 CI 与提交者校验续轮：按 Actions 原顺序重新生成 10 个解析样本，Python **450 项**、前端与浏览器契约 **239 项**、前端及全部走查脚本语法检查均通过。真实浏览器复现“首次空表提交 → 填写字段 → 上传附件”后，过期错误摘要会自动消失且不再次抢焦点；上传返回 HTTP 200，无控制台错误或失败请求。详见 [CI 与提交者校验续轮复核](docs/ux-review-2026-10-31-current/verification.md)。
