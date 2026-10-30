@@ -58,3 +58,10 @@
 - 使用 `%TEMP%\formflow-offline-template-20261030-round2` 下的独立 SQLite、虚构种子和空 `FORMFLOW_LLM_API_KEY`，临时 API 运行于 `127.0.0.1:8153`。从演示登录开始，在浏览器创建任务、选择“团课报告”模板，并确认 v1 草案及版本选择器加载完成；创建任务、读取设计状态、生成模板和刷新设计状态的请求均为 HTTP 200，模板流程没有发送 AI 请求。
 - 1440px 桌面、390px 与 320px 窄屏均无横向溢出；标题和模板确认可见，控制台错误、页面异常和 HTTP 失败均为 0。临时 API 已停止；既有 8147 演示服务和 `data/demo` 未触碰。
 - 可复跑脚本：`scripts/ux_new_task_template_walkthrough.cjs`。机器结果及截图位于 `%TEMP%\formflow-offline-template-20261030-round2\evidence`。首轮脚本等待隐藏 `<option>` 可见而超时，修正为检查可见版本选择器及选项数后，完整走查通过；这属于巡检脚本问题，不是产品故障。
+
+## 2026-10-30 设计台日期控件窄屏尺寸
+
+- 首次使用者走查发现设计台的“开始收集、首次截止、补正截止”三个 `datetime-local` 输入实际高约 38px。将 `.time-policy-editor input` 的最小高度调整为 44px，并把 CSS 资源版本更新至 `20261030-9`；新增前端契约防止尺寸回退。
+- 使用 `%TEMP%\formflow-ux-20261030-datetime` 下的独立 SQLite、虚构种子和空模型密钥启动隔离 API。浏览器完成组织者登录、新建任务、选择团课报告模板、发布、导入名册、发放凭证以及提交者首次登录。390px 和 320px 下三个日期控件实测均为 44px；设计、名册和提交者页面均无横向溢出，控制台错误、页面异常、HTTP 失败和 Agent 请求均为 0。
+- `node --test tests/frontend_contracts.test.cjs`：232 项通过；浏览器脚本与应用 JS 语法检查、`git diff --check` 通过。未重跑 Python 全量（本轮为 CSS、契约及浏览器脚本调整）。临时 API 已停止，既有 8147 演示服务和 `data/demo` 未触碰。结果与截图位于 `%TEMP%\formflow-ux-20261030-datetime\evidence`。
+- 可复跑脚本：`scripts/ux_first_task_submitter_entry_walkthrough.cjs`。

@@ -1140,7 +1140,10 @@ test('desktop login spacing and input targets stay scoped away from compact layo
   assert.match(styleSource, /@media\s*\(min-width:\s*981px\)\s*\{\s*\.login-panel h2 \{ margin-bottom:18px; \}/);
   assert.match(styleSource, /\.login-panel \.tabs \{ min-height:44px; margin:16px 0 30px; \}/);
   assert.match(styleSource, /\.login-panel input \{ min-height:48px; \}/);
-  assert.match(indexSource, /style\.css\?v=20261030-8/);
+  assert.match(indexSource, /style\.css\?v=20261030-9/);
+});
+test('design time policy controls keep a 44px minimum touch target', () => {
+  assert.match(styleSource, /\.time-policy-editor input \{[^}]*min-height:44px;/);
 });
 test('demo entry appears before credential fields on the organizer login tab', () => {
   const {app, els} = setup();
