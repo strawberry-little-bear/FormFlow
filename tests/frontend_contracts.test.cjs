@@ -2087,11 +2087,14 @@ test('submitter results cap automatic retries and do not retry authorization fai
 });
 test('workbench refresh preserves even an empty reminder and prunes only ineligible selections', async () => {
   const {app,context,els}=setup();context.location.hash='#/workbench/1';
+  const scheduled=[];context.setTimeout=(fn,ms)=>{scheduled.push({fn,ms});return scheduled.length;};context.clearTimeout=()=>{};
   app.state.wbTaskId=1;app.state.reminder={selected:[2,3],view:{targets:[]},created:null};
   els['remind-content']=element('');els['remind-body']=element();
   context.fetch=async url=>response(url.endsWith('/workbench') ? {task:{},rows:[],counts:{}} : {
     view:{targets:[{subject_id:2,name:'A'},{subject_id:4,name:'B'}]},notifications:[]});
   await app.refreshWorkbench();
+  assert.equal(scheduled.at(-1).ms,30000);
+  assert.ok(app.state.wbLastUpdated);
   assert.equal(app.state.reminder.draftContent,'');
   assert.deepEqual([...app.state.reminder.selected],[2]);
   assert.doesNotMatch(els['remind-body'].innerHTML,/你好/);
@@ -2101,6 +2104,7 @@ test('workbench refresh preserves even an empty reminder and prunes only ineligi
 
 test('workbench first-load failure is explicit and never reports an empty roster', async () => {
   const {app,context,els}=setup();context.location.hash='#/workbench/1';
+  const scheduled=[];context.setTimeout=(fn,ms)=>{scheduled.push({fn,ms});return scheduled.length;};context.clearTimeout=()=>{};
   app.state.wbTaskId=1;app.state.wbRefreshRequestId=0;
   for (const id of ['wb-refresh-status','wb-list','remind-body']) els[id]=element();
   context.fetch=async()=>{throw new Error('offline');};
@@ -2110,10 +2114,12 @@ test('workbench first-load failure is explicit and never reports an empty roster
   assert.match(els['wb-list'].innerHTML,/名单暂时无法读取/);
   assert.doesNotMatch(els['wb-list'].innerHTML,/还没有提交主体/);
   assert.match(els['remind-body'].innerHTML,/催交名单暂时无法读取/);
+  assert.equal(scheduled.at(-1).ms,30000);
 });
 
 test('workbench retains loaded data on failure and ignores an older overlapping response', async () => {
   const {app,context,els}=setup();context.location.hash='#/workbench/1';
+  const scheduled=[];context.setTimeout=(fn,ms)=>{scheduled.push({fn,ms});return scheduled.length;};context.clearTimeout=()=>{};
   app.state.wbTaskId=1;
   for (const id of ['wb-task-name','wb-lifecycle','wb-readonly','wb-next-step','wb-refresh-status','wb-stats','wb-list','remind-body','remind-count']) els[id]=element();
   const oldRound={workbench:deferred(),notifications:deferred()};
@@ -2132,11 +2138,34 @@ test('workbench retains loaded data on failure and ignores an older overlapping 
   assert.equal(calls,4);
   assert.equal(app.state.wbTask.name,'最新数据');
   assert.equal(els['wb-refresh-status'].innerHTML,'');
+  assert.equal(scheduled.at(-1).ms,30000);
 
   context.fetch=async()=>{throw new Error('offline');};
   await app.refreshWorkbench();
   assert.match(els['wb-refresh-status'].innerHTML,/显示的是上次读取的数据/);
   assert.equal(app.state.wbTask.name,'最新数据');
+});
+
+test('workbench keeps checking for new submissions while idle and exposes refresh freshness', async () => {
+  const {app,context,els}=setup();context.location.hash='#/workbench/1';
+  const scheduled=[];context.setTimeout=(fn,ms)=>{scheduled.push({fn,ms});return scheduled.length;};context.clearTimeout=()=>{};
+  app.state.wbTaskId=1;
+  app.state.wbRows=[{run_status:'success'}];
+  app.state.wbTask={id:1,name:'演示任务',mode:'roster',status:'collecting'};
+  app.state.wbCounts={};
+  app.state.wbLastUpdated='2026-10-30T10:00:00Z';
+  els['wb-lifecycle']=element();
+  context.fetch=async url=>response(url.endsWith('/workbench') ? {task:app.state.wbTask,rows:app.state.wbRows,counts:{}} : {view:{targets:[]},notifications:[]});
+  await app.refreshWorkbench();
+  assert.equal(scheduled.at(-1).ms,30000);
+  app.paintWorkbench();
+  assert.match(els['wb-lifecycle'].innerHTML,/class="ghost sm wb-refresh-button"/);
+  assert.match(els['wb-lifecycle'].innerHTML,/刷新提交情况与催交名单/);
+  assert.match(els['wb-lifecycle'].innerHTML,/更新于/);
+
+  app.state.wbRows=[{run_status:'running'}];
+  await app.refreshWorkbench();
+  assert.equal(scheduled.at(-1).ms,3000);
 });
 
 test('reminder draft names the exact first deadline in the task timezone and remains editable', () => {

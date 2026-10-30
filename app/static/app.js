@@ -795,6 +795,7 @@ const ICONS = {
   workbench: '<path d="M4 5h16v15H4zM8 2v6m8-6v6M8 12h3m-3 4h7"/>',
   delivery: '<path d="M3 8h18v13H3zM2 3h20v5H2zM9 12h6"/>',
   arrow: '<path d="M5 12h14m-5-5 5 5-5 5"/>',
+  refresh: '<path d="M20 7v5h-5M4 17v-5h5"/><path d="M5.6 9a7 7 0 0 1 11.5-2L20 12M4 12l2.9 5a7 7 0 0 0 11.5-2"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
   search: '<circle cx="10" cy="10" r="6"/><path d="m15 15 6 6"/>',
   check: '<path d="m5 12 4 4L19 6"/>',
@@ -3008,6 +3009,14 @@ async function refreshWorkbench() {
   const requestId = (state.wbRefreshRequestId || 0) + 1;
   state.wbRefreshRequestId = requestId;
   if (!taskId || location.hash !== `#/workbench/${taskId}`) return;
+  clearTimeout(_wbTimer);
+  _wbTimer = 0;
+  state.wbRefreshing = true;
+  const refreshButton = document.querySelector(".wb-refresh-button");
+  if (refreshButton) {
+    refreshButton.disabled = true;
+    refreshButton.textContent = "正在刷新…";
+  }
   const isCurrent = () => state.wbTaskId === taskId
     && epoch === state.routeEpoch && requestId === state.wbRefreshRequestId
     && location.hash === `#/workbench/${taskId}`;
@@ -3033,13 +3042,15 @@ async function refreshWorkbench() {
     };
     const refreshStatus = document.getElementById("wb-refresh-status");
     if (refreshStatus) refreshStatus.innerHTML = "";
+    state.wbLastUpdated = new Date().toISOString();
+    state.wbRefreshing = false;
     paintWorkbench();
     paintReminder();
     const pending = state.wbRows.some(r => ["queued", "running", "retry_wait"].includes(r.run_status));
-    clearTimeout(_wbTimer);
-    if (pending) _wbTimer = setTimeout(refreshWorkbench, 3000);
+    _wbTimer = setTimeout(refreshWorkbench, pending ? 3000 : 30000);
   } catch (e) {
     if (!isCurrent()) return;
+    state.wbRefreshing = false;
     const refreshStatus = document.getElementById("wb-refresh-status");
     const hasPreviousData = state.wbDataTaskId === taskId;
     if (refreshStatus) refreshStatus.innerHTML = `<div class="wb-refresh-notice" data-state="${hasPreviousData ? "stale" : "unavailable"}">
@@ -3051,6 +3062,13 @@ async function refreshWorkbench() {
       if (list) list.innerHTML = `<div class="empty-state wb-load-error"><div class="empty-icon">${icon("arrow")}</div><h3>名单暂时无法读取</h3><p>连接恢复后重试。读取成功前不会把名单显示为空。</p></div>`;
       const reminder = document.getElementById("remind-body");
       if (reminder) reminder.innerHTML = `<div class="empty-state wb-load-error"><p>催交名单暂时无法读取，请在连接恢复后重试。</p></div>`;
+    }
+    _wbTimer = setTimeout(refreshWorkbench, 30000);
+  } finally {
+    if (isCurrent()) {
+      state.wbRefreshing = false;
+      const button = document.querySelector(".wb-refresh-button");
+      if (button) button.disabled = false;
     }
   }
 }
@@ -3142,7 +3160,7 @@ function paintWorkbench() {
   const label = TASK_STATUS_LABEL[t.status] || t.status;
   const nameEl = document.getElementById("wb-task-name"); if (nameEl && t.name) nameEl.textContent = t.name;
   const lc = document.getElementById("wb-lifecycle");
-  if (lc) lc.innerHTML = `<span class="badge ${ro ? "warn" : "ok"}"><span class="badge-dot"></span>${esc(label)}</span>${lifecycleButtons(t.status, taskId)}`;
+  if (lc) lc.innerHTML = `<span class="badge ${ro ? "warn" : "ok"}"><span class="badge-dot"></span>${esc(label)}</span>${lifecycleButtons(t.status, taskId)}<button class="ghost sm wb-refresh-button" type="button" onclick="refreshWorkbench()" aria-label="刷新提交情况与催交名单" title="刷新提交情况与催交名单"${state.wbRefreshing ? " disabled" : ""}>${icon("refresh")} ${state.wbRefreshing ? "正在刷新…" : "刷新"}</button><span class="wb-updated-at" aria-live="off">${state.wbLastUpdated ? `更新于 ${esc(fmtTimeShort(state.wbLastUpdated))}` : "尚未更新"}</span>`;
   const roBox = document.getElementById("wb-readonly");
   if (roBox) roBox.innerHTML = ro ? `<div class="notice-warn">任务已${esc(label)}，处于只读状态：提交、上传、检查与修订均已停止；历史数据仍可查看与导出。</div>` : "";
   const nextStep = chooseWorkbenchNextStep(rows, {...t, id: taskId});
