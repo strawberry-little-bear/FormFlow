@@ -3566,7 +3566,7 @@ function paintReview(taskId, sid) {
 
   const pending = rules.filter(needsReview);
   const nextAction = pending.length
-    ? `<div class="review-next-action review-next-action-warn" role="status"><div><span class="eyebrow">NEXT ACTION</span><strong>先处理 ${pending.length} 项待人工核对</strong><p>组织者需要核对原文或作出决定；提交者不需要为这些项目重复提交材料。</p></div><button class="ghost sm" onclick="nextPendingReview(${taskId},${sid})">跳到下一项待处理 ${icon("arrow")}</button></div>`
+    ? `<div class="review-next-action review-next-action-warn" role="status"><div><span class="eyebrow">NEXT ACTION</span><strong>先处理 ${pending.length} 项待处理规则</strong><p>组织者需要核对原文或作出决定；提交者不需要为这些项目重复提交材料。</p></div><button class="ghost sm" onclick="nextPendingReview(${taskId},${sid})">跳到下一项待处理 ${icon("arrow")}</button></div>`
     : rules.length && acceptance.ready
       ? `<div class="review-next-action review-next-action-ok" role="status"><div><span class="eyebrow">NEXT ACTION</span><strong>材料规则已处理，可以验收本版本</strong><p>验收仍只针对当前正式版本，资格和验收依据会单独记录。</p></div><button class="ghost sm" onclick="jumpReviewSection('review-acceptance')">查看验收 ${icon("arrow")}</button></div>`
       : rules.length

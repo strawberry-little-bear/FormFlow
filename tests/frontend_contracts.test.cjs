@@ -3496,11 +3496,17 @@ test('review summary labels combined rule totals and separates machine and organ
 
 test('review summary exposes the next organizer action before the long evidence flow', async () => {
   const env=setup(),page=reviewPage(reviewScope('a'));
-  page.rules=[{rule_id:'A',result:'unknown',requirement:{statement:'需要人工核对的要求'}}];
+  page.rules=[
+    {rule_id:'A',result:'unknown',requirement:{statement:'需要人工核对的要求'}},
+    {rule_id:'B',result:'issue',requirement:{statement:'发现需处理的问题'}},
+    {rule_id:'C',result:'failed',requirement:{statement:'检查未完成'}},
+    {rule_id:'D',result:'manual_pending',requirement:{statement:'组织者核对项'}},
+    {rule_id:'E',result:'issue',decision:{decision:'confirm_issue'},requirement:{statement:'已确认的问题'}},
+  ];
   page.acceptance={ready:false,blockers:['还有一项待人工核对']};
   await openReview(env,page);
   assert.match(env.els.rv.innerHTML,/class="review-next-action review-next-action-warn"/);
-  assert.match(env.els.rv.innerHTML,/先处理 1 项待人工核对/);
+  assert.match(env.els.rv.innerHTML,/先处理 4 项待处理规则/);
   assert.match(env.els.rv.innerHTML,/跳到下一项待处理/);
 });
 
