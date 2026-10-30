@@ -93,3 +93,8 @@
 - Worker 对任务 4 的检查最终状态为 `success`，生成规则结果；不是只依据提交回执的即时“排队中”状态作结论。1440/390/320px 均无横向溢出，Agent 请求、浏览器错误和 HTTP 失败均为 0。
 - `node --test tests/frontend_contracts.test.cjs tests/ux_browser.test.cjs`：234 项通过；Python 全量测试结果见本轮结果。证据和截图位于 `%TEMP%\formflow-first-submit-safe-5ffc9c53498e4588b21237fb86175593\evidence-final`。未覆盖真实模型质量、真实手机或生产部署。
 - 可复跑脚本：`scripts/ux_first_task_submitter_entry_walkthrough.cjs`。
+## 2026-10-30 续轮使用者复核
+
+- 只读 Showcase 在 1440、1366、390、320px 重跑 28 条路由：任务筛选、展示视图退出、名册/复核无效编号失败态均通过；无横向溢出、卡载入、控制台错误、页面异常或失败 HTTP 响应。报告与截图位于 %TEMP%\formflow-followup-showcase-20261030-resume。
+- 全新隔离 SQLite、虚构种子和空模型密钥下重跑新建任务到提交者正式提交：模板发布、名册发证、缺项拦截、PDF 上传、服务器草稿、v1 回执、检查结果刷新、组织者验收与 CSV/ZIP 快照交付均完成；没有发出模型请求。1440、390、320px 无横向溢出，浏览器错误和失败 HTTP 响应为 0。证据位于 %TEMP%\formflow-first-task-iteration-UYAPoZ\evidence，隔离 API 与 Worker 已停止。
+- 本次只读复核未发现新的产品缺陷；旧展示任务的开始时间早于当前日期属于种子数据，新建任务的时间策略为空，未预填过期时间。未覆盖真实模型质量、实体手机及生产环境。
