@@ -750,6 +750,7 @@ function route() {
   state.reviewConflict = false;
   state.reviewDraft = null;
   state.designEpoch++;
+  state.timePolicySaving = false;
   state.agentBusy = false;
   clearTimeout(_wbTimer);
   clearTimeout(_resultsTimer);
@@ -1953,6 +1954,7 @@ function consumeDesignInput(base, sent, source) {
 async function viewDesign(taskId) {
   cacheDesignInputs();
   const epoch = ++state.designEpoch, token = orgToken();
+  state.timePolicySaving = false;
   Object.assign(state,{designTaskId:taskId,designOwnerId:null,designToken:token,designBaseId:0,designQuestions:[],designRenderedBase:null,designDirty:false,designCacheFailed:false,designNeedsRevision:false});
   Object.assign(state, {taskId, chat: [], bpId: null, draft: null, requirement: "", answeredDone: false, draftStatus: "draft", draftVersionId: null, designLoadFailed: false, retryRequest: null, agentRequest: null, agentRequestPollTimer: 0, agentResumeStarted: false, agentRequestDisplayedId: null, designTab: "preview", agentBusy: false, designBlocking: [], designAdvisories: [], designVersions: [], designHistory: [], viewingVersion: null, viewingPublished: null, viewingImpact: null});
   document.getElementById("app").innerHTML = `<div class="breadcrumb"><a href="#/tasks">我的任务</a><span>/</span><span id="design-name">收集任务 #${taskId}</span></div>
