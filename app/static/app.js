@@ -1,7 +1,7 @@
 "use strict";
 /* 收齐啦 FormFlow 前端（P01–P05）。纯静态 SPA，直接调用 /api。 */
 const ORG_KEY = "ff_org_token", SUB_KEY = "ff_sub_token", PRESENTATION_KEY = "ff_tasks_presentation", DEMO_ENTRY_KEY = "ff_demo_entry";
-const state = { taskId: null, chat: [], bpId: null, draft: null, requirement: "", answeredDone: false, files: {}, filesMeta: {}, draftVersion: null, me: null, lastJob: null, roster: {}, rosterEntries: [], rosterFilter: "all", rosterGrantBusy: false, designEpoch: 0, agentBusy: false, agentRequest: null, agentRequestPollTimer: 0, agentResumeStarted: false, agentRequestDisplayedId: null, draftStatus: "draft", draftVersionId: null, designTab: "preview", tasks: [], llmConfigured: null, agentRuntime: null, mcpSnapshot: null, mcpSnapshotLoading: false, mcpSnapshotRunning: false, mcpReplayIndex: null, mcpReplayTimer: 0, demoTaskId: null, designBlocking: [], designAdvisories: [], designVersions: [], designHistory: [], viewingVersion: null, viewingPublished: null, viewingImpact: null, wbRows: [], wbFilter: "all", reviewRule: null, reviewFilter: "all", reviewTraceFilter: "all", presentationMode: false, presentationStartAligned: false, timePolicySaving: false };
+const state = { taskId: null, chat: [], bpId: null, draft: null, requirement: "", answeredDone: false, files: {}, filesMeta: {}, draftVersion: null, me: null, lastJob: null, roster: {}, rosterEntries: [], rosterFilter: "all", rosterGrantBusy: false, designEpoch: 0, agentBusy: false, agentRequest: null, agentRequestPollTimer: 0, agentResumeStarted: false, agentRequestDisplayedId: null, draftStatus: "draft", draftVersionId: null, designTab: "preview", tasks: [], llmConfigured: null, agentRuntime: null, mcpSnapshot: null, mcpSnapshotLoading: false, mcpSnapshotRunning: false, mcpReplayIndex: null, mcpReplayTimer: 0, demoTaskId: null, designBlocking: [], designAdvisories: [], designVersions: [], designHistory: [], viewingVersion: null, viewingPublished: null, viewingImpact: null, wbRows: [], wbFilter: "all", reviewRule: null, reviewFilter: "all", reviewTraceFilter: "all", presentationMode: false, presentationStartAligned: false, timePolicySaving: false, submissionValidationAttempted: false };
 
 const orgToken = () => localStorage.getItem(ORG_KEY) || "";
 const subToken = () => localStorage.getItem(SUB_KEY) || "";
@@ -4046,9 +4046,11 @@ function submissionIssues(fields) {
 function submissionIssueControl(issue) {
   return document.getElementById((issue.target === "field" ? "field-" : "file-") + issue.id);
 }
-function showSubmissionIssues(issues) {
+function showSubmissionIssues(issues, options = {}) {
+  const focus = options.focus !== false;
+  if (options.markAttempt !== false) state.submissionValidationAttempted = true;
   // Always expose the full form, including errors discovered while using the guide.
-  if (issues.length) setSubMode("form");
+  if (issues.length && focus) setSubMode("form");
   for (const [target, defs] of [["field", state.sub?.fields || []], ["slot", state.sub?.slots || []]]) {
     for (const def of defs) {
       const matching = issues.filter(i => i.target === target && i.id === def.id);
@@ -4067,7 +4069,13 @@ function showSubmissionIssues(issues) {
     const control = submissionIssueControl(issues[index]);
     if (control) { control.scrollIntoView({behavior: "smooth", block: "center"}); control.focus(); }
   }));
-  if (issues.length) { box.scrollIntoView({behavior: "smooth", block: "center"}); box.focus(); }
+  if (issues.length && focus) { box.scrollIntoView({behavior: "smooth", block: "center"}); box.focus(); }
+}
+function refreshSubmissionValidation() {
+  if (!state.submissionValidationAttempted) return [];
+  const issues = submissionIssues(collectDraftFields());
+  showSubmissionIssues(issues, {focus: false, markAttempt: false});
+  return issues;
 }
 
 function draftFingerprint(fields, files) {
@@ -4180,7 +4188,7 @@ async function viewSubmit() {
     location.hash = "#/login?role=sub";
     return;
   }
-  state.me = null; state.draftVersion = null; state.sub = null; state.receipt = null; state.submitterResults = null; state.submitterResultsError = false; state.submitterReadOnly = false;
+  state.me = null; state.draftVersion = null; state.sub = null; state.receipt = null; state.submitterResults = null; state.submitterResultsError = false; state.submitterReadOnly = false; state.submissionValidationAttempted = false;
   document.getElementById("app").innerHTML = `<div id="flash" role="status" aria-live="polite"></div><div id="sub"><p class="empty">正在打开你的提交空间…</p></div>`;
   try {
     const me = await api("/api/me", { sub: true });
@@ -4289,6 +4297,7 @@ async function viewSubmit() {
       el.addEventListener("input", () => {
         refreshSlotConditions(slots);
         if (state.sub && state.sub.mode === "chat") syncSubAnswersFromForm();
+        refreshSubmissionValidation();
         cacheSubmissionDraft();
         refreshSubmitAction();
       }));
@@ -4352,6 +4361,7 @@ function afterSlotUpload(slot, fileId, meta, draftVersion) {
   paintSlotFiles(slot, ro);
   refreshSubmitAction();
   if (state.sub && state.sub.slots) refreshSlotConditions(state.sub.slots);
+  refreshSubmissionValidation();
   if (state.sub) {
     const i = state.sub.slots.findIndex(s => s.id === slot);
     if (i >= 0) {
@@ -4379,6 +4389,7 @@ async function deleteSlotFile(slot, fileId) {
     paintSlotFiles(slot, state.sub ? state.sub.ro : false);
     refreshSubmitAction();
     if (state.sub && state.sub.slots) refreshSlotConditions(state.sub.slots);
+    refreshSubmissionValidation();
     setFlash(result.cleanup_pending
       ? "文件已从草稿中移除，但存储清理未完成，请联系管理员处理。"
       : "文件已从草稿中删除", result.cleanup_pending ? "warn" : "ok");
@@ -4724,8 +4735,8 @@ function subFieldCard(i) {
     ${req ? '<span class="badge bad">必填</span>' : '<span class="badge">选填</span>'}
     ${f.purpose ? `<div class="mini">${esc(f.purpose)}</div>` : ""}
     ${opts}
-    <input id="sub-ans" placeholder="请输入${esc(f.label)}" value="${esc(val)}"
-      oninput="cacheSubmissionDraft()" onkeydown="if(event.key===String.fromCharCode(13)&&!event.isComposing){event.preventDefault();subAnswerField(${i})}">
+     <input id="sub-ans" placeholder="请输入${esc(f.label)}" value="${esc(val)}"
+       oninput="refreshSubmissionValidation();cacheSubmissionDraft()" onkeydown="if(event.key===String.fromCharCode(13)&&!event.isComposing){event.preventDefault();subAnswerField(${i})}">
     <div class="row">
       <button class="sm" onclick="subAnswerField(${i})">${i + 1 === state.sub.fields.length ? "填好了，去上传材料" : "下一题"}</button>
       ${req ? "" : `<button class="ghost sm" onclick="subSkipField(${i})">跳过</button>`}
@@ -4753,7 +4764,7 @@ function subAnswerField(i) {
   }
   state.sub.answers[f.id] = v;
   const inp = document.querySelector('[data-field="' + f.id + '"]');
-  if (inp) { inp.value = v; refreshSlotConditions(state.sub.slots); }
+   if (inp) { inp.value = v; refreshSlotConditions(state.sub.slots); refreshSubmissionValidation(); }
   subUser(v ? `${esc(f.label)}：${esc(v)}` : `（${esc(f.label)}：跳过）`);
   state.sub.fIdx = i + 1;
   if (state.sub.fIdx < state.sub.fields.length) renderSubStep();
