@@ -417,3 +417,5 @@ git diff --check
 2026-10-30 使用者路径续轮复核：复用本地 127.0.0.1:8147 演示服务只读运行 Showcase，1440/1366/390/320px 共 28 条路由通过；组织者 7 个入口的 axe-core 扫描未发现明确 WCAG 2.1/2.2 A/AA 违规。未发现可复现的新缺陷。本轮未扫描已认证提交者表单、未评估真实模型，也未重跑 Python 全量或前端契约测试；自动扫描中的 incomplete 对比度项仍需人工判读。详见 [续轮验证记录](docs/ux-review-2026-10-30c/verification.md)。
 
 2026-10-30 CI 稳定性修复：干净的 GitHub runner 不再依赖被 `.gitignore` 忽略的本地解析样本，工作流会先运行 `scripts/make_samples.py` 生成 `data/samples/` 测试夹具；同时将 Windows 命令输出夹具改为 ASCII bytes，避免 Ubuntu 上不存在的 `mbcs` codec。Python 全量测试 **450 项**、前端契约测试 **237 项**通过，`node --check` 与 `git diff --check` 通过。
+
+2026-10-30 CI 复测补修：启动器解析模拟 `tasklist` bytes 时优先使用 Windows `mbcs`，在跨平台测试环境回退到本地首选编码；同时修正前端契约测试中异步测试主体误包住后续用例的结构，避免 Windows runner 将后续用例取消。Python 全量 **450 项**、前端契约 **237 项**、启动器定向 **25 项**通过。
