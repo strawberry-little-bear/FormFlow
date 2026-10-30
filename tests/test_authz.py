@@ -93,6 +93,7 @@ def test_cross_organizer_task_access_denied(client, db_session):
         ("get", f"/api/tasks/{task_id}/workbench", None, None),
         ("get", f"/api/tasks/{task_id}/blueprint", None, None),
         ("post", f"/api/tasks/{task_id}/draft/template", None, {"template": "class_report"}),
+        ("post", f"/api/tasks/{task_id}/draft/time-policy", None, {"blueprint_version_id": 1}),
         ("post", f"/api/tasks/{task_id}/roster", [], None),
         ("post", f"/api/tasks/{task_id}/grants", None, {"subject_name": "x"}),
         ("post", f"/api/tasks/{task_id}/snapshots", None, {}),

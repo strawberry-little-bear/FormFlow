@@ -1,7 +1,7 @@
 "use strict";
 /* 收齐啦 FormFlow 前端（P01–P05）。纯静态 SPA，直接调用 /api。 */
 const ORG_KEY = "ff_org_token", SUB_KEY = "ff_sub_token", PRESENTATION_KEY = "ff_tasks_presentation", DEMO_ENTRY_KEY = "ff_demo_entry";
-const state = { taskId: null, chat: [], bpId: null, draft: null, requirement: "", answeredDone: false, files: {}, filesMeta: {}, draftVersion: null, me: null, lastJob: null, roster: {}, rosterEntries: [], rosterFilter: "all", rosterGrantBusy: false, designEpoch: 0, agentBusy: false, agentRequest: null, agentRequestPollTimer: 0, agentResumeStarted: false, agentRequestDisplayedId: null, draftStatus: "draft", draftVersionId: null, designTab: "preview", tasks: [], llmConfigured: null, agentRuntime: null, mcpSnapshot: null, mcpSnapshotLoading: false, mcpSnapshotRunning: false, mcpReplayIndex: null, mcpReplayTimer: 0, demoTaskId: null, designBlocking: [], designAdvisories: [], designVersions: [], designHistory: [], viewingVersion: null, viewingPublished: null, viewingImpact: null, wbRows: [], wbFilter: "all", reviewRule: null, reviewFilter: "all", reviewTraceFilter: "all", presentationMode: false, presentationStartAligned: false };
+const state = { taskId: null, chat: [], bpId: null, draft: null, requirement: "", answeredDone: false, files: {}, filesMeta: {}, draftVersion: null, me: null, lastJob: null, roster: {}, rosterEntries: [], rosterFilter: "all", rosterGrantBusy: false, designEpoch: 0, agentBusy: false, agentRequest: null, agentRequestPollTimer: 0, agentResumeStarted: false, agentRequestDisplayedId: null, draftStatus: "draft", draftVersionId: null, designTab: "preview", tasks: [], llmConfigured: null, agentRuntime: null, mcpSnapshot: null, mcpSnapshotLoading: false, mcpSnapshotRunning: false, mcpReplayIndex: null, mcpReplayTimer: 0, demoTaskId: null, designBlocking: [], designAdvisories: [], designVersions: [], designHistory: [], viewingVersion: null, viewingPublished: null, viewingImpact: null, wbRows: [], wbFilter: "all", reviewRule: null, reviewFilter: "all", reviewTraceFilter: "all", presentationMode: false, presentationStartAligned: false, timePolicySaving: false };
 
 const orgToken = () => localStorage.getItem(ORG_KEY) || "";
 const subToken = () => localStorage.getItem(SUB_KEY) || "";
@@ -25,6 +25,14 @@ function fmtTime(s, timeZone = "Asia/Shanghai") {
 function fmtTimeShort(s, timeZone = "Asia/Shanghai") {
   const full = fmtTime(s, timeZone);
   return full.endsWith(" " + timeZone) ? full.slice(0, -(timeZone.length + 1)) : full;
+}
+function datetimeLocalValue(value, timeZone = "Asia/Shanghai") {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const parts = new Intl.DateTimeFormat("en-CA", {timeZone, year:"numeric", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit", hourCycle:"h23"}).formatToParts(date);
+  const part = Object.fromEntries(parts.map(x => [x.type, x.value]));
+  return `${part.year}-${part.month}-${part.day}T${part.hour}:${part.minute}`;
 }
 function designReadinessHtml(bp, draft, blocking = [], advisories = [], viewing = null) {
   const scope = bp?.task_scope || {}, tp = bp?.time_policy || {};
@@ -59,7 +67,7 @@ function designReadinessHtml(bp, draft, blocking = [], advisories = [], viewing 
     <div class="readiness-grid">
       <div class="readiness-group"><span class="readiness-label">谁来交</span>${item("对象", scope.name || "这项收集", `${mode} · ${subject}`)}${item("收集说明", scope.description || "按下方字段和材料要求提交", "提交者只会看到已发布版本")}</div>
       <div class="readiness-group"><span class="readiness-label">要交什么</span>${item("登记字段", `${fields.length} 项`, fields.filter(f => f.required).length ? `${fields.filter(f => f.required).length} 项必填` : "没有必填字段")}${item("材料槽位", `${slots.length} 个`, slots.length ? slots.map(s => s.label).slice(0, 2).join("、") : "暂未设置材料")}</div>
-      <div class="readiness-group"><span class="readiness-label">什么时候交</span>${item("首次截止", fmtTimeShort(tp.first_deadline, tp.timezone), tp.timezone || "Asia/Shanghai")}${item("补正截止", fmtTimeShort(tp.correction_deadline, tp.timezone), "仅已正式提交者可用")}</div>
+      <div class="readiness-group"><span class="readiness-label">什么时候交</span>${item("首次截止", fmtTimeShort(tp.first_deadline, tp.timezone), tp.timezone || "Asia/Shanghai")}${item("补正截止", fmtTimeShort(tp.correction_deadline, tp.timezone), "仅已正式提交者可用")}${!viewing ? `<form class="time-policy-editor" onsubmit="saveTimePolicy(event)"><p class="field-help">按任务时区填写。留空表示不启用该时间；保存会生成新草案版本。</p><label for="policy-open-at">开始收集</label><input id="policy-open-at" type="datetime-local" value="${datetimeLocalValue(tp.open_at, tp.timezone)}" ${state.agentBusy || state.timePolicySaving ? "disabled" : ""}><label for="policy-first-deadline">首次截止</label><input id="policy-first-deadline" type="datetime-local" value="${datetimeLocalValue(tp.first_deadline, tp.timezone)}" ${state.agentBusy || state.timePolicySaving ? "disabled" : ""}><label for="policy-correction-deadline">补正截止</label><input id="policy-correction-deadline" type="datetime-local" value="${datetimeLocalValue(tp.correction_deadline, tp.timezone)}" ${state.agentBusy || state.timePolicySaving ? "disabled" : ""}><div class="time-policy-actions"><span id="time-policy-status" role="status"></span><button type="submit" class="ghost" ${state.agentBusy || state.timePolicySaving ? "disabled" : ""}>保存时间</button></div></form>` : ""}</div>
       <div class="readiness-group"><span class="readiness-label">怎么核对</span>${item("规则分工", `${deterministic} 程序 · ${semantic} 语义 · ${human} 人工`, "不确定或失败会停在待处理")}${item("最终验收", bp.manual_acceptance ? "组织者人工确认" : "按规则处理", bp.eligibility_required ? "另需单独核对资格" : "未启用独立资格")}</div>
     </div>
     <div class="readiness-foot"><div><span class="readiness-label">交付与数据边界</span>${boundary("交付安排", deliverySummary, "未设置分组与命名；发布后仍可固定快照并导出清单。")}${boundary("收集用途", purpose, "未填写用途")}${boundary("模型处理", model, modelFallback)}${boundary("留存与删除", retention, "未填写留存与删除安排")}</div>${summary.length ? `<div class="readiness-summary"><span class="readiness-label">这次整理摘要</span><ul>${summary.map(x => `<li>${esc(x)}</li>`).join("")}</ul></div>` : ""}</div>
@@ -2010,7 +2018,7 @@ async function checkLLMStatus() {
     paintWorkspaceAgentStatus();
     if (!r.llm_configured) {
       const el = document.getElementById("llm-status-banner");
-      if (el) { el.style.display = ""; el.innerHTML = '<span class="llm-banner-icon">ⓘ</span><span>当前没有配置 AI 模型密钥，所以智能起草暂时用不了。不过你可以用下面的模板快速开始，或者直接手动编辑草案。</span>'; }
+      if (el) { el.style.display = ""; el.innerHTML = '<span class="llm-banner-icon">ⓘ</span><span>当前没有配置 AI 模型密钥，智能起草暂时用不了。你可以先用模板建立草案，并手动设置收集时间；其余要求需要配置模型密钥后再整理。</span>'; }
     }
   } catch(e) { paintAgentRuntime(); paintWorkspaceAgentStatus(); /* silently skip */ }
 }
@@ -2494,6 +2502,39 @@ function renderDraftPanel() {
       <div class="preview-section-title"><b>02</b> 提交材料</div>${(bp.slots || []).map(sl => `<div class="upload-preview">${icon('delivery')}<div><strong>${esc(sl.label)}</strong><p>${(sl.formats || []).map(x=>esc(x.toUpperCase())).join(' / ') || '未限定格式'} · 最多 ${sl.max_count} 份${sl.max_size_mib ? ` · 每份 ≤ ${sl.max_size_mib} MiB` : ''}${sl.max_pages ? ` · ≤ ${sl.max_pages} 页` : ''}</p>${sl.required_condition ? `<p>条件：${esc(sl.required_condition)}</p>` : ''}</div><span>上传区域</span></div>`).join('') || '<p class="muted">尚未设置材料</p>'}
       <div class="preview-section-title"><b>03</b> 时间与验收</div><dl class="kv-list"><dt>时区</dt><dd>${esc(tp.timezone || 'Asia/Shanghai')}</dd><dt>开始收集</dt><dd>${esc(fmtTimeShort(tp.open_at, tp.timezone))}</dd><dt>首次截止</dt><dd>${esc(fmtTimeShort(tp.first_deadline, tp.timezone))}</dd><dt>补正截止</dt><dd>${esc(fmtTimeShort(tp.correction_deadline, tp.timezone))}</dd><dt>最终验收</dt><dd>${bp.manual_acceptance ? '组织者人工确认' : '按规则处理'}</dd></dl></div>` : `<div class="rules-preview"><h2>每条要求，都有依据</h2><p class="muted">程序校验、语义审核与人工判断分别标注，不把不确定的结论当成通过。</p>${rules.map((r,i) => `<article class="rule-preview"><div><span class="rule-number">${String(i+1).padStart(2,'0')}</span>${CAP_BADGE[r.capability] || ''}<span class="badge">${esc(EXECUTOR_LABEL[r.executor] || r.executor)}</span></div><h3>${esc(r.statement)}</h3><blockquote>${esc(r.requirement_source || '模板预置要求，请组织者核对')}</blockquote><p class="field-help">${r.severity === 'blocking' ? '阻塞项 · 未处理时不能验收' : '提醒项'}${r.clarification_question ? ' · ' + esc(r.clarification_question) : ''}</p></article>`).join('') || '<div class="empty">尚未设置检查规则</div>'}<details><summary>原始要求与修订依据</summary><p class="source-text">${esc((viewing ? viewing.source_text : state.requirement) || '当前使用模板预置要求，尚无自然语言输入。')}</p></details><details><summary>交付与数据治理</summary><pre>${esc(JSON.stringify({delivery:bp.delivery, governance:bp.governance},null,2))}</pre></details></div>`}</div>
     <div class="publish-bar"><div><strong>${viewing ? `历史版本 v${viewing.version}（只读）` : state.draftStatus === 'published' ? '当前版本已发布' : blocking.length ? '发布前还有内容必须处理' : '准备好后，由你确认发布'}</strong><span>${clar.length ? `${clar.length} 项待澄清 · ` : ''}${blocking.length ? `${blocking.length} 项阻塞 · ` : ''}${advisories.length ? `${advisories.length} 项提醒 · ` : ''}${rules.length} 条规则 · 修改将保留版本记录</span></div><button data-publish onclick="publishBp(${state.taskId})" ${!canPublishDesign() ? 'disabled' : ''}>${state.draftStatus === 'published' ? '已发布' : '核对并发布'} ${icon('arrow')}</button></div>`;
+}
+
+async function saveTimePolicy(event) {
+  event.preventDefault();
+  if (state.timePolicySaving || state.agentBusy || state.viewingVersion || !state.bpId) return;
+  const form = document.querySelector(".time-policy-editor");
+  const status = document.getElementById("time-policy-status");
+  const setStatus = (message, error = false) => { if (status) { status.textContent = message; status.classList.toggle("inline-error", error); } };
+  state.timePolicySaving = true;
+  form?.querySelectorAll("input,button").forEach(el => { el.disabled = true; });
+  setStatus("正在保存…");
+  const epoch = state.designEpoch;
+  try {
+    const result = await api(`/api/tasks/${state.taskId}/draft/time-policy`, {method:"POST", form:{
+      blueprint_version_id: state.bpId,
+      timezone: state.draft.blueprint.time_policy?.timezone || "Asia/Shanghai",
+      open_at: document.getElementById("policy-open-at")?.value || "",
+      first_deadline: document.getElementById("policy-first-deadline")?.value || "",
+      correction_deadline: document.getElementById("policy-correction-deadline")?.value || ""
+    }});
+    if (epoch !== state.designEpoch) return;
+    state.timePolicySaving = false;
+    applyDraft(result);
+    renderDraftPanel();
+    setFlash(`时间策略已保存为草案 v${result.version}。`);
+  } catch (error) {
+    if (epoch === state.designEpoch) setStatus(error.message || "保存失败，请稍后重试。", true);
+  } finally {
+    if (epoch === state.designEpoch) {
+      state.timePolicySaving = false;
+      form?.querySelectorAll("input,button").forEach(el => { el.disabled = false; });
+    }
+  }
 }
 
 async function loadDesignVersion(bpId) {
