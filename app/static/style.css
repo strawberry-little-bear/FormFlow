@@ -3964,7 +3964,8 @@ a.wb-next-action:hover, button.wb-next-action:hover { background:var(--brand-dee
 }
 @media(max-width:480px) {
   .submit-actions { gap:8px; }
-  .submit-actions > button { min-width:0; min-height:42px; line-height:1.35; }
+  .submit-actions > button,
+  .submit-actions > button.ghost.sm { min-width:0; min-height:42px; line-height:1.35; }
   .submit-actions .submit-action-reload,
   .submit-actions .submit-action-save { flex:1 1 calc(50% - 4px); }
   .submit-actions .submit-action-reload { padding-left:8px; padding-right:8px; white-space:nowrap; font-size:11px; }

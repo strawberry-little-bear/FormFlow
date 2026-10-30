@@ -174,17 +174,26 @@ fs.mkdirSync(outputDir, { recursive: true });
       const measurement = await page.evaluate(() => {
         const button = document.querySelector('.submit-primary-dock button');
         const dock = document.querySelector('.submit-primary-dock');
+        const reload = document.querySelector('.submit-action-reload');
+        const save = document.querySelector('.submit-action-save');
         const resultsHeading = document.querySelector('#my-results-heading');
         const rect = button?.getBoundingClientRect();
+        const reloadRect = reload?.getBoundingClientRect();
+        const saveRect = save?.getBoundingClientRect();
         const headingRect = resultsHeading?.getBoundingClientRect();
         return {
           viewport: document.documentElement.clientWidth,
           document: document.documentElement.scrollWidth,
           actionHeight: rect ? Math.round(rect.height) : 0,
+          draftActionHeights: [reloadRect, saveRect].map(value => value ? Math.round(value.height) : 0),
           dockActiveAtPageTop: dock?.classList.contains('is-docked') || false,
           resultsHeadingVisibleAtPageTop: !!headingRect && headingRect.top >= 0 && headingRect.bottom <= window.innerHeight,
         };
       });
+      if (measurement.draftActionHeights.some(height => height < 42)
+          || new Set(measurement.draftActionHeights).size !== 1) {
+        throw new Error(`草稿操作按钮高度不一致：${JSON.stringify(measurement.draftActionHeights)}`);
+      }
       if (measurement.dockActiveAtPageTop) {
         throw new Error(`页面顶部仍错误显示固定提交栏：${JSON.stringify(measurement)}`);
       }
