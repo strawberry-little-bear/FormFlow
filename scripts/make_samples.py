@@ -22,9 +22,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app.config import settings  # noqa: E402
-
-OUT = Path(settings.storage_dir).parent / "samples"
+# Test fixtures live beside the repository's data directory. Keep this path
+# independent from FORMFLOW_STORAGE_DIR, which the test suite overrides with a
+# temporary private store before importing the application settings.
+OUT = Path(__file__).resolve().parent.parent / "data" / "samples"
 
 NAME = "张三"
 TERM = "2026 秋季第 1 期"

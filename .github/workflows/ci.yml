@@ -26,6 +26,8 @@ jobs:
           node-version: "22"
       - name: Install Python dependencies
         run: python -m pip install --require-hashes -r requirements.lock
+      - name: Generate parser fixtures
+        run: python scripts/make_samples.py
       - name: Run Python tests
         run: python -X tracemalloc=5 -W error::ResourceWarning -m pytest -o filterwarnings=error::pytest.PytestUnraisableExceptionWarning -q
       - name: Run frontend contract tests

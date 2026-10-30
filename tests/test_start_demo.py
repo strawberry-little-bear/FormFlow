@@ -99,7 +99,10 @@ def test_process_is_running_accepts_windows_codepage_bytes(monkeypatch):
         pid = command[2].split("eq ", 1)[1]
         output = b'"python.exe","1234","Console","1","51,040 K"\r\n'
         if pid != "1234":
-            output = "INFO: No tasks are running...\r\n".encode("mbcs", errors="replace")
+            # The fixture represents bytes returned by a Windows command. The
+            # text is ASCII, so avoid Python's Windows-only ``mbcs`` codec and
+            # keep this test runnable on the Ubuntu CI worker too.
+            output = b"INFO: No tasks are running...\r\n"
         return subprocess.CompletedProcess(args=command, returncode=0, stdout=output, stderr=b"")
 
     monkeypatch.setattr(start_demo.subprocess, "run", tasklist)
