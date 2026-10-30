@@ -294,6 +294,27 @@ def draft_by_template(task_id: int, template: str = Form(...),
             "draft": design["draft"], "blocking": design.get("blocking", []),
             "advisories": design.get("advisories", [])}
 
+@router.post("/tasks/{task_id}/draft/time-policy")
+def update_draft_time_policy(task_id: int, blueprint_version_id: int = Form(...),
+                             timezone: str = Form("Asia/Shanghai"),
+                             open_at: str = Form(""), first_deadline: str = Form(""),
+                             correction_deadline: str = Form(""),
+                             db: Session = Depends(get_db), acct: Account = Depends(current_account)):
+    task = _owned_task(db, acct, task_id)
+    try:
+        task_service.update_draft_time_policy(
+            db, task, blueprint_version_id, timezone_=timezone, open_at=open_at,
+            first_deadline=first_deadline, correction_deadline=correction_deadline)
+    except task_service.TaskNotWritable as e:
+        raise HTTPException(409, str(e))
+    except task_service.PublishConflict as e:
+        raise HTTPException(409, str(e))
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    db.commit()
+    return task_service.get_design(db, task)
+
+
 @router.post("/tasks/{task_id}/draft/revise")
 def revise_draft_view(task_id: int, blueprint_version_id: int = Form(...),
                       requirement: str = Form(""), answered: str = Form(""),

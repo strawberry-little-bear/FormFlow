@@ -28,7 +28,7 @@ from ..models import (
     Subject,
     Task,
 )
-from ..schemas import Blueprint, DraftResult
+from ..schemas import Blueprint, DraftResult, TimePolicy
 from ..security import generate_credential, hash_credential, utcnow
 
 
@@ -248,6 +248,40 @@ def revise_draft(db: Session, task: Task, blueprint_version_id: int, *,
            "answered": sorted((answered or {}).keys()),
            "impact": impact["summary"]}, task.id)
     return result, new_bp, impact
+
+
+def update_draft_time_policy(db: Session, task: Task, blueprint_version_id: int, *,
+                             timezone_: str, open_at: str = "",
+                             first_deadline: str = "", correction_deadline: str = "") -> BlueprintVersion:
+    """Save organizer-entered collection times as a new immutable draft version."""
+    ensure_task_writable(task)
+    latest = db.scalar(select(BlueprintVersion).where(BlueprintVersion.task_id == task.id)
+                       .order_by(BlueprintVersion.version.desc()))
+    if latest is None or latest.id != blueprint_version_id:
+        raise PublishConflict("草案已有新版本，请刷新并核对最新草案后再保存时间")
+    if latest.status != "draft":
+        raise ValueError("当前版本已发布，请先创建新草案再调整时间")
+
+    blueprint = Blueprint.model_validate_json(latest.blueprint_json)
+    policy = TimePolicy(timezone=timezone_, open_at=open_at or None,
+                        first_deadline=first_deadline or None,
+                        correction_deadline=correction_deadline or None)
+    if policy.open_at and policy.first_deadline and policy.open_at >= policy.first_deadline:
+        raise ValueError("开放时间必须早于首次截止")
+    if policy.first_deadline and policy.correction_deadline and policy.first_deadline >= policy.correction_deadline:
+        raise ValueError("补正截止必须晚于首次截止")
+
+    blueprint.time_policy = policy
+    context = db.scalar(select(AuditEvent).where(
+        AuditEvent.task_id == task.id, AuditEvent.action == "blueprint.design_context",
+        AuditEvent.entity == str(latest.id)).order_by(AuditEvent.id.desc()))
+    draft = DraftResult.model_validate_json(context.payload_json) if context else DraftResult(blueprint=blueprint)
+    draft.blueprint = blueprint
+    new_bp = save_draft(db, task, draft, by_agent=False, source_text=latest.source_text or "")
+    audit(db, "blueprint.revised", "blueprint",
+          {"from_version": latest.version, "to_version": new_bp.version,
+           "answered": [], "impact": "组织者手动调整时间策略"}, task.id)
+    return new_bp
 
 
 def publish(db: Session, task: Task, blueprint_version_id: int, *,

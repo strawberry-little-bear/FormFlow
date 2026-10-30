@@ -217,6 +217,40 @@ def test_api_revise_validates_input(client, db_session):
     assert r.status_code == 404
 
 
+def test_api_time_policy_manual_edit_saves_new_timezone_aware_version(client, db_session):
+    headers = _register(client, "org-time-policy")
+    task_id = _mk_task(client, headers)
+    created = client.post(f"/api/tasks/{task_id}/draft/template",
+                          data={"template": "class_report"}, headers=headers)
+    assert created.status_code == 200, created.text
+    original_id = created.json()["blueprint_version_id"]
+
+    response = client.post(f"/api/tasks/{task_id}/draft/time-policy", headers=headers, data={
+        "blueprint_version_id": original_id,
+        "timezone": "Asia/Shanghai",
+        "open_at": "2026-11-01T09:00",
+        "first_deadline": "2026-11-08T18:00",
+        "correction_deadline": "2026-11-10T18:00",
+    })
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["version"] == 2
+    policy = body["draft"]["blueprint"]["time_policy"]
+    assert policy["timezone"] == "Asia/Shanghai"
+    assert policy["open_at"].startswith("2026-11-01T01:00:00")
+    assert policy["first_deadline"].startswith("2026-11-08T10:00:00")
+    assert policy["correction_deadline"].startswith("2026-11-10T10:00:00")
+    assert client.get(f"/api/tasks/{task_id}/blueprints/{original_id}", headers=headers).json()["draft"]["blueprint"]["time_policy"]["first_deadline"] is None
+
+    stale = client.post(f"/api/tasks/{task_id}/draft/time-policy", headers=headers, data={
+        "blueprint_version_id": original_id, "timezone": "Asia/Shanghai"})
+    assert stale.status_code == 409
+    invalid = client.post(f"/api/tasks/{task_id}/draft/time-policy", headers=headers, data={
+        "blueprint_version_id": body["blueprint_version_id"], "timezone": "Asia/Shanghai",
+        "first_deadline": "2026-11-08T18:00", "correction_deadline": "2026-11-08T17:00"})
+    assert invalid.status_code == 422
+
+
 def test_api_revise_happy_path(client, db_session, monkeypatch):
     """澄清回答经 API 进入修订流程，返回新版本与修改影响。"""
     headers = _register(client, "org-rev2")
