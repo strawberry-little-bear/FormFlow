@@ -1948,12 +1948,14 @@ test('submitter progress summarizes buckets in plain language rather than exposi
     ]});
   await app.loadMyResults();
   assert.match(els['my-results'].innerHTML,/当前进度：<b>有材料需要补充或更正/);
-  assert.match(els['my-results'].innerHTML,/需要更正 1 项/);
+  assert.match(els['my-results'].innerHTML,/暂时没有需要你处理的事项/);
   assert.match(els['my-results'].innerHTML,/组织者核对 1 项/);
   assert.match(els['my-results'].innerHTML,/组织者待办/);
-  assert.match(els['my-results'].innerHTML,/需要一起处理（1）/);
+  assert.match(els['my-results'].innerHTML,/组织者待办：.*待组织者确认 1 项/);
+  assert.match(els['my-results'].innerHTML,/需要组织者判断、核对或重新完成检查/);
+  assert.doesNotMatch(els['my-results'].innerHTML,/需要你补正（1）/);
   assert.doesNotMatch(els['my-results'].innerHTML,/阻塞:r_term_match|待确认:r_name_clear|人工:r_final_review/);
-  assert.match(els['my-results'].innerHTML,/想补充说明，或请组织者再看一眼/);
+  assert.doesNotMatch(els['my-results'].innerHTML,/想补充说明，或请组织者再看一眼/);
   assert.match(els['my-results'].innerHTML,/报告期次与活动期次一致/);
   assert.doesNotMatch(els['my-results'].innerHTML,/技术分析文字/);
 });
@@ -2572,9 +2574,24 @@ test('confirmed issues remain visible as problems in review and submitter detail
   assert.match(els.rv.innerHTML,/人工核对通过/);
   context.fetch=async()=>response({summary:'待补正',buckets:{blocking:['H']},details:app.state.reviewData.rules});
   await app.loadMyResults();
-  assert.match(els['my-results'].innerHTML,/需要一起处理（1）/);
+  assert.match(els['my-results'].innerHTML,/需要你补正（1）/);
+  assert.doesNotMatch(els['my-results'].innerHTML,/组织者待办（1）/);
   assert.match(els['my-results'].innerHTML,/内容仍有问题/);
   assert.doesNotMatch(els['my-results'].innerHTML,/已按要求核对完成 1 项/);
+});
+test('submitter separates confirmed correction from unresolved organizer issues', async () => {
+  const {app,context,els}=setup();
+  context.setTimeout=()=>41;context.clearTimeout=()=>{};
+  context.fetch=async()=>response({summary:'待补正',revision:1,buckets:{blocking:['A','B'],unknown:[],human:[],incomplete:[],pending_jobs:[]},details:[
+    {rule_id:'A',result:'satisfied',decision:{decision:'confirm_issue',reason:'签字页需补齐',resolves:false},requirement:{statement:'签字页齐全'}},
+    {rule_id:'B',result:'issue',requirement:{statement:'期次信息一致'},explanation:'当前扫描结果待组织者确认'},
+  ]});
+  await app.loadMyResults();
+  assert.match(els['my-results'].innerHTML,/需要你补正（1）/);
+  assert.match(els['my-results'].innerHTML,/组织者待办（1）/);
+  assert.match(els['my-results'].innerHTML,/待组织者确认 1 项/);
+  assert.match(els['my-results'].innerHTML,/签字页需补齐/);
+  assert.match(els['my-results'].innerHTML,/当前扫描结果待组织者确认/);
 });
 test('human resolution moves raw unknown out of submitter todo without hiding evidence', async () => {
   const {app,els,context} = setup();
