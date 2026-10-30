@@ -32,6 +32,19 @@ TERM = "2026 秋季第 1 期"
 CONTENT = "活动内容：参加了本期团课，完成了小组实验与讨论，承担了数据记录工作。"
 GAIN = "个人收获：提升了实验操作与团队协作能力，认识了更多同学。"
 
+EXPECTED_FILES = (
+    "blur_name.pdf",
+    "corrupt.pdf",
+    "disguised.pdf",
+    "encrypted.pdf",
+    "legacy.doc",
+    "normal.pdf",
+    "partial.pdf",
+    "photo.png",
+    "report.docx",
+    "scanned.pdf",
+)
+
 
 def _write_pdf_text(path: Path) -> None:
     import fitz
@@ -169,8 +182,19 @@ def main() -> None:
              owner_pw="owner-secret", user_pw="user-secret")
     enc.close()
 
+    missing = [name for name in EXPECTED_FILES if not (OUT / name).is_file()]
+    empty = [name for name in EXPECTED_FILES if (OUT / name).is_file() and (OUT / name).stat().st_size == 0]
+    if missing or empty:
+        details = []
+        if missing:
+            details.append("missing: " + ", ".join(missing))
+        if empty:
+            details.append("empty: " + ", ".join(empty))
+        raise RuntimeError("parser fixture generation incomplete (" + "; ".join(details) + ")")
+
     print("samples written to", OUT)
-    for f in sorted(OUT.iterdir()):
+    for name in EXPECTED_FILES:
+        f = OUT / name
         print(" -", f.name, f.stat().st_size, "bytes")
 
 
