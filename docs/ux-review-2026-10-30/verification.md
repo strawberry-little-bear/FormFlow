@@ -52,3 +52,9 @@
 - 在既有本地演示服务 `127.0.0.1:8147` 上运行只读 Showcase Harness。1440/1366/390/320px 共 28 条路由通过；任务筛选、退出展示视图后的任务列表位置、无效名册失败恢复态均符合预期。横向溢出、卡住态、未命名控件、控制台错误和失败请求均为 0。
 - axe-core 扫描组织者登录、任务、设计、名册、工作台、复核、交付共 7 个页面：明确违规 0 项。短字标及渐变背景对比度仍属于 axe `incomplete` 人工判读项，不计作确认违规；浏览器控制台错误、页面异常和 HTTP 失败均为 0。
 - `python -m pytest tests/test_start_demo.py -q`：25 项通过；`node --test tests/frontend_contracts.test.cjs`：229 项通过。该轮复用现有演示库，未重置数据；脚本和扫描均为只读。本轮未发现需要新增产品代码修复的问题，报告保存在 `%TEMP%\formflow-accessibility-20261030-current`。
+
+## 2026-10-30 新建任务与离线模板浏览器闭环
+
+- 使用 `%TEMP%\formflow-offline-template-20261030-round2` 下的独立 SQLite、虚构种子和空 `FORMFLOW_LLM_API_KEY`，临时 API 运行于 `127.0.0.1:8153`。从演示登录开始，在浏览器创建任务、选择“团课报告”模板，并确认 v1 草案及版本选择器加载完成；创建任务、读取设计状态、生成模板和刷新设计状态的请求均为 HTTP 200，模板流程没有发送 AI 请求。
+- 1440px 桌面、390px 与 320px 窄屏均无横向溢出；标题和模板确认可见，控制台错误、页面异常和 HTTP 失败均为 0。临时 API 已停止；既有 8147 演示服务和 `data/demo` 未触碰。
+- 可复跑脚本：`scripts/ux_new_task_template_walkthrough.cjs`。机器结果及截图位于 `%TEMP%\formflow-offline-template-20261030-round2\evidence`。首轮脚本等待隐藏 `<option>` 可见而超时，修正为检查可见版本选择器及选项数后，完整走查通过；这属于巡检脚本问题，不是产品故障。
