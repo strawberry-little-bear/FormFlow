@@ -4468,16 +4468,21 @@ async function loadMyResults() {
     paintSubmitterNextStep(r);
     const b = r.buckets || {};
     const details = r.details || [];
+    const todo = details.filter(x => x.decision?.decision === "confirm_issue");
+    const organizerItems = details.filter(x => x.decision?.decision !== "confirm_issue"
+      && !x.decision?.resolves && ["issue", "unknown", "failed", "manual_pending"].includes(x.result));
     const countBadge = (items, label, kind) => items?.length
       ? `<span class="badge ${kind}">${label} ${items.length} 项</span>` : "";
     let html = `
       <p>当前进度：<b>${esc(submitterSummary(r.summary))}</b>${r.revision ? ` · 第 ${r.revision} 版` : ""}</p>
       <p>${[
-        countBadge(b.blocking, "需要更正", "bad"),
+        countBadge(todo, "需要更正", "bad"),
         ...(b.pending_jobs || []).map(x => `<span class="badge info">${esc(RUN_LABEL[x] || "正在核对")}</span>`),
       ].filter(Boolean).join("") || '<span class="muted">暂时没有需要你处理的事项</span>'}</p>`;
-    const organizerCount = (b.unknown || []).length + (b.human || []).length + (b.incomplete || []).length;
+    const organizerCount = (b.unknown || []).length + (b.human || []).length + (b.incomplete || []).length
+      + organizerItems.filter(x => x.result === "issue").length;
     if (organizerCount) html += `<p class="muted">组织者待办：${[
+      countBadge(organizerItems.filter(x => x.result === "issue"), "待组织者确认", "warn"),
       countBadge(b.unknown, "待确认", "warn"),
       countBadge(b.human, "组织者核对", "info"),
       countBadge(b.incomplete, "检查未完成", "warn"),
@@ -4492,17 +4497,13 @@ async function loadMyResults() {
       html += `<div class="notice-warn"><b>有 ${gap} 页暂时没读清</b><p>这不代表材料缺失。你可以换一份更清晰的文件再提交，或请组织者一起核对。</p></div>`;
     }
     // 规则明细：哪里有问题、怎么改、引用证据、剩余待办
-    const todo = details.filter(x => x.decision?.decision === "confirm_issue"
-      || (!x.decision?.resolves && x.result === "issue"));
-    const organizerItems = details.filter(x => !x.decision?.resolves
-      && ["unknown", "failed", "manual_pending"].includes(x.result));
     const done = details.filter(x => x.decision?.resolves
       || (!x.decision && ["satisfied", "not_applicable"].includes(x.result)));
     if (todo.length) {
-      html += `<h3>需要一起处理（${todo.length}）</h3>` + todo.map(ruleCard).join("");
+      html += `<h3>需要你补正（${todo.length}）</h3><p>组织者已确认这些项目需要修改。请补齐或更正材料后重新正式提交；当前版本不能验收。</p>` + todo.map(ruleCard).join("");
     }
     if (organizerItems.length) {
-      html += `<section class="notice-warn"><b>组织者待办（${organizerItems.length}）</b><p>这些项目需要组织者核对或重新完成检查，你不需要为它们重复提交材料；若有需要更正的材料，可按上方提示补交。</p>${organizerItems.map(ruleCard).join("")}</section>`;
+      html += `<section class="notice-warn"><b>组织者待办（${organizerItems.length}）</b><p>这些项目需要组织者判断、核对或重新完成检查。你不需要为此重复提交材料；如上方列有需要补正的项目，请只处理那些项目。</p>${organizerItems.map(ruleCard).join("")}</section>`;
     }
     if (done.length) {
       html += `<p class="kv">已按要求核对完成 ${done.length} 项。</p>`;
