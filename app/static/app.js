@@ -4483,7 +4483,10 @@ async function loadMyResults() {
       if (reviewed.length) html += `<details><summary>查看组织者的核对记录（${reviewed.length} 项）</summary>${reviewed.map(ruleCard).join("")}</details>`;
     }
     if (!details.length && r.summary && r.summary !== "未正式提交") {
-      html += `<p class="muted">目前还没有可展示的核对明细，检查完成后会在这里更新。</p>`;
+      const checkComplete = ["规则通过（待人工验收）", "规则通过", "已验收"].includes(r.summary);
+      html += checkComplete
+        ? `<p class="muted">规则检查已完成；当前没有可单独展示的核对明细，最终验收由组织者完成。</p>`
+        : `<p class="muted">目前还没有可展示的核对明细，检查完成后会在这里更新。</p>`;
     }
     const ruleLabel = id => details.find(x => x.rule_id === id)?.requirement?.statement || "一项要求";
     if (todo.length) {

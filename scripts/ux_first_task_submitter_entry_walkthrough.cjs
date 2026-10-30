@@ -191,10 +191,18 @@ async function main() {
     if (!formalSubmit.ok()) throw new Error(`first task formal submit failed with HTTP ${formalSubmit.status()}`);
     await submitterPage.getByText(/已正式提交 · v1/).waitFor();
     await submitterPage.screenshot({ path: path.join(OUT, 'submitter-first-receipt.png'), fullPage: true });
+    await submitterPage.waitForFunction(() => {
+      const results = document.querySelector('#my-results')?.innerText || '';
+      return results.includes('当前进度：')
+        && !results.includes('正在等待核对')
+        && !results.includes('材料正在核对');
+    }, { timeout: 120000 });
     const firstReceipt = await submitterPage.evaluate(() => ({
       body: document.querySelector('main#app')?.innerText.replace(/\s+/g, ' ').trim() || '',
       heading: document.querySelector('#my-results-heading')?.innerText.replace(/\s+/g, ' ').trim() || '',
+      result: document.querySelector('#my-results')?.innerText.replace(/\s+/g, ' ').trim() || '',
     }));
+    await submitterPage.screenshot({ path: path.join(OUT, 'submitter-first-results-final.png'), fullPage: true });
 
     const mobile = [];
     for (const width of [390, 320]) {
@@ -245,6 +253,14 @@ async function main() {
       failures.push(`incomplete first submission did not explain the missing inputs: ${incompleteState.errors}`);
     }
     if (!firstReceipt.body.includes('已正式提交 · v1')) failures.push('new-task submitter did not receive the formal receipt');
+    if (!firstReceipt.result.includes('当前进度：')
+      || firstReceipt.result.includes('正在等待核对')
+      || firstReceipt.result.includes('材料正在核对')) {
+      failures.push(`submitter results did not leave the active checking state: ${firstReceipt.result}`);
+    }
+    if (firstReceipt.result.includes('检查完成后会在这里更新')) {
+      failures.push('terminal submitter results still claim that checking has not completed');
+    }
     if (submitPosts.length !== 1) failures.push(`expected exactly one valid formal submit request, got ${submitPosts.length}`);
     if (submitter.dimensions.scrollWidth > submitter.dimensions.clientWidth) failures.push('submitter page overflows horizontally');
     if (mobile.some(item => item.submitter.scrollWidth > item.submitter.width || item.roster.scrollWidth > item.roster.width)) {
