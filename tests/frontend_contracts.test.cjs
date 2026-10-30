@@ -3125,6 +3125,26 @@ test('loading historical preview locks agent edits until the version response se
   app.useVersionAsBase();assert.equal(app.state.requirement,'历史原始要求');assert.equal(app.canPublishDesign(),false);
 });
 
+test("leaving design clears time-save state and stale requests cannot clear a new save", async () => {
+  const {app,context,els}=designSetup();
+  const form=element();form.querySelectorAll=()=>[];
+  context.document.querySelector=selector=>selector===".time-policy-editor"?form:null;
+  for (const id of ["policy-open-at","policy-first-deadline","policy-correction-deadline","time-policy-status"]) els[id]=element();
+  const first=deferred(), second=deferred();let requests=0;
+  context.fetch=async()=> (++requests===1 ? first.promise : second.promise);
+  const oldSave=app.saveTimePolicy({preventDefault(){}});
+  assert.equal(app.state.timePolicySaving,true);
+  context.location.hash="#/login";app.route();
+  assert.equal(app.state.timePolicySaving,false);
+  app.state.taskId=1;app.state.bpId=10;app.state.draft={blueprint:{time_policy:{timezone:"Asia/Shanghai"}}};
+  const newSave=app.saveTimePolicy({preventDefault(){}});
+  assert.equal(app.state.timePolicySaving,true);
+  first.resolve(response({version:2}));await oldSave;
+  assert.equal(app.state.timePolicySaving,true);
+  second.resolve(response({version:3}));await newSave;
+  assert.equal(app.state.timePolicySaving,false);
+});
+
 const reviewScope = c => c.repeat(64);
 function reviewPage(scope, subject = 2, version = 1) {
   return {review_context:scope, subject:{id:subject,name:'主体'},revision:{id:40+version,version,receipt:'R'},
