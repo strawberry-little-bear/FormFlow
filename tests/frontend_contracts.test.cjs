@@ -3450,6 +3450,16 @@ test('demo review exposes the offline replay boundary and execution mode', async
   assert.match(env.els.rv.innerHTML,/沿同一 Skill、工具白名单、Harness 预算和审计链生成/);
 });
 test('next pending review skips completed and confirmed-issue rules; shortcuts explain the final gate', async () => {
+  const env=setup(),page=reviewPage(reviewScope('a'));
+  page.rules=[{rule_id:'A',result:'unknown'},{rule_id:'B',result:'issue',decision:{decision:'confirm_issue'}},
+    {rule_id:'C',result:'satisfied'},{rule_id:'D',result:'manual_pending'}];
+  await openReview(env,page);env.els['dc-reason'].value='A 尚未提交';
+  env.app.nextPendingReview(1,2);assert.equal(env.app.state.reviewRule,'D');
+  env.app.nextPendingReview(1,2);assert.equal(env.app.state.reviewRule,'A');assert.equal(env.els['dc-reason'].value,'A 尚未提交');
+  assert.match(env.els.rv.innerHTML,/2 项待决定/);assert.match(env.els.rv.innerHTML,/03<\/b> 验收版本/);
+  assert.ok(env.els.rv.innerHTML.indexOf('id="review-decision"')<env.els.rv.innerHTML.indexOf('id="review-acceptance"'));
+});
+
 test('submitter actions keep the primary action readable on narrow screens', () => {
   assert.match(source, /submit-action-reload/);
   assert.match(source, /submit-action-save/);
@@ -3546,15 +3556,6 @@ test('review summary explains confirmed issues are waiting for submitter correct
   assert.match(env.els.rv.innerHTML,/当前版本仍不能验收/);
   assert.match(env.els.rv.innerHTML,/请提交者补正后重新正式提交/);
   assert.doesNotMatch(env.els.rv.innerHTML,/材料规则已处理，继续查看验收前置条件/);
-});
-  const env=setup(),page=reviewPage(reviewScope('a'));
-  page.rules=[{rule_id:'A',result:'unknown'},{rule_id:'B',result:'issue',decision:{decision:'confirm_issue'}},
-    {rule_id:'C',result:'satisfied'},{rule_id:'D',result:'manual_pending'}];
-  await openReview(env,page);env.els['dc-reason'].value='A 尚未提交';
-  env.app.nextPendingReview(1,2);assert.equal(env.app.state.reviewRule,'D');
-  env.app.nextPendingReview(1,2);assert.equal(env.app.state.reviewRule,'A');assert.equal(env.els['dc-reason'].value,'A 尚未提交');
-  assert.match(env.els.rv.innerHTML,/2 项待决定/);assert.match(env.els.rv.innerHTML,/03<\/b> 验收版本/);
-  assert.ok(env.els.rv.innerHTML.indexOf('id="review-decision"')<env.els.rv.innerHTML.indexOf('id="review-acceptance"'));
 });
 test('review route with no subject shows a Chinese empty state without making an API request', async () => {
   const env=setup();

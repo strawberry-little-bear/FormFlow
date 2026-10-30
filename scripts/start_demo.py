@@ -14,6 +14,7 @@ import argparse
 import csv
 from contextlib import closing
 import json
+import locale
 import os
 import shutil
 import signal
@@ -368,7 +369,12 @@ def process_is_running(pid: int) -> bool:
             return False
         output = result.stdout or ""
         if isinstance(output, bytes):
-            output = output.decode("mbcs", errors="replace")
+            try:
+                output = output.decode("mbcs", errors="replace")
+            except LookupError:
+                # ``mbcs`` is available on Windows, but this branch is also
+                # exercised by cross-platform tests that simulate tasklist.
+                output = output.decode(locale.getpreferredencoding(False), errors="replace")
         return any(len(row) > 1 and row[1] == str(pid) for row in csv.reader(output.splitlines()))
     try:
         os.kill(pid, 0)
