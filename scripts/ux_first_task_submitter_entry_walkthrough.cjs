@@ -167,6 +167,7 @@ async function main() {
     await credentialNode.waitFor({ state: 'visible' });
     const credential = (await credentialNode.innerText()).trim();
     if (!credential) throw new Error('one-time submitter credential was not displayed');
+    const subjectId = Number(await page.locator('[data-roster-entry]').getAttribute('data-roster-entry'));
 
     const rosterState = await page.evaluate(() => ({
       entries: [...document.querySelectorAll('.roster-row')].map(row => row.innerText.replace(/\s+/g, ' ').trim()),
@@ -257,6 +258,52 @@ async function main() {
       await submitterPage.screenshot({ path: path.join(OUT, `submitter-entry-${width}.png`), fullPage: true });
     }
 
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.goto(`${BASE}/#/review/${taskId}/${subjectId}`, { waitUntil: 'networkidle' });
+    await page.locator('#acceptance-reason').waitFor({ state: 'visible' });
+    const acceptanceReady = await page.locator('#acceptance-submit').isEnabled();
+    const reviewBeforeAcceptance = await page.locator('#rv').innerText();
+    let acceptance = null;
+    if (acceptanceReady) {
+      await page.locator('#acceptance-reason').fill('已核对当前正式版本及其检查结果，确认符合本次收集要求。');
+      const decisionResponsePromise = page.waitForResponse(response =>
+        response.url().includes(`/api/tasks/${taskId}/subjects/${subjectId}/decisions`)
+        && response.request().method() === 'POST');
+      await page.locator('#acceptance-submit').click();
+      const decisionResponse = await decisionResponsePromise;
+      acceptance = { status: decisionResponse.status(), body: await decisionResponse.json() };
+      await page.getByText('已记录验收决定', { exact: true }).waitFor();
+    }
+    const reviewAfterAcceptance = await page.locator('#rv').innerText();
+    await page.screenshot({ path: path.join(OUT, 'organizer-review-accepted.png'), fullPage: true });
+
+    await page.goto(`${BASE}/#/delivery/${taskId}`, { waitUntil: 'networkidle' });
+    await page.locator('#delivery-history-list').waitFor();
+    await page.locator('#snap-kind').selectOption('formal');
+    const snapshotResponsePromise = page.waitForResponse(response =>
+      response.url().includes(`/api/tasks/${taskId}/snapshots`) && response.request().method() === 'POST');
+    await page.locator('#create-snapshot').click();
+    const snapshotResponse = await snapshotResponsePromise;
+    const snapshotPayload = await snapshotResponse.json();
+    const snapshotManifest = JSON.parse(snapshotPayload.manifest);
+    const exportResponsePromise = page.waitForResponse(response =>
+      response.url().includes(`/api/snapshots/${snapshotPayload.snapshot_id}/export`)
+      && response.request().method() === 'POST');
+    await page.locator(`#export-snapshot-${snapshotPayload.snapshot_id}`).click();
+    const exportResponse = await exportResponsePromise;
+    const exportPayload = await exportResponse.json();
+    await page.locator(`#dl button`).nth(1).waitFor({ state: 'visible' });
+    await page.locator('.delivery-history-export .badge').filter({ hasText: '已生成' }).waitFor({ state: 'visible' });
+    const delivery = {
+      snapshotStatus: snapshotResponse.status(),
+      snapshotId: snapshotPayload.snapshot_id,
+      manifest: snapshotManifest,
+      exportStatus: exportResponse.status(),
+      export: exportPayload,
+      history: await page.locator('#delivery-history-list').innerText(),
+    };
+    await page.screenshot({ path: path.join(OUT, 'organizer-delivery-exported.png'), fullPage: true });
+
     const result = {
       base: BASE,
       taskId,
@@ -267,6 +314,12 @@ async function main() {
       submitter,
       incompleteState,
       firstReceipt,
+      subjectId,
+      reviewBeforeAcceptance,
+      acceptanceReady,
+      acceptance,
+      reviewAfterAcceptance,
+      delivery,
       uploadStatus: uploadResponse.status(),
       draftStatus: draftResponse.status(),
       formalSubmitStatus: formalSubmit.status(),
@@ -325,6 +378,17 @@ async function main() {
       }
     }
     if (agentPosts.length) failures.push('offline path unexpectedly posted an AI request');
+    if (!Number.isInteger(subjectId)) failures.push('created submitter subject id is missing');
+    if (!acceptanceReady) failures.push(`organizer acceptance was blocked: ${reviewBeforeAcceptance.replace(/\s+/g, ' ').slice(-500)}`);
+    if (acceptance?.status !== 200 || !reviewAfterAcceptance.includes('已记录验收决定')) {
+      failures.push(`organizer did not record acceptance: ${JSON.stringify(acceptance)}`);
+    }
+    const acceptedEntry = delivery.manifest.entries.find(entry => entry.subject_id === subjectId);
+    if (delivery.snapshotStatus !== 200 || !acceptedEntry?.included) failures.push('formal snapshot did not include the accepted submitter');
+    if (delivery.exportStatus !== 200 || delivery.export.status !== 'success') failures.push(`CSV + ZIP export failed: ${JSON.stringify(delivery.export)}`);
+    if (!delivery.history.includes('已生成') || !delivery.history.includes('下载 CSV') || !delivery.history.includes('下载 ZIP')) {
+      failures.push(`delivery history did not show both generated downloads: ${delivery.history}`);
+    }
     if (errors.length) failures.push('browser raised console or page errors');
     if (badResponses.length) failures.push('browser received failed HTTP responses');
     if (failures.length) throw new Error(failures.join('; '));
