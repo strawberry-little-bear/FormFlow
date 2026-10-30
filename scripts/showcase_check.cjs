@@ -320,6 +320,30 @@ async function main() {
               };
             })
             : null;
+          const workbenchRefresh = route.name === 'workbench'
+            ? await (async () => {
+              const button = page.locator('.wb-refresh-button');
+              const visible = await button.isVisible().catch(() => false);
+              const bounds = visible ? await button.boundingBox() : null;
+              const ariaLabel = await button.getAttribute('aria-label').catch(() => null);
+              const updatedAt = cleanText(await page.locator('.wb-updated-at').innerText().catch(() => ''));
+              let responseStatus = null;
+              if (visible) {
+                const responsePromise = page.waitForResponse(response =>
+                  /\/api\/tasks\/\d+\/workbench(?:\?|$)/.test(response.url())
+                    && response.request().method() === 'GET', {timeout: 10000});
+                await button.click();
+                responseStatus = (await responsePromise).status();
+              }
+              return {
+                visible,
+                inViewport: !!bounds && bounds.y >= 0 && bounds.y + bounds.height <= viewport.height,
+                ariaLabel,
+                updatedAt,
+                responseStatus,
+              };
+            })()
+            : null;
           const evidence = await captureRouteEvidence(page, viewport, route);
           const taskFilterInteraction = route.name === 'tasks'
             ? await (async () => {
@@ -367,12 +391,18 @@ async function main() {
                 && rosterRecovery.noticeText.includes('名册暂时无法读取')
                 && rosterRecovery.contentHidden
                 && rosterRecovery.controlsDisabled))
+              && (!workbenchRefresh || (workbenchRefresh.visible
+                && workbenchRefresh.inViewport
+                && workbenchRefresh.ariaLabel === '刷新提交情况与催交名单'
+                && workbenchRefresh.updatedAt.startsWith('更新于 ')
+                && workbenchRefresh.responseStatus === 200))
               && (!designScroll || designScroll.ok),
             missing,
             loadingStuck,
             overflow,
             accessibility,
             rosterRecovery,
+            workbenchRefresh,
           });
         }
         viewportReport.overflow = await page.evaluate(() => ({

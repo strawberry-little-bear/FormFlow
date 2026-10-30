@@ -1124,6 +1124,9 @@ test('showcase browser harness verifies the task list receives accessible focus'
   assert.match(showcaseHarnessSource, /inspectDesignScroll\(page, viewport\)/);
   assert.match(showcaseHarnessSource, /position === 'sticky' && result\.panelInViewport && result\.headingInViewport/);
   assert.match(showcaseHarnessSource, /!designScroll \|\| designScroll\.ok/);
+  assert.match(showcaseHarnessSource, /route\.name === 'workbench'[\s\S]*?page\.locator\('\.wb-refresh-button'\)/);
+  assert.match(showcaseHarnessSource, /workbenchRefresh\.updatedAt\.startsWith\('更新于 '\)/);
+  assert.match(showcaseHarnessSource, /workbenchRefresh\.responseStatus === 200/);
 });
 test('showcase browser harness checks and captures the login first screen at each viewport', () => {
   assert.match(showcaseHarnessSource, /loginSurface: null/);
