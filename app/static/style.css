@@ -331,6 +331,11 @@ pre {
   gap:24px;
   align-items:start;
 }
+.grid-chat.design-load-failed { grid-template-columns:minmax(0,1fr); }
+.grid-chat.design-load-failed #design-chat { display:none; }
+.design-load-error { min-height:260px; display:flex; flex-direction:column; justify-content:center; align-items:center; text-align:center; }
+.design-load-error .empty-icon { color:var(--warn); }
+.design-load-error .row-actions { justify-content:center; }
 
 /* ---------------------------------------------------------------- 布局骨架 */
 .sidebar {

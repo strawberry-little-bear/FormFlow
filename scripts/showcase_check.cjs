@@ -28,6 +28,7 @@ const ROUTES = [
   { name: 'delivery', hash: '#/delivery/1', required: ['交付与归档', '固定快照'] },
   { name: 'roster-invalid', hash: '#/roster/9999', required: ['名册暂时无法读取', '重试加载名册'] },
   { name: 'review-invalid', hash: '#/review/1/9999', required: ['检查结果暂时无法读取', '重试加载'] },
+  { name: 'design-invalid', hash: '#/design/9999', required: ['需求设计暂时无法读取', '重试加载设计'] },
 ];
 
 function cleanText(value) {
@@ -271,7 +272,7 @@ async function main() {
         if (!activeRoute?.expectedFailure) errors.push(`PAGEERROR: ${error.message}`);
       });
       page.on('response', response => {
-        // The two invalid routes intentionally return 404 and are checked as
+        // The three invalid routes intentionally return 404 and are checked as
         // UI failures below, so exclude their expected responses from noise.
         if (response.url().startsWith(BASE) && response.status() >= 400 && !activeRoute?.expectedFailure) {
           badResponses.push(`${response.status()} ${response.url()}`);
@@ -317,6 +318,24 @@ async function main() {
                 noticeText: state?.innerText?.replace(/\\s+/g, ' ').trim() || '',
                 contentHidden: !content || content.hidden,
                 controlsDisabled: controls.length > 0 && controls.every(control => control.disabled),
+              };
+            })
+            : null;
+          const designRecovery = route.name === 'design-invalid'
+            ? await page.evaluate(() => {
+              const panel = document.querySelector('.design-load-error');
+              const retry = [...document.querySelectorAll('.design-load-error button')]
+                .find(button => button.textContent.includes('重试加载设计'));
+              const back = document.querySelector('.design-load-error a[href="#/tasks"]');
+              const chat = document.querySelector('#design-chat');
+              const grid = document.querySelector('.grid-chat');
+              return {
+                noticeVisible: !!panel && getComputedStyle(panel).display !== 'none' && panel.getBoundingClientRect().height > 0,
+                noticeText: panel?.innerText?.replace(/\s+/g, ' ').trim() || '',
+                retryVisible: !!retry && getComputedStyle(retry).display !== 'none',
+                backVisible: !!back && getComputedStyle(back).display !== 'none',
+                failedLayout: !!grid && grid.classList.contains('design-load-failed'),
+                chatHidden: !chat || getComputedStyle(chat).display === 'none',
               };
             })
             : null;
@@ -412,6 +431,12 @@ async function main() {
                 && rosterRecovery.noticeText.includes('名册暂时无法读取')
                 && rosterRecovery.contentHidden
                 && rosterRecovery.controlsDisabled))
+               && (!designRecovery || (designRecovery.noticeVisible
+                 && designRecovery.noticeText.includes('需求设计暂时无法读取')
+                 && designRecovery.retryVisible
+                 && designRecovery.backVisible
+                 && designRecovery.failedLayout
+                 && designRecovery.chatHidden))
               && (!workbenchRefresh || (workbenchRefresh.visible
                 && workbenchRefresh.inViewport
                 && workbenchRefresh.ariaLabel === '刷新提交情况与催交名单'
@@ -423,6 +448,7 @@ async function main() {
             overflow,
             accessibility,
             rosterRecovery,
+             designRecovery,
             workbenchRefresh,
             taskFilterReset,
           });

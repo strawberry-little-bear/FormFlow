@@ -804,7 +804,8 @@ const ICONS = {
   expand: '<path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/>',
   collapse: '<path d="M9 3v6H3M15 3v6h6M9 21v-6H3M15 21v-6h6"/>',
   sparkle: '<path d="m12 3 1.7 5.3L19 10l-5.3 1.7L12 17l-1.7-5.3L5 10l5.3-1.7Z"/><path d="m19 16 .7 2.3L22 19l-2.3.7L19 22l-.7-2.3L16 19l2.3-.7Z"/>',
-  close: '<path d="m6 6 12 12M18 6 6 18"/>'
+  close: '<path d="m6 6 12 12M18 6 6 18"/>',
+  warning: '<circle cx="12" cy="12" r="9"/><path d="M12 7v6m0 4h.01"/>'
 };
 function icon(name) { return `<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] || ICONS.tasks}</svg>`; }
 function renderNav() {
@@ -1966,7 +1967,7 @@ async function viewDesign(taskId) {
   const epoch = ++state.designEpoch, token = orgToken();
   state.timePolicySaving = false;
   Object.assign(state,{designTaskId:taskId,designOwnerId:null,designToken:token,designBaseId:0,designQuestions:[],designRenderedBase:null,designDirty:false,designCacheFailed:false,designNeedsRevision:false});
-  Object.assign(state, {taskId, chat: [], bpId: null, draft: null, requirement: "", answeredDone: false, draftStatus: "draft", draftVersionId: null, designLoadFailed: false, retryRequest: null, agentRequest: null, agentRequestPollTimer: 0, agentResumeStarted: false, agentRequestDisplayedId: null, designTab: "preview", agentBusy: false, designBlocking: [], designAdvisories: [], designVersions: [], designHistory: [], viewingVersion: null, viewingPublished: null, viewingImpact: null});
+  Object.assign(state, {taskId, chat: [], bpId: null, draft: null, requirement: "", answeredDone: false, draftStatus: "draft", draftVersionId: null, designLoadFailed: false, designLoadError: "", retryRequest: null, agentRequest: null, agentRequestPollTimer: 0, agentResumeStarted: false, agentRequestDisplayedId: null, designTab: "preview", agentBusy: false, designBlocking: [], designAdvisories: [], designVersions: [], designHistory: [], viewingVersion: null, viewingPublished: null, viewingImpact: null});
   document.getElementById("app").innerHTML = `<div class="breadcrumb"><a href="#/tasks">我的任务</a><span>/</span><span id="design-name">收集任务 #${taskId}</span></div>
     ${showcaseReturnHtml("需求设计")}
     <div class="page-heading design-heading"><div><div class="eyebrow">COLLECTION DESIGN</div><h1>把要求，变成好用的收集表</h1><p>左边一起梳理需求，右边实时核对。确认无误后再发布。</p></div><span class="badge brand" id="draft-state">正在加载…</span></div>
@@ -2012,7 +2013,13 @@ async function viewDesign(taskId) {
       agentSay('这次，你想收些什么？', '告诉我收集对象、需要登记的信息和材料。还没想清楚也没关系，我们可以从一份模板开始。');
       agentSay('我会先帮你整理草案，只追问影响收集的关键信息。', '不确定的地方会标出来，未经你确认不会发布，也不会暗加材料门槛。');
     }
-  } catch(e) { if (epoch === state.designEpoch) { state.designLoadFailed = true; setFlash('草案没能加载：' + e.message + '。请重新打开这个页面，以免覆盖已有的设计。'); } }
+  } catch(e) {
+    if (epoch === state.designEpoch) {
+      state.designLoadFailed = true;
+      state.designLoadError = e.message || '任务不存在或无权访问';
+      setFlash(`需求设计暂时无法读取：${state.designLoadError}`);
+    }
+  }
   finally {
     if (epoch === state.designEpoch && token === orgToken()) {
       setAgentBusy(false); renderChips(); renderDraftPanel(); restoreDesignInputs();
@@ -2491,6 +2498,13 @@ function renderDraftPanel() {
   const d = state.draft, bp = d?.blueprint, has = !!(state.bpId && bp);
   const viewing = state.viewingVersion;
   const label = document.getElementById('draft-state');
+  const grid = document.querySelector('.grid-chat');
+  grid?.classList.toggle('design-load-failed', !!state.designLoadFailed);
+  if (state.designLoadFailed) {
+    if (label) label.textContent = '无法读取';
+    box.innerHTML = `<div class="empty-state design-load-error" role="alert"><div class="empty-icon">${icon('warning')}</div><h3>需求设计暂时无法读取</h3><p>${esc(state.designLoadError || '任务不存在或无权访问')}<br>请重试；如果任务已被删除或你没有权限，可以回到任务列表重新选择。</p><div class="row-actions"><button class="ghost sm" type="button" onclick="viewDesign(${Number(state.taskId) || 0})">重试加载设计</button><a class="ghost sm" href="#/tasks">回到我的任务</a></div></div>`;
+    return;
+  }
   if(label) label.textContent = has
     ? `${viewing ? '只读' : (state.draftStatus === 'published' ? '已发布' : '草案')} v${state.draftVersionId || '—'}${state.designDirty ? ' · 有未发送内容' : ''}`
     : '尚未生成草案';
