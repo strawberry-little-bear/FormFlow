@@ -15,6 +15,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import app.parsing as parsing  # noqa: E402
 from app.parsing import ParseError, ocr_available, parse_file  # noqa: E402
 
 SAMPLES = Path(__file__).resolve().parent.parent / "data" / "samples"
@@ -49,6 +50,35 @@ def test_scanned_pdf_ocr():
     assert r.unread_pages == 0
     assert r.coverage_complete
     assert "张三" in _norm(r.pages[0])
+
+
+def test_pdf_ocr_uses_system_temp_and_removes_intermediate_file(tmp_path, monkeypatch):
+    scratch = tmp_path / "system-temp"
+    scratch.mkdir()
+    monkeypatch.setattr(parsing.tempfile, "tempdir", str(scratch))
+    observed = {}
+
+    def fake_ocr(image_path):
+        image_path = Path(image_path)
+        assert image_path.is_file()
+        observed["image_path"] = image_path
+        return "ocr text", ""
+
+    monkeypatch.setattr(parsing, "ocr_image", fake_ocr)
+    import fitz
+
+    doc = fitz.open()
+    try:
+        text, error = parsing._ocr_rendered_page(doc.new_page())
+    finally:
+        doc.close()
+
+    image_path = observed["image_path"]
+    assert text == "ocr text"
+    assert error == ""
+    assert image_path.parent == scratch
+    assert not image_path.exists()
+    assert not (tmp_path / "ocr_page_1.png").exists()
 
 
 def test_photo_png_ocr():

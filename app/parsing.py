@@ -10,6 +10,7 @@
 """
 from __future__ import annotations
 
+import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -90,21 +91,23 @@ def ocr_image(path: Path) -> tuple[str, str]:
     return text, ""
 
 
-def _ocr_rendered_page(page, page_no: int, tmp_dir: Path) -> tuple[str, str]:
-    """把 PDF 页渲染为图片后 OCR，返回 (文本, 错误)。渲染临时文件用后即删。"""
-    img_path = tmp_dir / f"ocr_page_{page_no}.png"
+def _ocr_rendered_page(page) -> tuple[str, str]:
+    """Render a PDF page to a temporary image, OCR it, then remove it."""
+    img_path: Path | None = None
     try:
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as temp_file:
+            img_path = Path(temp_file.name)
         pix = page.get_pixmap(dpi=150)
         pix.save(str(img_path))
+        return ocr_image(img_path)
     except Exception as e:
         return "", f"页面渲染失败: {e}"
-    try:
-        return ocr_image(img_path)
     finally:
-        try:
-            img_path.unlink()
-        except OSError:
-            pass
+        if img_path is not None:
+            try:
+                img_path.unlink()
+            except OSError:
+                pass
 
 
 # ---------------------------------------------------------------- 各格式解析
@@ -139,7 +142,7 @@ def _parse_pdf(path: Path) -> ParseResult:
                 unread += 1
                 continue
             ocr_budget -= 1
-            text, _err = _ocr_rendered_page(page, i + 1, path.parent)
+            text, _err = _ocr_rendered_page(page)
             if text:
                 pages.append(text)
                 ocr_pages += 1
