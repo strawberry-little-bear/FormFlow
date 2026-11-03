@@ -64,4 +64,5 @@
 - 复核本轮 Showcase 报告：桌面、768px、390px、320px 四档视口全部通过；全部页面路线断言通过，控制台错误和失败 HTTP 响应均为 0。报告和截图位于 `%TEMP%\formflow-showcase-after-a11y-20261104`。
 - 确认先前 Ubuntu 与 Windows CI 同因前端契约将 CSS 资源版本写死为 `20261103-1` 失败，而当前版本已递增。将契约改为验证 `YYYYMMDD-N` 格式，保留版本参数约束且不绑定单次发布日期。
 - 使用 `python scripts/start_demo.py --stop` 停止本轮 `127.0.0.1:8031` 服务，并确认端口不再监听。
-- 本次检查与 CI 结果将在推送后补记；截至此记录写入前尚未推送。
+- 前端契约与浏览器启动器 246 项通过；`node --check` 检查应用与契约脚本通过，`git diff --check` 通过。
+- 提交 `cfcf1e1e9c7a18ddb3d0662801adbf588cb1fbf7` 已推送至 GitHub `main`；CI run `41724668311` 的 Ubuntu 24.04 与 Windows 两个任务全部通过，Python、前端契约、前端语法和浏览器走查脚本语法步骤均为绿色。
