@@ -2901,7 +2901,7 @@ async function copyCredential(cred) {
   const copied = await copyText(cred);
   setFlash(copied
     ? "凭证已复制。请通过私下渠道发给本人。"
-    : "浏览器未能自动复制，请手动选择本页刚显示的一次性凭证文本，再通过私下渠道发给本人。", copied ? "ok" : "warn");
+    : "浏览器未能自动复制，请手动选择本页对应姓名下方的一次性凭证明文，再通过私下渠道发给本人。", copied ? "ok" : "warn");
 }
 
 async function importRoster(taskId) {

@@ -883,8 +883,14 @@ test('clipboard fallback reports the actual browser copy result', async () => {
   button.dataset.cue = '现场讲解内容';
   assert.equal(await app.copyDemoRouteCue(button), false);
   assert.match(button.innerHTML, /复制失败/);
+  app.showCredentialList([
+    {name:'张三',credential:'token-zhang'},
+    {name:'李四',credential:'token-li'},
+  ]);
+  assert.match(els['grant-out'].innerHTML, /张三<\/b><code>token-zhang/);
+  assert.match(els['grant-out'].innerHTML, /李四<\/b><code>token-li/);
   await app.copyCredential('demo-token');
-  assert.match(els.flash.innerHTML, /手动选择本页刚显示的一次性凭证文本/);
+  assert.match(els.flash.innerHTML, /手动选择本页对应姓名下方的一次性凭证明文/);
   assert.match(els.flash.innerHTML, /flash warn/);
 
   context.document.execCommand = () => true;
