@@ -900,6 +900,36 @@ test('clipboard fallback reports the actual browser copy result', async () => {
   context.document.execCommand = () => true;
   assert.equal(await app.copyText('可复制内容'), true);
 });
+test('failed reminder copy does not record a copied notification', async () => {
+  const {app, context, els} = setup();
+  let requests = 0;
+  context.navigator.clipboard = {writeText: async () => { throw new Error('permission denied'); }};
+  context.document.execCommand = () => false;
+  context.fetch = async () => { requests += 1; return response({}); };
+  app.state.reminder = {created: {id: 41, status: 'pending', content: '请补交报告', targets: [{name: '赵六'}]}};
+  els['remind-copy-state'] = element('尚未复制');
+
+  assert.equal(await vm.runInContext('copyReminder(41)', context), false);
+  assert.equal(requests, 0);
+  assert.equal(app.state.reminder.created.status, 'pending');
+  assert.equal(els['remind-copy-state'].textContent, '复制失败，尚未记录');
+  assert.match(els.flash.innerHTML, /复制失败，尚未标记为已复制/);
+});
+test('successful reminder copy records the copied notification', async () => {
+  const {app, context, els} = setup();
+  let copiedText = '';
+  let requestUrl = '';
+  context.navigator.clipboard = {writeText: async text => { copiedText = text; }};
+  context.fetch = async url => { requestUrl = url; return response({}); };
+  app.state.reminder = {created: {id: 42, status: 'pending', content: '请补交报告', targets: [{name: '赵六'}]}};
+  els['remind-copy-state'] = element('尚未复制');
+
+  assert.equal(await vm.runInContext('copyReminder(42)', context), true);
+  assert.match(copiedText, /对象：赵六/);
+  assert.match(requestUrl, /\/api\/notifications\/42\/copy/);
+  assert.equal(app.state.reminder.created.status, 'copied');
+  assert.equal(els['remind-copy-state'].textContent, '已复制');
+});
 test('demo route makes stale fallback state and long task names explicit', () => {
   const {app} = setup();
   const taskName = '一个很长的演示任务名称，用来确认窄屏和悬停提示仍然可读';

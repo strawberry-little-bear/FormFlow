@@ -3339,10 +3339,11 @@ async function createReminder() {
 async function copyReminder(intentId) {
   const rem = state.reminder; if (!rem || !rem.created) return;
   const text = rem.created.content + "\n\n对象：" + (rem.created.targets || []).map(x => x.name).join("、");
-  try { await navigator.clipboard.writeText(text); }
-  catch (e) {
-    const ta = document.createElement("textarea"); ta.value = text; document.body.appendChild(ta);
-    ta.select(); document.execCommand("copy"); ta.remove();
+  const copied = await copyText(text);
+  if (!copied) {
+    const st = document.getElementById("remind-copy-state"); if (st) st.textContent = "复制失败，尚未记录";
+    setFlash("复制失败，尚未标记为已复制。请手动选择通知内容，再粘贴到剪贴板。", "warn");
+    return false;
   }
   await guard(async () => {
     await api(`/api/notifications/${intentId}/copy`, { method: "POST" });
@@ -3350,6 +3351,7 @@ async function copyReminder(intentId) {
     const st = document.getElementById("remind-copy-state"); if (st) st.textContent = "已复制";
     setFlash("已复制到剪贴板，并记录为「已复制」（系统不宣称已发送）", "ok");
   });
+  return true;
 }
 
 function lifecycleButtons(status, taskId) {
