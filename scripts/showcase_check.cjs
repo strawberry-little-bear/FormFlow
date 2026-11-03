@@ -347,6 +347,25 @@ async function main() {
               };
             })
             : null;
+          const reviewRecovery = route.name === 'review-invalid'
+            ? await page.evaluate(() => {
+              const box = document.querySelector('#rv');
+              const notice = box?.querySelector('[role="alert"]');
+              const retry = [...(notice?.querySelectorAll('button') || [])]
+                .find(button => button.textContent.includes('重试加载'));
+              const back = notice?.querySelector('a[href^="#/workbench/"]');
+              const visible = element => !!element
+                && getComputedStyle(element).display !== 'none'
+                && element.getBoundingClientRect().height > 0;
+              return {
+                noticeVisible: visible(notice),
+                noticeText: notice?.innerText?.replace(/\s+/g, ' ').trim() || '',
+                loadingPlaceholderVisible: /正在读取检查结果/.test(box?.innerText || ''),
+                retryVisible: visible(retry),
+                backVisible: visible(back),
+              };
+            })
+            : null;
           const designRecovery = route.name === 'design-invalid'
             ? await page.evaluate(() => {
               const panel = document.querySelector('.design-load-error');
@@ -457,6 +476,11 @@ async function main() {
                 && rosterRecovery.noticeText.includes('名册暂时无法读取')
                 && rosterRecovery.contentHidden
                 && rosterRecovery.controlsDisabled))
+              && (!reviewRecovery || (reviewRecovery.noticeVisible
+                && reviewRecovery.noticeText.includes('检查结果暂时无法读取')
+                && !reviewRecovery.loadingPlaceholderVisible
+                && reviewRecovery.retryVisible
+                && reviewRecovery.backVisible))
                && (!designRecovery || (designRecovery.noticeVisible
                  && designRecovery.noticeText.includes('需求设计暂时无法读取')
                  && designRecovery.retryVisible
@@ -474,6 +498,7 @@ async function main() {
             overflow,
             accessibility,
             rosterRecovery,
+            reviewRecovery,
              designRecovery,
             workbenchRefresh,
             taskFilterReset,
