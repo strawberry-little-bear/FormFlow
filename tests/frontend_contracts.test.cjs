@@ -884,7 +884,7 @@ test('clipboard fallback reports the actual browser copy result', async () => {
   assert.equal(await app.copyDemoRouteCue(button), false);
   assert.match(button.innerHTML, /复制失败/);
   await app.copyCredential('demo-token');
-  assert.match(els.flash.innerHTML, /手动选择名单中的凭证文本/);
+  assert.match(els.flash.innerHTML, /手动选择本页刚显示的一次性凭证文本/);
   assert.match(els.flash.innerHTML, /flash warn/);
 
   context.document.execCommand = () => true;
