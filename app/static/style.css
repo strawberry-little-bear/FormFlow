@@ -1984,16 +1984,13 @@ dialog p {
   margin-bottom:16px;
   border:1px solid #e0c97a;
   border-radius:10px;
-  background:linear-gradient(135deg,#fdf6e3,#faf0d0);
+  background:#faf0d0;
   font-size:12px;
   line-height:1.7;
   color:#6b5d2e;
 }
-.llm-banner-icon {
-  flex-shrink:0;
-  font-size:15px;
-  line-height:1.7;
-}
+.llm-banner-icon { flex-shrink:0; display:inline-flex; align-items:center; margin-top:2px; line-height:1; }
+.llm-banner-icon svg { width:16px; height:16px; }
 .step-flow {
   padding:0 0 23px;
   border-bottom:1px solid var(--line);
@@ -3390,11 +3387,11 @@ nav a { color: #646978; }
 .wb-next-step {
   display:grid; grid-template-columns:42px minmax(0,1fr) auto; align-items:center; gap:14px;
   padding:18px 20px; margin:0 0 16px; border:1px solid var(--line);
-  border-radius:14px; background:linear-gradient(110deg,#fff 0%,#fbfaff 100%);
+  border-radius:14px; background:#fbfaff;
   box-shadow:0 5px 18px #20243808;
 }
-.wb-next-step.warn { border-color:#eeddbf; background:linear-gradient(110deg,#fff 0%,#fffbf3 100%); }
-.wb-next-step.ok { border-color:#cfe7db; background:linear-gradient(110deg,#fff 0%,#f5fbf7 100%); }
+.wb-next-step.warn { border-color:#eeddbf; background:#fffbf3; }
+.wb-next-step.ok { border-color:#cfe7db; background:#f5fbf7; }
 .wb-next-mark {
   width:40px; height:40px; border-radius:12px; display:grid; place-items:center;
   color:var(--brand-deep); background:var(--brand-soft);
@@ -3785,7 +3782,7 @@ a.wb-next-action:hover, button.wb-next-action:hover { background:var(--brand-dee
 .submit-side { display:flex; flex-direction:column; gap:16px; position:sticky; top:20px; }
 .submit-side > .card { margin-bottom:0; padding:20px; }
 .submit-side h2 { font-size:16px; }
-.side-note { background:linear-gradient(160deg,#fbfaff,#fff 60%); }
+.side-note { background:#fbfaff; }
 #sub-slot-msg .flash { margin:6px 0 0; }
 
 /* ---------------------------------------------------------------- 名册 */
@@ -4450,7 +4447,7 @@ body.presentation-mode .agent-tour details > summary { padding:16px 0; }
   padding:18px 20px;
   border:1px solid #dfe1eb;
   border-radius:12px;
-  background:linear-gradient(135deg,#ffffff 0%,#fbfaff 100%);
+  background:#fbfaff;
   box-shadow:0 2px 8px #2d24500a;
 }
 .design-readiness.readonly { background:#fafbfc; }

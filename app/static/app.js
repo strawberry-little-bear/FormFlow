@@ -805,6 +805,7 @@ const ICONS = {
   collapse: '<path d="M9 3v6H3M15 3v6h6M9 21v-6H3M15 21v-6h6"/>',
   sparkle: '<path d="m12 3 1.7 5.3L19 10l-5.3 1.7L12 17l-1.7-5.3L5 10l5.3-1.7Z"/><path d="m19 16 .7 2.3L22 19l-2.3.7L19 22l-.7-2.3L16 19l2.3-.7Z"/>',
   close: '<path d="m6 6 12 12M18 6 6 18"/>',
+  info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5m0-8h.01"/>',
   warning: '<circle cx="12" cy="12" r="9"/><path d="M12 7v6m0 4h.01"/>'
 };
 function icon(name) { return `<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] || ICONS.tasks}</svg>`; }
@@ -852,7 +853,7 @@ function viewLogin(initialTab = "org", notice = "") {
   document.getElementById("app").innerHTML = `
   <div class="login-wrap">
     <div class="login-hero">
-      <div class="logo"><span class="mark">齐</span><span style="font-size:17px">收齐啦 FormFlow</span></div>
+      <div class="logo"><span class="mark" aria-hidden="true">齐</span><span style="font-size:17px">收齐啦 FormFlow</span></div>
       <h1>材料收集，<br>终于有条不紊。</h1>
       <p class="tag">从一句收集要求，到最后一份材料。<br>把反复催交和核对，留给更清晰的工作流。</p>
       <div class="hero-flow" role="group" aria-label="FormFlow Agent 工作边界">
@@ -2030,7 +2031,7 @@ async function checkLLMStatus() {
     paintWorkspaceAgentStatus();
     if (!r.llm_configured) {
       const el = document.getElementById("llm-status-banner");
-      if (el) { el.style.display = ""; el.innerHTML = '<span class="llm-banner-icon">ⓘ</span><span>当前没有配置 AI 模型密钥，智能起草暂时用不了。你可以先用模板建立草案，并手动设置收集时间；其余要求需要配置模型密钥后再整理。</span>'; }
+      if (el) { el.style.display = ""; el.innerHTML = '<span class="llm-banner-icon" aria-hidden="true">' + icon("info") + '</span><span>当前没有配置 AI 模型密钥，智能起草暂时用不了。你可以先用模板建立草案，并手动设置收集时间；其余要求需要配置模型密钥后再整理。</span>'; }
     }
   } catch(e) { paintAgentRuntime(); paintWorkspaceAgentStatus(); /* silently skip */ }
 }
