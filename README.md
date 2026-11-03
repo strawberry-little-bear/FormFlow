@@ -489,3 +489,5 @@ git diff --check
 2026-11-04 收尾验证：桌面、768px、390px、320px Showcase 全部通过，无控制台错误或失败请求；修正 CSS 资源版本契约，避免版本日期递增导致 Ubuntu/Windows CI 失败。前端契约与浏览器启动器 246 项通过；应用及契约脚本语法、`git diff --check` 均通过。提交 `cfcf1e1` 已推送，GitHub Actions Ubuntu 24.04 与 Windows 均通过。详见 [2026-11-04 走查记录](docs/ux-review-2026-11-04/verification.md)。
 
 2026-11-04 首次建任务模板路径收尾：空模型密钥和隔离种子下创建任务并生成离线模板草案，v1 历史正常；1440/390/320px 无横向溢出，浏览器异常、失败请求和意外 Agent 请求为 0。GitHub Actions run `41725699353` 的 Ubuntu 与 Windows 均通过，远端 `main` 与本地文件树一致；隔离服务已停止。实测记录和截图见 [当日走查记录](docs/ux-review-2026-11-04/verification.md)。
+
+2026-11-04 OCR 临时存储失败回归：增加扫描 PDF 在系统临时文件创建抛出 `OSError` 时的测试，确认该页被标记为未读、覆盖不完整，解析流程不崩溃也不误报为已读。解析专项 **11 项**、Python 全量 **452 项**通过；前端检查未涉及本次改动。

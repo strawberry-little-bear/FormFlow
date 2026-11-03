@@ -81,6 +81,21 @@ def test_pdf_ocr_uses_system_temp_and_removes_intermediate_file(tmp_path, monkey
     assert not (tmp_path / "ocr_page_1.png").exists()
 
 
+def test_scanned_pdf_temp_file_failure_marks_page_unread(monkeypatch):
+    def fail_temp_file(*args, **kwargs):
+        raise OSError("temporary storage unavailable")
+
+    monkeypatch.setattr(parsing.tempfile, "NamedTemporaryFile", fail_temp_file)
+
+    result = parse_file(SAMPLES / "scanned.pdf")
+
+    assert result.detected == "pdf"
+    assert result.pages == []
+    assert result.unread_pages == 1
+    assert result.failed_pages == 0
+    assert not result.coverage_complete
+
+
 def test_photo_png_ocr():
     r = parse_file(SAMPLES / "photo.png")
     assert r.detected == "image"
