@@ -766,6 +766,7 @@ test('task home keeps populated workspaces focused and preserves the full showca
   assert.match(styleSource, /body:not\(\.presentation-mode\) #app:not\(\.task-home-empty\) #demo-route,[\s\S]*body:not\(\.presentation-mode\) #app:not\(\.task-home-empty\) \.agent-tour \{ display:none; \}/);
   assert.match(styleSource, /#app\.task-home-empty #demo-route[\s\S]*#app\.task-home-empty \.task-section \.section-toolbar \{ display:none; \}/);
   assert.match(styleSource, /body\.presentation-mode \.workspace-runtime-strip \{ display:none; \}/);
+  assert.match(styleSource, /@media \(max-width:360px\)[\s\S]*#task-stats\.overview-stats[\s\S]*#task-stats \.overview-stat strong/);
 });
 test('demo route exposes organizer and submitter lanes for a complete showcase', () => {
   const {app} = setup();

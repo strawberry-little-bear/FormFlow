@@ -5358,6 +5358,7 @@ body.presentation-mode .presentation-task-context {
 .floating-spark { display:grid; place-items:center; }
 .floating-spark svg { width:18px; height:18px; }
 .agent-trace-kind { gap:4px; }
+
 .agent-trace-kind svg { width:12px; height:12px; flex:none; }
 .icon-only { gap:0; }
 .icon-only svg { width:16px; height:16px; flex:none; }
@@ -5488,4 +5489,20 @@ body.presentation-mode #app.task-home-empty .task-section { display:block; }
   .design-jump-nav button:first-child { color:#5140a0; background:#f0edfb; }
   .design-jump-nav button svg { width:15px; height:15px; flex:none; }
   .design-jump-nav button:focus-visible { outline:2px solid var(--brand); outline-offset:2px; }
+}
+
+@media (max-width:360px) {
+  body:not(.presentation-mode) #app:not(.task-home-empty) #task-stats.overview-stats {
+    gap:6px;
+    margin-bottom:12px;
+  }
+  body:not(.presentation-mode) #app:not(.task-home-empty) #task-stats .overview-stat {
+    min-height:0;
+    padding:8px 10px;
+  }
+  body:not(.presentation-mode) #app:not(.task-home-empty) #task-stats .overview-stat strong {
+    margin-top:2px;
+    font-size:20px;
+    line-height:1.15;
+  }
 }

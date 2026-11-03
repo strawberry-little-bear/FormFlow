@@ -214,17 +214,22 @@ async function enterDemo(page, viewport) {
   const taskListInViewport = await page.evaluate(() => {
     const section = document.querySelector('.task-section');
     const firstTask = document.querySelector('.task-item, .task-section .empty-state');
+    const taskAction = firstTask?.querySelector('.task-enter');
     const sectionRect = section?.getBoundingClientRect();
     const taskRect = firstTask?.getBoundingClientRect();
+    const actionRect = taskAction?.getBoundingClientRect();
     return !!sectionRect && !!taskRect
       && sectionRect.top >= 0
       && sectionRect.top < window.innerHeight
       && taskRect.top >= 0
-      && taskRect.bottom <= window.innerHeight + 2;
+      && taskRect.bottom <= window.innerHeight + 2
+      && !!actionRect
+      && actionRect.top >= 0
+      && actionRect.bottom <= window.innerHeight;
   });
   const enteredPresentation = await page.evaluate(() => document.body.classList.contains('presentation-mode'));
   if (!taskListInViewport || enteredPresentation) {
-    throw new Error('Demo login should open the task list without entering presentation mode');
+    throw new Error('Demo login should show the first task action in the viewport without entering presentation mode');
   }
   return loginSurface;
 }
