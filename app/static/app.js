@@ -2866,8 +2866,21 @@ function renderRosterTable() {
 async function copyText(text) {
   try { await navigator.clipboard.writeText(text); return true; }
   catch (e) {
-    const ta = document.createElement("textarea"); ta.value = text; document.body.appendChild(ta);
-    ta.select(); document.execCommand("copy"); ta.remove(); return true;
+    let ta;
+    try {
+      ta = document.createElement("textarea");
+      ta.value = text;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      return document.execCommand("copy") === true;
+    } catch (fallbackError) {
+      return false;
+    } finally {
+      ta?.remove();
+    }
   }
 }
 async function copyDemoRouteCue(button) {
@@ -2885,8 +2898,10 @@ async function copyDemoRouteCue(button) {
   return copied;
 }
 async function copyCredential(cred) {
-  await copyText(cred);
-  setFlash("凭证已复制。请通过私下渠道发给本人。", "ok");
+  const copied = await copyText(cred);
+  setFlash(copied
+    ? "凭证已复制。请通过私下渠道发给本人。"
+    : "浏览器未能复制凭证，请手动选择名单中的凭证文本，再通过私下渠道发给本人。", copied ? "ok" : "warn");
 }
 
 async function importRoster(taskId) {

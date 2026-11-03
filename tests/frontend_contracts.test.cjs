@@ -37,7 +37,9 @@ function setup(sharedStorage = storage()) {
   els['field-name'] = fields[0];
   const body = Object.assign(element(), {dataset: {page: 'tasks'}});
   const document = {body, documentElement: {style: {setProperty(name, value) { this[name] = value; }}}, getElementById: id => els[id] || null,
+    createElement: tag => Object.assign(element(), {tagName: tag, style: {}, select() { this.selected = true; }}),
     querySelectorAll: sel => sel === '[data-field]' ? fields : sel === '[data-filter]' ? taskFilters : [], querySelector: () => null};
+  body.appendChild = child => { child.parentNode = body; };
   const windowListeners = {};
   const viewportListeners = {};
   const visualViewport = {height: 844, offsetTop: 0, addEventListener(name, fn) {viewportListeners[name] = fn;}};
@@ -47,6 +49,8 @@ function setup(sharedStorage = storage()) {
     setTimeout, clearTimeout, confirm: () => true, console,
     fetch: async () => {throw new Error('Unexpected request');}});
 vm.runInContext(source + '\nthis.app = {state, route, useVersionAsBase, loadDesignVersion, cacheDesignInputs, restoreDesignInputs, recoverDesignInput, recoverDesignInput, paintChat, renderDraftPanel, runAgent, runExport, deliveryHistoryHtml, deliverySnapshotStatusHtml, loadDeliveryHistory, inspectSnapshot, paintSnapshot, agentEvidenceSummaryHtml, canPublishDesign, publishDiffHtml, designVersionImpactHtml, publishGovernanceHtml, publishBp, confirmPublish, saveTimePolicy, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, fmtTimeShort, designReadinessHtml, designProgressHtml, applyDraft, quickTemplate, draftFingerprint, collectDraftFields, paintSubmitterNextStep, submitterNextStepHtml, setSubMode, moveSubmitModeTab, setDesignTab, moveDesignTab, refreshSlotConditions, wbMatches, api, apiError, submitDecision, saveDraft, doSubmit, doSubLogin, uploadSlot, deleteSlotFile, cacheReviewDraft, discardReviewDraft, logout, nextPendingReview, setReviewFilter, setReviewTraceFilter, selectReviewRule, viewReview, reviewRevisionHistoryHtml, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, chooseWorkbenchNextStep, workbenchNextStepHtml, agentRunCard, agentTourHtml, agentTourRuntimeHtml, runtimeSelfTestHtml, submitterGuidance, ruleCard, receiptFilesHtml, submissionIssues, checkAgentRequestNow, resumePendingAgentRequest, savePendingAgentRequest, agentRequestProgressHtml, retryAgent, pollAgentRequest, showSubmissionIssues, refreshSubmissionValidation, initSubChat, demoRouteTask, demoRouteHtml, demoRouteCueHtml, copyDemoRouteCue, agentArchitectureRailHtml, agentQuickReadHtml, agentShowcaseHtml, runStageReplayHtml, paintAgentShowcase, jumpToRunStage, mcpSnapshotHtml, renderDemoRoute, paintWorkspaceAgentStatus, paintAgentRuntime, paintAgentRuntimeContractIssue, viewLogin, viewSubmit, switchLoginTab, moveLoginTab, setFlash, openDialog, readPresentationMode, showcaseReturnHtml, applyPresentationMode, setPresentationMode, togglePresentationMode, fillDemoCred, doLogin, issueGrant, issueAllGrants, viewRoster, loadRoster, setRosterFilter, renderRosterTable, showCredential, showCredentialList, setEmptyTaskHome, jumpToSubmitResults, filterTasks, clearTaskFilters, paintTasks, createTask};', context);
+  context.app.copyText = vm.runInContext('copyText', context);
+  context.app.copyCredential = vm.runInContext('copyCredential', context);
   context.app.submissionMatchesReceipt = context.submissionMatchesReceipt;
   context.app.cacheSubmissionDraft = vm.runInContext('cacheSubmissionDraft', context);
   context.app.refreshSubmitAction = context.refreshSubmitAction;
@@ -870,6 +874,21 @@ test('demo route presenter cue can be copied without changing route state', asyn
   assert.equal(copied, '现场讲解内容');
   assert.match(button.innerHTML, /已复制/);
   assert.equal(app.state.presentationMode, false);
+});
+test('clipboard fallback reports the actual browser copy result', async () => {
+  const {app, context, els} = setup();
+  context.navigator.clipboard = {writeText: async () => { throw new Error('permission denied'); }};
+  context.document.execCommand = () => false;
+  const button = element();
+  button.dataset.cue = '现场讲解内容';
+  assert.equal(await app.copyDemoRouteCue(button), false);
+  assert.match(button.innerHTML, /复制失败/);
+  await app.copyCredential('demo-token');
+  assert.match(els.flash.innerHTML, /手动选择名单中的凭证文本/);
+  assert.match(els.flash.innerHTML, /flash warn/);
+
+  context.document.execCommand = () => true;
+  assert.equal(await app.copyText('可复制内容'), true);
 });
 test('demo route makes stale fallback state and long task names explicit', () => {
   const {app} = setup();
