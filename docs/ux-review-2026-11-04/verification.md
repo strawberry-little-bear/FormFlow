@@ -66,3 +66,10 @@
 - 使用 `python scripts/start_demo.py --stop` 停止本轮 `127.0.0.1:8031` 服务，并确认端口不再监听。
 - 前端契约与浏览器启动器 246 项通过；`node --check` 检查应用与契约脚本通过，`git diff --check` 通过。
 - 提交 `cfcf1e1e9c7a18ddb3d0662801adbf588cb1fbf7` 已推送至 GitHub `main`；CI run `41724668311` 的 Ubuntu 24.04 与 Windows 两个任务全部通过，Python、前端契约、前端语法和浏览器走查脚本语法步骤均为绿色。
+
+## 首次建任务模板路径收尾
+
+- 在隔离副本的干净演示库和空模型密钥下，于 `127.0.0.1:8032` 运行 `scripts/ux_new_task_template_walkthrough.cjs`；创建任务 `offline-template-walkthrough-20261103215837` 并生成离线模板草案。
+- 设计页标题、模板内容与 v1 版本记录均正常；1440/390/320px 无横向溢出，浏览器页面异常、失败 HTTP 响应和意外 Agent 请求均为 0。
+- 实测截图及 JSON 报告保存在 `%TEMP%\formflow-new-task-user-pass-20261104`。走查后停止隔离服务，并确认 `8032` 不再监听。
+- CI run `41725699353` 的 Ubuntu 24.04 与 Windows jobs 均通过。GitHub `main` 为 `eee0ade9415dc2fb04637268c8e40d570164ed4d`；本地提交 `c67d0d474e5a4fc58a79811f0bd4f2be4280f9d` 与远端 tree 均为 `4b72213f4de5b431375777f0c61c6cec1fcc944b`，内容一致。未发现需要新增业务代码修复的问题。
