@@ -209,10 +209,31 @@ async function enterDemo(page, viewport) {
   await button.click();
   await page.waitForURL('**/#/tasks', { timeout: 10000 });
   await waitForPaint(page);
+  const taskList = page.locator('.task-section');
+  await taskList.waitFor({ state: 'visible', timeout: 5000 });
+  const taskListInViewport = await page.evaluate(() => {
+    const section = document.querySelector('.task-section');
+    const firstTask = document.querySelector('.task-item, .task-section .empty-state');
+    const sectionRect = section?.getBoundingClientRect();
+    const taskRect = firstTask?.getBoundingClientRect();
+    return !!sectionRect && !!taskRect
+      && sectionRect.top >= 0
+      && sectionRect.top < window.innerHeight
+      && taskRect.top >= 0
+      && taskRect.bottom <= window.innerHeight + 2;
+  });
+  const enteredPresentation = await page.evaluate(() => document.body.classList.contains('presentation-mode'));
+  if (!taskListInViewport || enteredPresentation) {
+    throw new Error('Demo login should open the task list without entering presentation mode');
+  }
   return loginSurface;
 }
 
 async function exitPresentationToTaskList(page) {
+  const enter = page.locator('#presentation-toggle');
+  if (!await enter.isVisible().catch(() => false)) throw new Error('Task page has no presentation entry');
+  await enter.click();
+  await waitForPaint(page);
   const exit = page.locator('button[aria-label="退出展示视图并查看我的任务"]');
   if (!await exit.count()) throw new Error('展示首页缺少“查看我的任务”入口');
   const showcaseVisibleInPresentation = await page.evaluate(() => {

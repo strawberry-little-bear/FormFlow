@@ -1314,7 +1314,7 @@ test('all organizer showcase stops keep a return path to the presentation route'
     assert.match(source, new RegExp(`showcaseReturnHtml\\("${label}"\\)`));
   }
 });
-test('demo login enters showcase view and logout clears the temporary entry state', async () => {
+test('demo login opens the task list and logout clears presentation state', async () => {
   const {app, context, els} = setup();
   const loginUser = element(), loginPass = element();
   context.document.getElementById = id => ({...els, 'lg-user': loginUser, 'lg-pass': loginPass}[id] || null);
@@ -1323,11 +1323,9 @@ test('demo login enters showcase view and logout clears the temporary entry stat
   assert.equal(loginUser.value, 'demo');
   assert.equal(loginPass.value, 'demo1234');
   assert.equal(context.location.hash, '#/tasks');
-  assert.equal(context.sessionStorage.getItem('ff_demo_entry'), null);
-  assert.equal(context.sessionStorage.getItem('ff_tasks_presentation'), '1');
+  assert.equal(context.sessionStorage.getItem('ff_tasks_presentation'), null);
   app.logout();
   assert.equal(context.sessionStorage.getItem('ff_tasks_presentation'), null);
-  assert.equal(context.sessionStorage.getItem('ff_demo_entry'), null);
 });
 test('presentation entry keeps Agent evidence on demand while retaining the live summary', () => {
   const {app, context, els} = setup();

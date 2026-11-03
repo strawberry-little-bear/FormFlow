@@ -1,6 +1,6 @@
 "use strict";
 /* 收齐啦 FormFlow 前端（P01–P05）。纯静态 SPA，直接调用 /api。 */
-const ORG_KEY = "ff_org_token", SUB_KEY = "ff_sub_token", PRESENTATION_KEY = "ff_tasks_presentation", DEMO_ENTRY_KEY = "ff_demo_entry";
+const ORG_KEY = "ff_org_token", SUB_KEY = "ff_sub_token", PRESENTATION_KEY = "ff_tasks_presentation";
 const state = { taskId: null, chat: [], bpId: null, draft: null, requirement: "", answeredDone: false, files: {}, filesMeta: {}, draftVersion: null, me: null, lastJob: null, roster: {}, rosterEntries: [], rosterFilter: "all", rosterGrantBusy: false, designEpoch: 0, agentBusy: false, agentRequest: null, agentRequestPollTimer: 0, agentResumeStarted: false, agentRequestDisplayedId: null, draftStatus: "draft", draftVersionId: null, designTab: "preview", tasks: [], llmConfigured: null, agentRuntime: null, mcpSnapshot: null, mcpSnapshotLoading: false, mcpSnapshotRunning: false, mcpReplayIndex: null, mcpReplayTimer: 0, demoTaskId: null, designBlocking: [], designAdvisories: [], designVersions: [], designHistory: [], viewingVersion: null, viewingPublished: null, viewingImpact: null, wbRows: [], wbFilter: "all", reviewRule: null, reviewFilter: "all", reviewTraceFilter: "all", presentationMode: false, presentationStartAligned: false, timePolicySaving: false, submissionValidationAttempted: false };
 
 const orgToken = () => localStorage.getItem(ORG_KEY) || "";
@@ -938,7 +938,6 @@ function loginErr(msg) {
 function fillDemoCred() {
   document.getElementById("lg-user").value = "demo";
   document.getElementById("lg-pass").value = "demo1234";
-  try { sessionStorage.setItem(DEMO_ENTRY_KEY, "1"); } catch (e) { /* storage is optional */ }
   return doLogin();
 }
 async function checkDemoUser() {
@@ -954,12 +953,6 @@ async function doLogin() {
   try {
     const r = await api("/api/auth/login", { method: "POST", form: { username, password } });
     localStorage.setItem(ORG_KEY, r.token);
-    let demoEntry = false;
-    try {
-      demoEntry = sessionStorage.getItem(DEMO_ENTRY_KEY) === "1";
-      if (demoEntry) sessionStorage.removeItem(DEMO_ENTRY_KEY);
-      if (demoEntry) sessionStorage.setItem(PRESENTATION_KEY, "1");
-    } catch (e) { /* session storage is an enhancement; login still works */ }
     navigate("#/tasks");
   } catch (e) { loginErr(e.message || "登录失败"); }
 }
