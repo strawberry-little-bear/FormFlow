@@ -194,6 +194,10 @@ test('login feature icons use shared SVGs and the document has an inline favicon
   assert.match(indexSource, /<link rel="icon" href="data:image\/svg\+xml,/);
   assert.match(indexSource, /%E9%BD%90/);
 });
+test('application script URL is versioned so updated UX reaches cached browsers', () => {
+  const html = fs.readFileSync(path.join(__dirname, '../app/static/index.html'), 'utf8');
+  assert.match(html, /<script src="\/static\/app\.js\?v=\d{8}-\d+"><\/script>/);
+});
 test('login tabs and fields expose their relationships to assistive technology', () => {
   const {app} = setup();
   app.viewLogin();
