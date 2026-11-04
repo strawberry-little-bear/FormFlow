@@ -4296,12 +4296,12 @@ async function viewSubmit() {
               ${slots.map(s => {
                 const naNote = s.required_condition ? `<p class="field-help" id="slot-cond-${esc(s.id)}"></p>` : "";
                 return `<article class="slot-card" data-slot-card="${esc(s.id)}">
-                  <div class="slot-head"><div><b>${esc(s.label)}</b>${s.required_condition ? ` <span class="badge warn">条件必交</span>` : ' <span class="badge bad">必交</span>'}<span class="field-help">${esc(slotMetaText(s))}</span></div>${s.max_count ? `<span class="slot-count" id="slot-count-${esc(s.id)}"></span>` : ""}</div>
+                  <div class="slot-head"><div><b>${esc(s.label)}</b>${s.required_condition ? ` <span class="badge warn">条件必交</span>` : ' <span class="badge bad">必交</span>'}<span class="field-help" id="slot-help-${esc(s.id)}">${esc(slotMetaText(s))}</span></div>${s.max_count ? `<span class="slot-count" id="slot-count-${esc(s.id)}"></span>` : ""}</div>
                   ${s.required_condition ? `<p class="field-help">条件：${esc(s.required_condition)}</p>` : ""}
                   ${naNote}
                   <p id="slot-error-${esc(s.id)}" class="validation-message" hidden></p>
                   <div class="file-chips" id="slot-files-${esc(s.id)}">${fileChips(s.id, ro)}</div>
-                  ${ro ? "" : `<div class="upload-row">${filePickerHtml(`file-${s.id}`, s.label, s.formats, `slot-error-${s.id}`)}<button class="ghost sm" id="upload-${esc(s.id)}" onclick="uploadSlot('${esc(s.id)}')">上传</button></div>`}
+                  ${ro ? "" : `<div class="upload-row">${filePickerHtml(`file-${s.id}`, s.label, s.formats, [`slot-help-${s.id}`, ...(s.required_condition ? [`slot-cond-${s.id}`] : []), `slot-error-${s.id}`].join(" "))}<button class="ghost sm" id="upload-${esc(s.id)}" onclick="uploadSlot('${esc(s.id)}')">上传</button></div>`}
                 </article>`;
               }).join("") || '<p class="muted">本次收集没有材料要求。</p>'}
             </div>

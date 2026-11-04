@@ -311,6 +311,10 @@ test('submitter guide helper text uses readable contrast on both message surface
   assert.match(css, /\.msg \.body \.mini\s*\{[^}]*color:\s*#626776/i);
   assert.match(css, /\.msg\.user \.body \.mini\s*\{[^}]*color:\s*#665888/i);
 });
+test('submitter upload controls announce material constraints and validation errors', () => {
+  assert.ok(source.includes('id="slot-help-${esc(s.id)}">${esc(slotMetaText(s))}</span>'));
+  assert.ok(source.includes('[`slot-help-${s.id}`, ...(s.required_condition ? [`slot-cond-${s.id}`] : []), `slot-error-${s.id}`].join(" ")'));
+});
 test('submitter input modes support roving focus with arrow and Home/End keys', () => {
   const {app, els} = setup();
   els['submode-form'] = Object.assign(element(), {id: 'submode-form'});
