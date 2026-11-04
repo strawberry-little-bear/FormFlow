@@ -311,9 +311,32 @@ test('submitter guide helper text uses readable contrast on both message surface
   assert.match(css, /\.msg \.body \.mini\s*\{[^}]*color:\s*#626776/i);
   assert.match(css, /\.msg\.user \.body \.mini\s*\{[^}]*color:\s*#665888/i);
 });
-test('submitter upload controls announce material constraints and validation errors', () => {
-  assert.ok(source.includes('id="slot-help-${esc(s.id)}">${esc(slotMetaText(s))}</span>'));
-  assert.ok(source.includes('[`slot-help-${s.id}`, ...(s.required_condition ? [`slot-cond-${s.id}`] : []), `slot-error-${s.id}`].join(" ")'));
+test('rendered submitter upload controls announce material constraints and validation errors', async () => {
+  const {app, context, els} = setup();
+  const me = {task:{id:1, name:'材料收集', status:'collecting', timezone:'Asia/Shanghai'},
+    subject:{id:2, name:'张三', kind:'person'}, blueprint:{fields:[], slots:[
+      {id:'report', label:'总结报告', formats:['pdf'], max_count:2, max_size_mib:10, max_pages:5,
+        required_condition:"name == '张三'"},
+      {id:'photo', label:'现场照片', formats:['jpg'], max_count:3},
+    ]}};
+  context.fetch = async url => response(url === '/api/me' ? me
+    : url === '/api/me/draft' ? {fields:{}, slot_file_ids:{}}
+    : url === '/api/me/receipt' ? {formal:false}
+    : {summary:'', buckets:{}, details:[]});
+
+  await app.viewSubmit();
+
+  const markup = els.sub.innerHTML;
+  const describedBy = id => {
+    const input = markup.match(new RegExp(`<input[^>]*id="file-${id}"[^>]*aria-describedby="([^"]+)"`));
+    assert.ok(input, `file-${id} has an accessible description`);
+    const ids = input[1].split(/\s+/);
+    for (const referencedId of ids) assert.match(markup, new RegExp(`id="${referencedId}"`));
+    return ids;
+  };
+  assert.deepEqual(describedBy('report'), ['slot-help-report', 'slot-cond-report', 'slot-error-report']);
+  assert.deepEqual(describedBy('photo'), ['slot-help-photo', 'slot-error-photo']);
+  assert.match(markup, /格式 PDF · 最多 2 份 · 单份 ≤ 10 MiB · ≤ 5 页/);
 });
 test('submitter input modes support roving focus with arrow and Home/End keys', () => {
   const {app, els} = setup();

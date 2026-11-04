@@ -9,7 +9,7 @@
 ## 处理与验证
 
 - 为每个材料槽位的限制说明添加稳定 ID；文件控件现在同时关联限制说明、适用的条件要求和校验错误。
-- 增加前端契约，锁定说明节点和控件描述关联；静态资源版本更新至 `20261104-5`。
+- 增加前端契约，渲染有条件与无条件材料槽，并验证控件关联的每个描述 ID 都存在于页面输出；静态资源版本更新至 `20261104-5`。
 - `node --test tests/frontend_contracts.test.cjs tests/ux_browser.test.cjs`：247 项通过。
 - CI 同序 Python 全量命令（关闭 pytest 缓存）：452 项通过。
 - `node --check app/static/app.js`、`node --check tests/frontend_contracts.test.cjs`、`git diff --check`：通过。
