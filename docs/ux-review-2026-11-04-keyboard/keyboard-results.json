@@ -1,0 +1,57 @@
+{
+  "base": "http://127.0.0.1:8051",
+  "generatedAt": "2026-11-04T13:46:59.971Z",
+  "organizer": [
+    {
+      "label": "tasks",
+      "expectedCount": 9,
+      "reachedCount": 9,
+      "missing": [],
+      "hiddenFocus": []
+    },
+    {
+      "label": "design",
+      "expectedCount": 13,
+      "reachedCount": 15,
+      "missing": [],
+      "hiddenFocus": []
+    },
+    {
+      "label": "roster",
+      "expectedCount": 14,
+      "reachedCount": 11,
+      "missing": [],
+      "hiddenFocus": []
+    },
+    {
+      "label": "workbench",
+      "expectedCount": 25,
+      "reachedCount": 20,
+      "missing": [],
+      "hiddenFocus": []
+    },
+    {
+      "label": "review",
+      "expectedCount": 27,
+      "reachedCount": 37,
+      "missing": [],
+      "hiddenFocus": []
+    },
+    {
+      "label": "delivery",
+      "expectedCount": 5,
+      "reachedCount": 5,
+      "missing": [],
+      "hiddenFocus": []
+    }
+  ],
+  "submitter": {
+    "label": "submitter-form",
+    "expectedCount": 11,
+    "reachedCount": 10,
+    "missing": [],
+    "hiddenFocus": []
+  },
+  "errors": [],
+  "failures": []
+}
