@@ -21,14 +21,14 @@ const VIEWPORTS = [
 ];
 
 const ROUTES = [
-  { name: 'tasks', hash: '#/tasks', required: ['我的任务', '进入展示视图', '新建收集任务'] },
-  { name: 'design', hash: '#/design/1', required: ['需求设计', 'CURRENT RUN'] },
-  { name: 'workbench', hash: '#/workbench/1', required: ['收集工作台', '下一步'] },
-  { name: 'review', hash: '#/review/1/2', required: ['逐条核对证据', 'NEXT ACTION'] },
-  { name: 'delivery', hash: '#/delivery/1', required: ['交付与归档', '固定快照'] },
-  { name: 'roster-invalid', hash: '#/roster/9999', required: ['名册暂时无法读取', '重试加载名册'] },
-  { name: 'review-invalid', hash: '#/review/1/9999', required: ['检查结果暂时无法读取', '重试加载'] },
-  { name: 'design-invalid', hash: '#/design/9999', required: ['需求设计暂时无法读取', '重试加载设计'] },
+  { name: 'tasks', hash: '#/tasks', title: '我的任务 · 收齐啦', required: ['我的任务', '进入展示视图', '新建收集任务'] },
+  { name: 'design', hash: '#/design/1', title: '需求设计 · 任务 #1 · 收齐啦', required: ['需求设计', 'CURRENT RUN'] },
+  { name: 'workbench', hash: '#/workbench/1', title: '收集工作台 · 任务 #1 · 收齐啦', required: ['收集工作台', '下一步'] },
+  { name: 'review', hash: '#/review/1/2', title: '证据复核 · 任务 #1 · 收齐啦', required: ['逐条核对证据', 'NEXT ACTION'] },
+  { name: 'delivery', hash: '#/delivery/1', title: '交付与归档 · 任务 #1 · 收齐啦', required: ['交付与归档', '固定快照'] },
+  { name: 'roster-invalid', hash: '#/roster/9999', title: '名单与凭证 · 任务 #9999 · 收齐啦', required: ['名册暂时无法读取', '重试加载名册'] },
+  { name: 'review-invalid', hash: '#/review/1/9999', title: '证据复核 · 任务 #1 · 收齐啦', required: ['检查结果暂时无法读取', '重试加载'] },
+  { name: 'design-invalid', hash: '#/design/9999', title: '需求设计 · 任务 #9999 · 收齐啦', required: ['需求设计暂时无法读取', '重试加载设计'] },
 ];
 
 function cleanText(value) {
@@ -38,6 +38,7 @@ function cleanText(value) {
 async function captureRouteEvidence(page, viewport, route) {
   const pageState = await page.evaluate(() => ({
     hash: location.hash,
+    title: document.title,
     heading: document.querySelector('main#app h1, main#app h2, main#app [data-page-title]')?.textContent?.replace(/\s+/g, ' ').trim() || '',
     scrollY: Math.round(window.scrollY),
     headingBounds: (() => {
@@ -197,6 +198,7 @@ async function enterDemo(page, viewport) {
     })),
   };
   loginSurface.ok = loginSurface.hash === '#/login'
+    && loginSurface.title === '登录 · 收齐啦'
     && !!loginSurface.heading
     && loginSurface.headingInViewport
     && loginSurface.hasDemoEntry
@@ -450,6 +452,7 @@ async function main() {
             hash: route.hash,
             actualHash: evidence.hash,
             heading: evidence.heading,
+            title: evidence.title,
             scrollY: evidence.scrollY,
             headingBounds: evidence.headingBounds,
             headingInViewport: evidence.headingInViewport,
@@ -460,7 +463,7 @@ async function main() {
             taskFilterInteraction,
             taskFilterReset,
             ok: missing.length === 0 && !loadingStuck
-              && evidence.hash === route.hash && !!evidence.heading
+              && evidence.hash === route.hash && evidence.title === route.title && !!evidence.heading
               && evidence.scrollY <= 2 && evidence.headingInViewport
               && evidence.activeNav.exists && evidence.activeNav.visible
               && (!taskFilterState || (taskFilterState.length === 4

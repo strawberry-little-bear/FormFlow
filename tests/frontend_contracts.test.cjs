@@ -36,7 +36,7 @@ function setup(sharedStorage = storage()) {
   els['login-err'].style = {};
   els['field-name'] = fields[0];
   const body = Object.assign(element(), {dataset: {page: 'tasks'}});
-  const document = {body, documentElement: {style: {setProperty(name, value) { this[name] = value; }}}, getElementById: id => els[id] || null,
+  const document = {title: '', body, documentElement: {style: {setProperty(name, value) { this[name] = value; }}}, getElementById: id => els[id] || null,
     createElement: tag => Object.assign(element(), {tagName: tag, style: {}, select() { this.selected = true; }}),
     querySelectorAll: sel => sel === '[data-field]' ? fields : sel === '[data-filter]' ? taskFilters : [], querySelector: () => null};
   body.appendChild = child => { child.parentNode = body; };
@@ -48,7 +48,7 @@ function setup(sharedStorage = storage()) {
     requestAnimationFrame: fn => fn(),
     setTimeout, clearTimeout, confirm: () => true, console,
     fetch: async () => {throw new Error('Unexpected request');}});
-vm.runInContext(source + '\nthis.app = {state, route, useVersionAsBase, loadDesignVersion, cacheDesignInputs, restoreDesignInputs, recoverDesignInput, recoverDesignInput, paintChat, renderDraftPanel, runAgent, runExport, deliveryHistoryHtml, deliverySnapshotStatusHtml, loadDeliveryHistory, inspectSnapshot, paintSnapshot, agentEvidenceSummaryHtml, canPublishDesign, publishDiffHtml, designVersionImpactHtml, publishGovernanceHtml, publishBp, confirmPublish, saveTimePolicy, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, fmtTimeShort, designReadinessHtml, designProgressHtml, applyDraft, quickTemplate, draftFingerprint, collectDraftFields, paintSubmitterNextStep, submitterNextStepHtml, setSubMode, moveSubmitModeTab, setDesignTab, moveDesignTab, refreshSlotConditions, wbMatches, api, apiError, submitDecision, saveDraft, doSubmit, doSubLogin, uploadSlot, deleteSlotFile, cacheReviewDraft, discardReviewDraft, logout, nextPendingReview, setReviewFilter, setReviewTraceFilter, selectReviewRule, viewReview, reviewRevisionHistoryHtml, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, chooseWorkbenchNextStep, workbenchNextStepHtml, agentRunCard, agentTourHtml, agentTourRuntimeHtml, runtimeSelfTestHtml, submitterGuidance, ruleCard, receiptFilesHtml, submissionIssues, checkAgentRequestNow, resumePendingAgentRequest, savePendingAgentRequest, agentRequestProgressHtml, retryAgent, pollAgentRequest, showSubmissionIssues, refreshSubmissionValidation, initSubChat, demoRouteTask, demoRouteHtml, demoRouteCueHtml, copyDemoRouteCue, agentArchitectureRailHtml, agentQuickReadHtml, agentShowcaseHtml, runStageReplayHtml, paintAgentShowcase, jumpToRunStage, mcpSnapshotHtml, renderDemoRoute, paintWorkspaceAgentStatus, paintAgentRuntime, paintAgentRuntimeContractIssue, viewLogin, viewSubmit, switchLoginTab, moveLoginTab, setFlash, openDialog, readPresentationMode, showcaseReturnHtml, applyPresentationMode, setPresentationMode, togglePresentationMode, fillDemoCred, doLogin, issueGrant, issueAllGrants, viewRoster, loadRoster, setRosterFilter, renderRosterTable, showCredential, showCredentialList, setEmptyTaskHome, jumpToSubmitResults, filterTasks, clearTaskFilters, paintTasks, createTask};', context);
+vm.runInContext(source + '\nthis.app = {state, route, pageTitleForRoute, useVersionAsBase, loadDesignVersion, cacheDesignInputs, restoreDesignInputs, recoverDesignInput, recoverDesignInput, paintChat, renderDraftPanel, runAgent, runExport, deliveryHistoryHtml, deliverySnapshotStatusHtml, loadDeliveryHistory, inspectSnapshot, paintSnapshot, agentEvidenceSummaryHtml, canPublishDesign, publishDiffHtml, designVersionImpactHtml, publishGovernanceHtml, publishBp, confirmPublish, saveTimePolicy, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, fmtTimeShort, designReadinessHtml, designProgressHtml, applyDraft, quickTemplate, draftFingerprint, collectDraftFields, paintSubmitterNextStep, submitterNextStepHtml, setSubMode, moveSubmitModeTab, setDesignTab, moveDesignTab, refreshSlotConditions, wbMatches, api, apiError, submitDecision, saveDraft, doSubmit, doSubLogin, uploadSlot, deleteSlotFile, cacheReviewDraft, discardReviewDraft, logout, nextPendingReview, setReviewFilter, setReviewTraceFilter, selectReviewRule, viewReview, reviewRevisionHistoryHtml, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, chooseWorkbenchNextStep, workbenchNextStepHtml, agentRunCard, agentTourHtml, agentTourRuntimeHtml, runtimeSelfTestHtml, submitterGuidance, ruleCard, receiptFilesHtml, submissionIssues, checkAgentRequestNow, resumePendingAgentRequest, savePendingAgentRequest, agentRequestProgressHtml, retryAgent, pollAgentRequest, showSubmissionIssues, refreshSubmissionValidation, initSubChat, demoRouteTask, demoRouteHtml, demoRouteCueHtml, copyDemoRouteCue, agentArchitectureRailHtml, agentQuickReadHtml, agentShowcaseHtml, runStageReplayHtml, paintAgentShowcase, jumpToRunStage, mcpSnapshotHtml, renderDemoRoute, paintWorkspaceAgentStatus, paintAgentRuntime, paintAgentRuntimeContractIssue, viewLogin, viewSubmit, switchLoginTab, moveLoginTab, setFlash, openDialog, readPresentationMode, showcaseReturnHtml, applyPresentationMode, setPresentationMode, togglePresentationMode, fillDemoCred, doLogin, issueGrant, issueAllGrants, viewRoster, loadRoster, setRosterFilter, renderRosterTable, showCredential, showCredentialList, setEmptyTaskHome, jumpToSubmitResults, filterTasks, clearTaskFilters, paintTasks, createTask};', context);
   context.app.copyText = vm.runInContext('copyText', context);
   context.app.copyCredential = vm.runInContext('copyCredential', context);
   context.app.submissionMatchesReceipt = context.submissionMatchesReceipt;
@@ -70,6 +70,18 @@ function response(data, status = 200) {
 function deferred() {
   let resolve; const promise = new Promise(r => {resolve=r;}); return {promise,resolve};
 }
+
+test('route titles identify the current page and task context', () => {
+  const {app, context, document} = setup();
+  assert.equal(app.pageTitleForRoute(['login'], new URLSearchParams()), '登录 · 收齐啦');
+  assert.equal(app.pageTitleForRoute(['login'], new URLSearchParams('role=sub')), '提交者登录 · 收齐啦');
+  assert.equal(app.pageTitleForRoute(['tasks']), '我的任务 · 收齐啦');
+  assert.equal(app.pageTitleForRoute(['review', '1', '2']), '证据复核 · 任务 #1 · 收齐啦');
+  assert.equal(app.pageTitleForRoute(['submit']), '我的提交 · 收齐啦');
+  context.location.hash = '#/review/1/2';
+  app.route();
+  assert.equal(document.title, '证据复核 · 任务 #1 · 收齐啦');
+});
 
 test('task creation explains whitespace-only names and returns focus to the field', async () => {
   const {app, els} = setup();

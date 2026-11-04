@@ -737,6 +737,23 @@ const ruleCard = (r) => {
 };
 
 /* ---------------------------------------------------------------- 路由 */
+function pageTitleForRoute(parts = [], query = new URLSearchParams()) {
+  const route = parts[0] || "login";
+  if (route === "login") return query.get("role") === "sub" ? "提交者登录 · 收齐啦" : "登录 · 收齐啦";
+  if (route === "submit") return "我的提交 · 收齐啦";
+  const labels = {
+    tasks: "我的任务",
+    design: "需求设计",
+    roster: "名单与凭证",
+    workbench: "收集工作台",
+    review: "证据复核",
+    delivery: "交付与归档",
+  };
+  const label = labels[route];
+  if (!label) return "登录 · 收齐啦";
+  const taskId = /^\d+$/.test(parts[1] || "") ? ` · 任务 #${parts[1]}` : "";
+  return `${label}${taskId} · 收齐啦`;
+}
 function route() {
   window.scrollTo?.({top: 0, left: 0, behavior: "instant"});
   cacheSubmissionDraft();
@@ -760,6 +777,7 @@ function route() {
   const [path, queryString = ""] = h.split("?");
   const parts = path.split("/").filter(Boolean);
   const query = new URLSearchParams(queryString);
+  document.title = pageTitleForRoute(parts, query);
   document.body.classList.toggle("auth-page", parts[0] === "login");
   document.body.dataset.page = parts[0] || "login";
   state.presentationMode = parts[0] === "tasks" && readPresentationMode();
