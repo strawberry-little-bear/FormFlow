@@ -12,8 +12,10 @@
 - `node --test tests/frontend_contracts.test.cjs tests/ux_browser.test.cjs`：248 项通过。
 - `node --check app/static/app.js`、`git diff --check`：通过。
 - `python -m pytest -q`：452 项通过。
-- 推送后的 GitHub Actions：待完成。
+- 隔离虚构种子库的 Showcase 浏览器走查：1440/1366/390/320px 共 32 个页面场景通过；无横向溢出、卡住的加载态、未命名控件、控制台错误或失败请求。截图与机器报告位于系统临时目录 `formflow-followup-showcase-20261104`。
+- Axe Core 对登录组织者、任务、设计、名册、工作台、复核、交付及提交者入口 8 个视图扫描：明确违规 0；仅单字装饰标记留有自动工具无法判断的 `incomplete` 对比度项。提交者认证后的表单未纳入本次 Axe 范围。
+- GitHub Actions run `41782800563`：Ubuntu 24.04 与 Windows 两个 job 均通过。
 
 ## 限制
 
-本轮运行环境未安装 Playwright；契约测试可运行，但没有真实浏览器或屏幕阅读器实测。读屏播报细节仍需 NVDA/Firefox 或 NVDA/Chrome 实机确认。
+读屏播报细节仍需 NVDA/Firefox 或 NVDA/Chrome 实机确认；Axe 自动扫描不能代替人工键盘与屏幕阅读器验收。
