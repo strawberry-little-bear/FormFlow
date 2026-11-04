@@ -336,7 +336,31 @@ test('rendered submitter upload controls announce material constraints and valid
   };
   assert.deepEqual(describedBy('report'), ['slot-help-report', 'slot-cond-report', 'slot-error-report']);
   assert.deepEqual(describedBy('photo'), ['slot-help-photo', 'slot-error-photo']);
+  assert.match(markup, /id="slot-cond-report" role="status" aria-live="polite" aria-atomic="true"/);
   assert.match(markup, /格式 PDF · 最多 2 份 · 单份 ≤ 10 MiB · ≤ 5 页/);
+});
+test('conditional upload status is announced only when the requirement changes', () => {
+  const {app, fields, els} = setup();
+  const note = els['slot-cond-report'] = element();
+  const input = els['file-report'] = element();
+  const button = els['upload-report'] = element();
+  const slot = {id:'report', required_condition:"name != 'other'"};
+
+  app.refreshSlotConditions([slot]);
+  assert.match(note.innerHTML, /当前填写下需要提交/);
+  assert.equal(input.disabled, false);
+  assert.equal(button.disabled, false);
+  const announcedStatus = note.innerHTML;
+
+  fields[0].value = 'still required';
+  app.refreshSlotConditions([slot]);
+  assert.equal(note.innerHTML, announcedStatus);
+
+  fields[0].value = 'other';
+  app.refreshSlotConditions([slot]);
+  assert.match(note.innerHTML, /当前填写下不适用/);
+  assert.equal(input.disabled, true);
+  assert.equal(button.disabled, true);
 });
 test('submitter input modes support roving focus with arrow and Home/End keys', () => {
   const {app, els} = setup();

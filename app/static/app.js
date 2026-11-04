@@ -3981,19 +3981,21 @@ function refreshSlotConditions(slots) {
     const input = document.getElementById("file-" + s.id);
     const btn = document.getElementById("upload-" + s.id);
     const r = evalSlotCondition(s.required_condition, values);
+    let statusHtml;
     if (r === true) {
-      note.innerHTML = `<span class="badge ok">当前填写下需要提交</span>`;
+      statusHtml = `<span class="badge ok">当前填写下需要提交</span>`;
       if (input) input.disabled = !!state.sub?.ro;
       if (btn) btn.disabled = !!state.sub?.ro;
     } else if (r === false) {
-      note.innerHTML = `<span class="badge">当前填写下不适用</span>`;
+      statusHtml = `<span class="badge">当前填写下不适用</span>`;
       if (input) input.disabled = true;
       if (btn) btn.disabled = true;
     } else {
-      note.innerHTML = `<span class="badge warn">条件「${esc(s.required_condition)}」暂不支持自动判定，将转人工核验</span>`;
+      statusHtml = `<span class="badge warn">条件「${esc(s.required_condition)}」暂不支持自动判定，将转人工核验</span>`;
       if (input) input.disabled = !!state.sub?.ro;
       if (btn) btn.disabled = !!state.sub?.ro;
     }
+    if (note.innerHTML !== statusHtml) note.innerHTML = statusHtml;
   });
 }
 
@@ -4294,7 +4296,7 @@ async function viewSubmit() {
             </div>
             <div class="submit-slots"><h3>提交材料</h3>
               ${slots.map(s => {
-                const naNote = s.required_condition ? `<p class="field-help" id="slot-cond-${esc(s.id)}"></p>` : "";
+                const naNote = s.required_condition ? `<p class="field-help" id="slot-cond-${esc(s.id)}" role="status" aria-live="polite" aria-atomic="true"></p>` : "";
                 return `<article class="slot-card" data-slot-card="${esc(s.id)}">
                   <div class="slot-head"><div><b>${esc(s.label)}</b>${s.required_condition ? ` <span class="badge warn">条件必交</span>` : ' <span class="badge bad">必交</span>'}<span class="field-help" id="slot-help-${esc(s.id)}">${esc(slotMetaText(s))}</span></div>${s.max_count ? `<span class="slot-count" id="slot-count-${esc(s.id)}"></span>` : ""}</div>
                   ${s.required_condition ? `<p class="field-help">条件：${esc(s.required_condition)}</p>` : ""}
