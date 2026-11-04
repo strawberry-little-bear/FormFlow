@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .api.routes import router
 from .db import init_db
+from .config import settings
 from .services.agent_runtime import AGENT_RUNTIME_CONTRACT_VERSION
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -38,6 +39,14 @@ def demo_health() -> dict:
         "status": "ok",
         "service": "formflow",
         "agent_runtime_contract_version": AGENT_RUNTIME_CONTRACT_VERSION,
+        "llm": {
+            "configured": settings.llm_configured,
+            "provider": settings.llm_base_url,
+            "model": settings.llm_model,
+            "input_mode": settings.llm_input_mode,
+            "direct_documents": settings.llm_input_mode in {"auto", "direct"},
+            "api_key_exposed": False,
+        },
     }
 
 

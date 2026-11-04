@@ -54,7 +54,7 @@ from .decision_state import effective_rules, PASS_DECISIONS, RULE_DECISIONS, val
 from .eligibility import eligibility_view
 
 
-def _load_files(db: Session, revision: Revision) -> list[FileInfo]:
+def _load_files(db: Session, revision: Revision, *, allow_ocr: bool = True) -> list[FileInfo]:
     slot_map: dict[str, list[str]] = json.loads(revision.slot_file_ids_json)
     infos: list[FileInfo] = []
     for slot, fids in slot_map.items():
@@ -62,16 +62,18 @@ def _load_files(db: Session, revision: Revision) -> list[FileInfo]:
             fo = db.scalar(select(FileObject).where(FileObject.file_id == fid))
             if fo is None:
                 continue
-            info = FileInfo(file_id=fo.file_id, slot=slot, original_name=fo.original_name,
-                            size=fo.size)
             path = storage.file_dir(fo.file_id) / f"original_{fo.safe_name}"
+            info = FileInfo(file_id=fo.file_id, slot=slot, original_name=fo.original_name,
+                            size=fo.size, path=path)
             try:
-                info.parse = parse_file(path)
+                info.parse = parse_file(path, allow_ocr=allow_ocr)
+                info.input_method = "ocr" if info.parse.method in {"ocr", "mixed"} else "text"
                 fo.status = "ready"
             except ParseError as e:
                 fo.status = "failed"
                 fo.parse_error = str(e)
                 info.parse_error = str(e)
+                info.input_method = "unread"
             infos.append(info)
     db.flush()
     return infos
@@ -143,7 +145,11 @@ def _execute_check_pipeline(db: Session, run: CheckRun, client=None) -> CheckRun
     subject = db.get(Subject, submission.subject_id)
     members = [m.name for m in subject.members] if subject else []
 
-    files = _load_files(db, revision)
+    runtime_client = client or get_client()
+    files = _load_files(
+        db, revision,
+        allow_ocr=not getattr(runtime_client, "direct_documents_enabled", False),
+    )
     task = db.get(Task, run.task_id)
     # 第 10 节：补正时让模型看到历史问题与提交者解释，
     # 不从零重新推理，也不把解释当成结论。
@@ -154,7 +160,7 @@ def _execute_check_pipeline(db: Session, run: CheckRun, client=None) -> CheckRun
     from ..agents.tooling import build_review_skill, invoke_review_rule
 
     skill, tool_context = build_review_skill(
-        ctx, client=client or get_client(), db=db, task_id=run.task_id,
+        ctx, client=runtime_client, db=db, task_id=run.task_id,
         subject_id=subject.id, run_id=run.id,
         actor=f"review_agent:account:{task.created_by or 'unknown'}")
     tool_executor = lambda rule: invoke_review_rule(
@@ -163,9 +169,9 @@ def _execute_check_pipeline(db: Session, run: CheckRun, client=None) -> CheckRun
     # Keep the injectable run_checks seam compatible with test/diagnostic wrappers
     # that deliberately expose only the historical (ctx, client) signature.
     if "tool_executor" in inspect.signature(run_checks).parameters:
-        outcome = run_checks(ctx, client, tool_executor=tool_executor)
+        outcome = run_checks(ctx, runtime_client, tool_executor=tool_executor)
     else:
-        outcome = run_checks(ctx, client)
+        outcome = run_checks(ctx, runtime_client)
 
     run.llm_calls_used = outcome.llm_calls_used
     run.pages_read = outcome.pages_read

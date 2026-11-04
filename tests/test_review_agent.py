@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from app.agents.review_agent import (
     CheckContext,
@@ -12,7 +13,7 @@ from app.agents.review_agent import (
     run_deterministic,
     run_semantic_rule,
 )
-from app.llm import LLMBudgetExceeded, LLMUnavailable
+from app.llm import LLMBudgetExceeded, LLMInputUnsupported, LLMUnavailable
 from app.models import (
     RESULT_FAILED,
     RESULT_ISSUE,
@@ -219,3 +220,84 @@ def test_verify_quote_tolerates_ocr_punctuation_noise():
     assert _verify_quote("期次:2026秋季第1期", {"f1": ocr_text}) == "f1"
     # 内容不存在时仍然拒绝（噪声容忍不等于放行臆造）
     assert _verify_quote("期次：2027", {"f1": ocr_text}) is None
+
+
+def test_semantic_prefers_direct_document_input_without_ocr(tmp_path, stub_llm, monkeypatch):
+    """有原始文件和直传能力时，扫描件先交给模型，不先启动本地 OCR。"""
+    monkeypatch.setattr("app.config.settings.llm_input_mode", "auto")
+    path = Path(tmp_path) / "scan.pdf"
+    path.write_bytes(b"%PDF-1.4 fake")
+
+    class DirectStub(type(stub_llm)):
+        def __init__(self):
+            super().__init__()
+            self.document_calls = []
+
+        @property
+        def direct_documents_enabled(self):
+            return True
+
+        def chat_json_documents(self, messages, documents, temperature=0.1, deadline_monotonic=None):
+            self.document_calls.append(documents)
+            return {"result": "satisfied", "explanation": "模型直接读取了材料",
+                    "evidence": [{"file_id": "f1", "locator": "p.1", "quote": "扫描件中的标题"}]}
+
+    client = DirectStub()
+    f = FileInfo(file_id="f1", slot="report", original_name="scan.pdf", size=12,
+                 path=path, parse=ParseResult(method="visual", unread_pages=1))
+    result = run_semantic_rule(_bp().rules[4], _ctx(files=[f]), client=client)
+
+    assert result.result == RESULT_SATISFIED
+    assert result.evidence[0].method == "direct_model"
+    assert len(client.document_calls) == 1
+    assert f.input_method == "direct_model"
+
+
+def test_semantic_falls_back_to_parser_when_provider_rejects_documents(tmp_path, stub_llm, monkeypatch):
+    """provider 拒绝文件内容时才启用文本解析/OCR，并继续校验引用。"""
+    monkeypatch.setattr("app.config.settings.llm_input_mode", "auto")
+    path = Path(tmp_path) / "report.txt"
+    path.write_text("2026 秋季第 1 期团课报告", encoding="utf-8")
+
+    class RejectingStub(type(stub_llm)):
+        @property
+        def direct_documents_enabled(self):
+            return True
+
+        def chat_json_documents(self, messages, documents, temperature=0.1, deadline_monotonic=None):
+            raise LLMInputUnsupported("provider does not accept file")
+
+    client = RejectingStub()
+    client.responses = [{
+        "result": "satisfied", "explanation": "标题符合要求",
+        "evidence": [{"file_id": "f1", "locator": "p.1", "quote": "2026 秋季第 1 期团课报告"}],
+    }]
+    f = FileInfo(file_id="f1", slot="report", original_name="report.txt", size=30,
+                 path=path, parse=ParseResult(method="visual", unread_pages=1))
+    result = run_semantic_rule(_bp().rules[4], _ctx(files=[f]), client=client)
+
+    assert result.result == RESULT_SATISFIED
+    assert result.evidence[0].method == "llm"
+    assert f.input_method == "text"
+
+
+def test_semantic_direct_mode_marks_provider_rejection_failed(tmp_path, stub_llm, monkeypatch):
+    """显式 direct 模式不做本地降级，也不能让 Worker 因能力错误崩溃。"""
+    monkeypatch.setattr("app.config.settings.llm_input_mode", "direct")
+    path = Path(tmp_path) / "report.pdf"
+    path.write_bytes(b"%PDF-1.4 fake")
+
+    class RejectingStub(type(stub_llm)):
+        @property
+        def direct_documents_enabled(self):
+            return True
+
+        def chat_json_documents(self, messages, documents, temperature=0.1, deadline_monotonic=None):
+            raise LLMInputUnsupported("provider does not accept file")
+
+    client = RejectingStub()
+    f = FileInfo(file_id="f1", slot="report", original_name="report.pdf", size=12, path=path)
+    result = run_semantic_rule(_bp().rules[4], _ctx(files=[f]), client=client)
+
+    assert result.result == RESULT_FAILED
+    assert "不支持原始文件输入" in result.explanation

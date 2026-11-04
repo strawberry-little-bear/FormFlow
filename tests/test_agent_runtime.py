@@ -23,6 +23,14 @@ def test_demo_health_identifies_current_runtime_contract():
         "status": "ok",
         "service": "formflow",
         "agent_runtime_contract_version": 1,
+        "llm": {
+            "configured": settings.llm_configured,
+            "provider": settings.llm_base_url,
+            "model": settings.llm_model,
+            "input_mode": settings.llm_input_mode,
+            "direct_documents": settings.llm_input_mode in {"auto", "direct"},
+            "api_key_exposed": False,
+        },
     }
 
 

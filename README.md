@@ -232,7 +232,31 @@ python -m app.worker
 
 不开 Worker，新提交会停留在排队状态；需求 Agent 请求仍由 API 的后台任务尝试处理，页面会按同一请求编号查询状态。若 API 在排队后中断，页面轮询会重新触发仍排队的请求；Worker 重启时也会回收超过该环境模型调用上限的卡住任务。每个任务串行处理草案，旧版本冲突会停止而不覆盖新草案。无密钥时确定性检查仍可执行，语义检查明确记录未完成，而不是阻止收件或虚构全通过。
 
-### 4. 可选：连接真实模型
+### 4. 部署方式与模型数据流
+
+FormFlow 目前适合单机部署：API 负责页面、登录、收件和写入检查任务，Worker 负责串行执行审核；SQLite 数据库与 `FORMFLOW_STORAGE_DIR` 下的原始附件必须放在持久磁盘。公网部署时建议把 Uvicorn 放在 HTTPS 反向代理后，API 与 Worker 使用同一份环境变量、数据库和附件目录；生产环境不要使用 `--reload`、演示种子或演示账号。
+
+```bash
+# API 进程
+uvicorn app.main:app --host 127.0.0.1 --port 8000
+
+# Worker 进程（另一终端，同一个虚拟环境和 .env）
+python -m app.worker
+```
+
+模型配置由部署者自己提供。FormFlow 只从本机 `.env`、进程环境或部署平台 Secret 读取 `FORMFLOW_LLM_API_KEY`，不会把密钥写入数据库、审计事件、日志或浏览器；健康检查只返回 provider、模型、输入模式和 `api_key_exposed: false`。密钥仍会随模型请求发送给部署者选择的网关，材料是否留存、跨境、计费和训练使用由该服务商的条款决定，不能把“本地保存密钥”理解成“材料永不离开本机”。
+
+审核输入模式由 `FORMFLOW_LLM_INPUT_MODE` 控制：`auto`（默认）先尝试把 PDF、图片等原始材料作为受控文件/图像内容交给模型；网关返回不支持文件输入的 4xx，或文件超过 `FORMFLOW_LLM_MAX_FILE_BYTES` 时，才回退到服务器文本解析，再在扫描件或文本缺失时使用 OCR。`direct` 只允许原始文件路径，provider 不支持时标为检查未完成；`text` 只使用文字层；`ocr` 使用服务器解析/OCR。每条审核证据和覆盖摘要会记录 `direct_model`、`text`、`ocr` 或 `unread`，方便组织者知道材料实际经过了哪条路径。
+
+如果 provider 的 OpenAI 兼容聊天接口不接受 `type=file` 或 `image_url`，请保留 `auto` 让 FormFlow 自动降级，或明确设置 `text`/`ocr`。不要把 API Key 写进 MCP 配置、Skill 提示词或前端；MCP 只读桥和 Harness 只负责受限编排、白名单、预算、幂等、审计与人工接手，不绕过 provider 的权限边界。
+
+部署后可用下面的只读检查确认配置（响应不会包含密钥）：
+
+```bash
+curl http://127.0.0.1:8000/api/health
+```
+
+### 5. 可选：连接真实模型
 
 在 `.env` 或环境变量中配置 `FORMFLOW_LLM_BASE_URL`、`FORMFLOW_LLM_API_KEY`、`FORMFLOW_LLM_MODEL`；兼容网关由你选择，`.env.example` 只是配置示例，不代表提供可用密钥或服务保证。**先取消上面显式设置的空密钥**（`unset FORMFLOW_LLM_API_KEY`），再重启 API 和 Worker。配置页数、OCR、调用和重试预算后，仅用授权的脱敏材料试验；模型调用可能向所选服务商发送材料内容并产生费用。
 

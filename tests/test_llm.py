@@ -1,9 +1,19 @@
 """LLM 客户端与预算测试（不访问网络，用假客户端）。"""
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
-from app.llm import Budget, LLMBudgetExceeded, LLMClient, LLMError, LLMUnavailable
+from app.llm import (
+    Budget,
+    DocumentInput,
+    LLMBudgetExceeded,
+    LLMClient,
+    LLMError,
+    LLMInputUnsupported,
+    LLMUnavailable,
+)
 
 
 class FakeTransport:
@@ -194,3 +204,66 @@ def test_expired_primary_deadline_skips_fallback(monkeypatch):
         c.chat([], deadline_monotonic=101.0)
 
     assert calls == [1.0]
+
+
+def test_document_parts_encode_images_and_files(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.config.settings.llm_max_file_bytes", 1024)
+    image = Path(tmp_path) / "scan.png"
+    image.write_bytes(b"png-bytes")
+    pdf = Path(tmp_path) / "report.pdf"
+    pdf.write_bytes(b"pdf-bytes")
+    c = LLMClient(api_key="k")
+
+    parts = c._document_parts([
+        DocumentInput("img", "scan.png", image, "image/png"),
+        DocumentInput("pdf", "report.pdf", pdf, "application/pdf"),
+    ])
+
+    assert [part["type"] for part in parts] == ["text", "image_url", "text", "file"]
+    assert parts[1]["image_url"]["url"].startswith("data:image/png;base64,")
+    assert parts[3]["file"]["file_data"].startswith("data:application/pdf;base64,")
+
+
+def test_document_4xx_is_input_unsupported_but_regular_4xx_is_llm_error(monkeypatch, tmp_path):
+    import httpx
+
+    class ResponseClient:
+        def __init__(self, *, timeout):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def post(self, *_args, **_kwargs):
+            return httpx.Response(
+                415,
+                text="file input is not supported",
+                request=httpx.Request("POST", "https://example.test/v1/chat/completions"),
+            )
+
+    monkeypatch.setattr("app.llm.httpx.Client", ResponseClient)
+    c = LLMClient(api_key="k", max_retries=0)
+    image = Path(tmp_path) / "scan.png"
+    image.write_bytes(b"png")
+    messages = [{"role": "user", "content": "review"}]
+
+    with pytest.raises(LLMInputUnsupported):
+        c.chat_json_documents(messages, [DocumentInput("img", "scan.png", image, "image/png")])
+    with pytest.raises(LLMError):
+        c.chat(messages)
+
+
+def test_document_size_limit_fails_before_request(monkeypatch, tmp_path):
+    monkeypatch.setattr("app.config.settings.llm_max_file_bytes", 2)
+    path = Path(tmp_path) / "report.pdf"
+    path.write_bytes(b"too-large")
+    c = LLMClient(api_key="k")
+
+    with pytest.raises(LLMInputUnsupported, match="超过直传上限"):
+        c.chat_json_documents(
+            [{"role": "user", "content": "review"}],
+            [DocumentInput("pdf", "report.pdf", path, "application/pdf")],
+        )

@@ -25,6 +25,14 @@ class Settings:
         ).rstrip("/")
         self.llm_api_key: str = os.environ.get("FORMFLOW_LLM_API_KEY", "")
         self.llm_model: str = os.environ.get("FORMFLOW_LLM_MODEL", "glm-5.3")
+        # auto 优先把原始文件交给支持文件输入的模型；不支持时回退到文本解析/OCR。
+        # text/ocr 可用于明确禁止原始材料离开本机，direct 则在不支持时直接报未完成。
+        self.llm_input_mode: str = os.environ.get("FORMFLOW_LLM_INPUT_MODE", "auto").strip().lower()
+        if self.llm_input_mode not in {"auto", "direct", "text", "ocr"}:
+            self.llm_input_mode = "auto"
+        self.llm_max_file_bytes: int = int(
+            os.environ.get("FORMFLOW_LLM_MAX_FILE_BYTES", str(20 * 1024 * 1024))
+        )
         # 主模型不可用时的降级模型（如 step-3.7-flash）；留空则不降级。
         # 背景：glm-5.3 经当前网关单次调用约需 6 分钟，超时/限流时可由快模型兜底。
         self.llm_fallback_model: str = os.environ.get("FORMFLOW_LLM_FALLBACK_MODEL", "")

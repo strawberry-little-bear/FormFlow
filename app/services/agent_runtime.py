@@ -113,6 +113,11 @@ def agent_runtime_manifest(db: Session, task: Task) -> dict:
             "configured": settings.llm_configured,
             "mode": "online" if settings.llm_configured else "offline",
             "label": "模型已接入" if settings.llm_configured else "离线可演示",
+            "provider": settings.llm_base_url,
+            "model_name": settings.llm_model,
+            "input_mode": settings.llm_input_mode,
+            "direct_documents": settings.llm_input_mode in {"auto", "direct"},
+            "api_key_exposed": False,
         },
         "scope": {
             "published_blueprint": task.current_blueprint_id is not None,

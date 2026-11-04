@@ -111,7 +111,7 @@ def _ocr_rendered_page(page) -> tuple[str, str]:
 
 
 # ---------------------------------------------------------------- 各格式解析
-def _parse_pdf(path: Path) -> ParseResult:
+def _parse_pdf(path: Path, *, allow_ocr: bool = True) -> ParseResult:
     """PDF：有文字层直接提取；无文字层页按需 OCR（预算内）。"""
     try:
         import fitz  # PyMuPDF
@@ -137,7 +137,11 @@ def _parse_pdf(path: Path) -> ParseResult:
             if text.strip():
                 pages.append(text)
                 continue
-            # 无文字层：扫描件或图片页，按需 OCR（受页数与时限预算约束）
+            # 无文字层：扫描件或图片页，按需 OCR（受页数与时限预算约束）。
+            # 直传模式先不启动 OCR，避免在模型已能读取原件时重复处理。
+            if not allow_ocr:
+                unread += 1
+                continue
             if ocr_budget <= 0 or time.monotonic() > deadline:
                 unread += 1
                 continue
@@ -186,8 +190,11 @@ def _parse_text(path: Path) -> ParseResult:
     raise ParseError("文本编码无法识别")
 
 
-def _parse_image(path: Path) -> ParseResult:
+def _parse_image(path: Path, *, allow_ocr: bool = True) -> ParseResult:
     """图片：整体作为一页 OCR。识别不了记未读（V07：不写成未填写）。"""
+    if not allow_ocr:
+        return ParseResult(method="visual", unread_pages=1,
+                           error="等待模型直接读取原始图片")
     text, err = ocr_image(path)
     if text:
         return ParseResult(pages=[text], method="ocr", ocr_pages=1)
@@ -205,14 +212,14 @@ _MAGIC_RIFF = b"RIFF"
 _MAGIC_OLE2 = bytes([0xD0, 0xCF, 0x11, 0xE0])
 
 
-def parse_file(path: str | Path) -> ParseResult:
+def parse_file(path: str | Path, *, allow_ocr: bool = True) -> ParseResult:
     """按真实内容判断类型（不只看扩展名），提取文本。"""
     path = Path(path)
     if not path.exists():
         raise ParseError("文件不存在")
     head = path.read_bytes()[:16]
     if head.startswith(_MAGIC_PDF):
-        result = _parse_pdf(path)
+        result = _parse_pdf(path, allow_ocr=allow_ocr)
         result.detected = "pdf"
         return result
     if head.startswith(_MAGIC_ZIP):
@@ -224,7 +231,7 @@ def parse_file(path: str | Path) -> ParseResult:
         except ParseError:
             raise ParseError("ZIP 容器不是受支持的 DOCX，按类型伪装处理")
     if head.startswith((_MAGIC_JPEG, _MAGIC_PNG, _MAGIC_GIF, _MAGIC_RIFF)):
-        result = _parse_image(path)
+        result = _parse_image(path, allow_ocr=allow_ocr)
         result.detected = "image"
         return result
     if head.startswith(_MAGIC_OLE2):
