@@ -3636,6 +3636,8 @@ test('submitter actions keep the primary action readable on narrow screens', () 
   assert.match(source, /onclick="submitPrimaryAction\(\)"/);
   assert.match(source, /class="submit-primary-dock"><button class="submit-action-primary"/);
   assert.match(styleSource, /@media\(max-width:360px\)[\s\S]*submit-actions > button\.ghost\.sm\.submit-action-reload \{ min-height:42px/);
+  assert.match(styleSource, /button\.ghost\.sm\.submit-action-reload \{ min-height:42px/);
+  assert.match(styleSource, /\.upload-row button\.ghost\.sm \{ flex:none; min-height:42px; \}/);
   assert.match(styleSource, /@media\(max-width:480px\)[\s\S]*submit-primary-dock\.is-docked \{[\s\S]*position:fixed/);
   assert.match(styleSource, /submit-primary-dock button \{[\s\S]*min-height:48px/);
 });
