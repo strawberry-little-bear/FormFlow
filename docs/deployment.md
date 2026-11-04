@@ -1,0 +1,78 @@
+# FormFlow 部署与模型接入
+
+这份说明针对一台由组织者自己控制的 Linux 或 Windows 主机。当前推荐的部署形态是单机双进程：API 提供网页和业务接口，Worker 串行执行需求整理与提交审核。两者共享同一个数据库、附件目录和本地配置文件。
+
+## 1. 本地配置与密钥边界
+
+复制 `.env.example` 为 `.env`，只在部署主机上填写：
+
+```dotenv
+FORMFLOW_DATABASE_URL=sqlite:////srv/formflow/data/formflow.db
+FORMFLOW_STORAGE_DIR=/srv/formflow/data/storage
+FORMFLOW_LLM_BASE_URL=https://your-provider.example/v1
+FORMFLOW_LLM_API_KEY=由用户自行填写
+FORMFLOW_LLM_MODEL=your-model
+FORMFLOW_LLM_INPUT_MODE=auto
+```
+
+`.env` 已被 Git 忽略。FormFlow 只在进程启动时读取本机 `.env`、进程环境或部署平台 Secret；不会把 `FORMFLOW_LLM_API_KEY` 写入数据库、审计事件、日志、浏览器响应、Skill 提示词或 MCP 配置。`/api/health` 只返回 provider、模型、输入模式和 `api_key_exposed: false`。
+
+这代表“FormFlow 不代管密钥”，不代表材料不会离开本机。启用真实模型后，原始材料或解析文本可能发送到用户选择的 provider；留存、跨境、计费和训练政策由 provider 决定。正式部署前应由组织者确认 provider 的文件输入政策和数据处理条款。
+
+## 2. 审核输入链路
+
+默认 `FORMFLOW_LLM_INPUT_MODE=auto`，每条语义规则按以下顺序运行：
+
+1. 程序确定性规则先执行。
+2. 有原始文件且模型客户端支持文件/图像输入时，直接把 PDF 或图片作为受控模型输入发送。
+3. provider 明确拒绝文件输入、文件超过 `FORMFLOW_LLM_MAX_FILE_BYTES`，或没有可用文件时，回退到服务器文字解析。
+4. 只有回退路径允许时，扫描页或无文字图片才使用本地 OCR；无法读到的页面记为未读并转 `unknown`/人工复核，不会被判成材料缺失。
+
+模式含义：
+
+- `auto`：直传优先，provider 不支持时允许文字解析和 OCR 兜底。
+- `direct`：只允许直传；provider 不支持时将检查标记为未完成。
+- `text`：只读服务器已有文字层，禁止 OCR，适合不希望本机执行 OCR 的部署。
+- `ocr`：只走服务器解析和 OCR，不把原始文件发送给 provider。
+
+当前客户端使用 OpenAI-compatible `/chat/completions` 的 `file` 与 `image_url` 内容块。不同 provider 的文件格式可能不同；第一次接入应使用授权的脱敏样本验证文件输入、页码证据和失败响应。验证失败时保留 `auto`，让系统按规则降级，或改用 `text`/`ocr`。
+
+## 3. Skill、Harness 与 MCP 的职责
+
+审核 Skill 是服务端固定的 `review_one_submission`，只允许调用确定性规则和语义规则两个工具。Harness 负责任务/账号范围、工具白名单、调用预算、页数上限、幂等键、超时、结果大小和失败后的人工接手。模型不能自行选择 SQL、文件路径、规则 ID、用户权限或发布动作。
+
+MCP 是可选的只读 sidecar，提供任务列表、收集汇总、下一步路线和 Agent runtime 合同查询。它复用组织者会话并由 API 再做任务所有权校验；不读取逐人名单、材料正文，也不提供写入工具。MCP 不持有模型 API Key，也不绕过审核 Skill 的 provider 权限。网页内置 Agent 不直接启动外部 MCP sidecar。
+
+## 4. 单机部署
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --require-hashes -r requirements.lock
+cp .env.example .env
+# 编辑 .env，填写数据库、附件目录和模型配置
+
+uvicorn app.main:app --host 127.0.0.1 --port 8000
+# 另开终端，使用同一 .env、数据库和附件目录
+python -m app.worker
+```
+
+Windows PowerShell 使用 `.venv\Scripts\Activate.ps1`，其余命令相同。启动后先检查：
+
+```bash
+curl http://127.0.0.1:8000/api/health
+```
+
+公网访问时，将 Uvicorn 绑定在 `127.0.0.1`，前面放 Caddy、Nginx 或云负载均衡，终止 HTTPS 并转发到 8000。API 和 Worker 必须使用同一份配置；不要使用 `--reload`、演示种子、演示账号或共享的开发数据库。
+
+SQLite 文件和 `FORMFLOW_STORAGE_DIR` 必须位于持久磁盘。备份应同时覆盖数据库和附件，并定期在新目录做恢复演练。需要多 Worker 或多 API 实例前，先把 SQLite 换成受支持的共享数据库，并为队列任务增加领取锁/租约；当前执行模型按单 Worker 设计。
+
+## 5. 上线前检查
+
+- 用 `FORMFLOW_LLM_API_KEY` 为空的环境确认收件、程序规则和人工接手仍可用。
+- 用授权脱敏的 PDF、图片和扫描件验证直传、provider 拒绝后的降级、页码证据和预算耗尽。
+- 检查应用日志、反向代理日志和备份文件中没有 API Key、材料正文或会话 token。
+- 确认 provider 的文件留存、跨境、训练和费用政策，并设置调用、页数、文件大小和 OCR 预算。
+- 完成 HTTPS、账户密码策略、附件访问控制、备份保留和恢复演练后，再开放公网。
+
+模型质量、真实材料评估、真实 provider 兼容性和公网安全验收仍需要单独的授权测试，不能由虚构种子或离线演示结果代替。

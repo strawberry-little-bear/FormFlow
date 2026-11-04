@@ -344,15 +344,15 @@ def _direct_evidence_file(quote: str, locator: str, file_id: str, file_ids: set[
     return file_id
 
 
-def _parse_fallback_files(ctx: CheckContext) -> None:
-    """直传不被 provider 接受后，才启用服务器文本解析与 OCR。"""
+def _parse_fallback_files(ctx: CheckContext, *, allow_ocr: bool) -> None:
+    """按输入模式解析本地材料；只有允许时才启动 OCR。"""
     from ..parsing import parse_file
 
     for file in ctx.files:
         if file.path is None:
             continue
         try:
-            file.parse = parse_file(file.path, allow_ocr=True)
+            file.parse = parse_file(file.path, allow_ocr=allow_ocr)
             file.parse_error = ""
             file.input_method = "ocr" if file.parse.method in {"ocr", "mixed"} else "text"
         except ParseError as exc:
@@ -409,7 +409,7 @@ def run_semantic_rule(
             for file in ctx.files:
                 file.input_method = "direct_model"
         else:
-            _parse_fallback_files(ctx)
+            _parse_fallback_files(ctx, allow_ocr=settings.llm_input_mode != "text")
             file_texts = {
                 f.file_id: "\n".join(f.parse.pages)
                 for f in ctx.files if f.parse and f.parse.pages
@@ -456,7 +456,9 @@ def run_semantic_rule(
                 explanation="当前模型不支持原始文件输入，语义检查未完成",
                 next_step="改用支持文件输入的模型，或切换为 auto/text/ocr 后重试",
             )
-        _parse_fallback_files(ctx)
+        # 走到这里说明 provider 拒绝了直传；auto 模式才会进入此分支，
+        # 因而允许服务器在文字层缺失时使用 OCR 兜底。
+        _parse_fallback_files(ctx, allow_ocr=True)
         file_texts = {
             f.file_id: "\n".join(f.parse.pages)
             for f in ctx.files if f.parse and f.parse.pages

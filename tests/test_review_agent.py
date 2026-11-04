@@ -301,3 +301,29 @@ def test_semantic_direct_mode_marks_provider_rejection_failed(tmp_path, stub_llm
 
     assert result.result == RESULT_FAILED
     assert "不支持原始文件输入" in result.explanation
+
+
+def test_text_mode_never_starts_ocr(tmp_path, stub_llm, monkeypatch):
+    """显式 text 模式只读取文字层，不偷偷启动本地 OCR。"""
+    monkeypatch.setattr("app.config.settings.llm_input_mode", "text")
+    path = Path(tmp_path) / "report.pdf"
+    path.write_bytes(b"%PDF-1.4 fake")
+    calls = []
+
+    def fake_parse_file(path, *, allow_ocr=True):
+        calls.append(allow_ocr)
+        return ParseResult(pages=["2026 秋季第 1 期团课报告"], method="text")
+
+    monkeypatch.setattr("app.parsing.parse_file", fake_parse_file)
+    client = stub_llm
+    client.responses = [{
+        "result": "satisfied", "explanation": "标题符合要求",
+        "evidence": [{"file_id": "f1", "locator": "p.1", "quote": "2026 秋季第 1 期团课报告"}],
+    }]
+    f = FileInfo(file_id="f1", slot="report", original_name="report.pdf", size=12,
+                 path=path, parse=ParseResult(method="visual", unread_pages=1))
+    result = run_semantic_rule(_bp().rules[4], _ctx(files=[f]), client=client)
+
+    assert result.result == RESULT_SATISFIED
+    assert calls == [False]
+    assert f.input_method == "text"

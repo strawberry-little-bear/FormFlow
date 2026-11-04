@@ -7,7 +7,7 @@
 从一句收集要求，到一份可追溯的交付包。
 **要求可执行 · 补正有证据 · 人工有边界 · 交付按版本**
 
-[快速开始](#快速开始) · [五分钟演示](docs/demo-guide.md) · [产品路线](docs/product-roadmap.md) · [交互与验收记录](docs/interaction-optimization.md)
+[快速开始](#快速开始) · [部署与模型接入](docs/deployment.md) · [五分钟演示](docs/demo-guide.md) · [产品路线](docs/product-roadmap.md) · [交互与验收记录](docs/interaction-optimization.md)
 
 </div>
 
