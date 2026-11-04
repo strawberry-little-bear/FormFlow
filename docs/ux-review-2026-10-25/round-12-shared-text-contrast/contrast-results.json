@@ -1,0 +1,585 @@
+{
+  "generatedAt": "2026-10-25T04:55:15.962Z",
+  "sampleCount": 18,
+  "targetTextNodeCount": 62,
+  "minContrast": 5.023788216522323,
+  "belowAA": [],
+  "overflow": [],
+  "routes": [
+    {
+      "route": "#/tasks",
+      "width": 1440,
+      "viewport": 1440,
+      "document": 1440,
+      "text": []
+    },
+    {
+      "route": "#/design/1",
+      "width": 1440,
+      "viewport": 1440,
+      "document": 1440,
+      "text": [
+        {
+          "selector": ".step-hint",
+          "text": "草案存在服务器上；没发出去的内容只留在当前标签页",
+          "fg": "rgb(98, 103, 117)",
+          "bg": "rgb(247, 248, 250)",
+          "ratio": 5.317707358853458
+        },
+        {
+          "selector": ".breadcrumb",
+          "text": "我的任务 / 2026 秋季第 1 期团课报告（演示）",
+          "fg": "rgb(98, 103, 117)",
+          "bg": "rgb(247, 248, 250)",
+          "ratio": 5.317707358853458
+        },
+        {
+          "selector": ".breadcrumb a",
+          "text": "我的任务",
+          "fg": "rgb(98, 103, 117)",
+          "bg": "rgb(247, 248, 250)",
+          "ratio": 5.317707358853458
+        },
+        {
+          "selector": ".preview-banner > span:first-child",
+          "text": "名册收集",
+          "fg": "rgb(101, 87, 125)",
+          "bg": "rgb(246, 243, 252)",
+          "ratio": 5.958896890024272
+        },
+        {
+          "selector": ".upload-preview > span",
+          "text": "上传区域",
+          "fg": "rgb(98, 103, 117)",
+          "bg": "rgb(252, 252, 254)",
+          "ratio": 5.514726943209012
+        },
+        {
+          "selector": ".preview-field label em",
+          "text": "*",
+          "fg": "rgb(106, 94, 120)",
+          "bg": "rgb(255, 255, 255)",
+          "ratio": 6.02560209281045
+        },
+        {
+          "selector": ".preview-field label em",
+          "text": "*",
+          "fg": "rgb(106, 94, 120)",
+          "bg": "rgb(255, 255, 255)",
+          "ratio": 6.02560209281045
+        },
+        {
+          "selector": ".preview-field label em",
+          "text": "*",
+          "fg": "rgb(106, 94, 120)",
+          "bg": "rgb(255, 255, 255)",
+          "ratio": 6.02560209281045
+        }
+      ]
+    },
+    {
+      "route": "#/roster/1",
+      "width": 1440,
+      "viewport": 1440,
+      "document": 1440,
+      "text": [
+        {
+          "selector": ".breadcrumb",
+          "text": "我的任务 / 任务 #1",
+          "fg": "rgb(98, 103, 117)",
+          "bg": "rgb(247, 248, 250)",
+          "ratio": 5.317707358853458
+        },
+        {
+          "selector": ".breadcrumb a",
+          "text": "我的任务",
+          "fg": "rgb(98, 103, 117)",
+          "bg": "rgb(247, 248, 250)",
+          "ratio": 5.317707358853458
+        }
+      ]
+    },
+    {
+      "route": "#/workbench/1",
+      "width": 1440,
+      "viewport": 1440,
+      "document": 1440,
+      "text": [
+        {
+          "selector": ".breadcrumb",
+          "text": "我的任务 / 2026 秋季第 1 期团课报告（演示）",
+          "fg": "rgb(98, 103, 117)",
+          "bg": "rgb(247, 248, 250)",
+          "ratio": 5.317707358853458
+        },
+        {
+          "selector": ".breadcrumb a",
+          "text": "我的任务",
+          "fg": "rgb(98, 103, 117)",
+          "bg": "rgb(247, 248, 250)",
+          "ratio": 5.317707358853458
+        },
+        {
+          "selector": ".filter",
+          "text": "全部",
+          "fg": "rgb(98, 80, 213)",
+          "bg": "rgb(240, 237, 252)",
+          "ratio": 5.023788216522323
+        },
+        {
+          "selector": ".filter",
+          "text": "待处理",
+          "fg": "rgb(98, 103, 117)",
+          "bg": "rgb(255, 255, 255)",
+          "ratio": 5.650775488297563
+        },
+        {
+          "selector": ".filter",
+          "text": "已提交",
+          "fg": "rgb(98, 103, 117)",
+          "bg": "rgb(255, 255, 255)",
+          "ratio": 5.650775488297563
+        },
+        {
+          "selector": ".filter",
+          "text": "未提交",
+          "fg": "rgb(98, 103, 117)",
+          "bg": "rgb(255, 255, 255)",
+          "ratio": 5.650775488297563
+        },
+        {
+          "selector": ".filter",
+          "text": "有效免交",
+          "fg": "rgb(98, 103, 117)",
+          "bg": "rgb(255, 255, 255)",
+          "ratio": 5.650775488297563
+        }
+      ]
+    },
+    {
+      "route": "#/review/1/2",
+      "width": 1440,
+      "viewport": 1440,
+      "document": 1440,
+      "text": [
+        {
+          "selector": ".breadcrumb",
+          "text": "我的任务 / 收集工作台 / 李四",
+          "fg": "rgb(98, 103, 117)",
+          "bg": "rgb(247, 248, 250)",
+          "ratio": 5.317707358853458
+        },
+        {
+          "selector": ".breadcrumb a",
+          "text": "我的任务",
+          "fg": "rgb(98, 103, 117)",
+          "bg": "rgb(247, 248, 250)",
+          "ratio": 5.317707358853458
+        },
+        {
+          "selector": ".breadcrumb a",
+          "text": "收集工作台",
+          "fg": "rgb(98, 103, 117)",
+          "bg": "rgb(247, 248, 250)",
+          "ratio": 5.317707358853458
+        }
+      ]
+    },
+    {
+      "route": "#/delivery/1",
+      "width": 1440,
+      "viewport": 1440,
+      "document": 1440,
+      "text": [
+        {
+          "selector": ".breadcrumb",
+          "text": "我的任务 / 交付与归档",
+          "fg": "rgb(98, 103, 117)",
+          "bg": "rgb(247, 248, 250)",
+          "ratio": 5.317707358853458
+        },
+        {
+          "selector": ".breadcrumb a",
+          "text": "我的任务",
+          "fg": "rgb(98, 103, 117)",
+          "bg": "rgb(247, 248, 250)",
+          "ratio": 5.317707358853458
+        }
+      ]
+    },
+    {
+      "route": "#/tasks",
+      "width": 390,
+      "viewport": 390,
+      "document": 390,
+      "text": []
+    },
+    {
+      "route": "#/design/1",
+      "width": 390,
+      "viewport": 390,
+      "document": 390,
+      "text": [
+        {
+          "selector": ".breadcrumb",
+          "text": "我的任务 / 2026 秋季第 1 期团课报告（演示）",
+          "fg": "rgb(98, 103, 117)",
+          "bg": "rgb(247, 248, 250)",
+          "ratio": 5.317707358853458
+        },
+        {
+          "selector": ".breadcrumb a",
+          "text": "我的任务",
+          "fg": "rgb(98, 103, 117)",
+          "bg": "rgb(247, 248, 250)",
+          "ratio": 5.317707358853458
+        },
+        {
+          "selector": ".preview-banner > span:first-child",
+          "text": "名册收集",
+          "fg": "rgb(101, 87, 125)",
+          "bg": "rgb(246, 243, 252)",
+          "ratio": 5.958896890024272
+        },
+        {
+          "selector": ".preview-field label em",
+          "text": "*",
+          "fg": "rgb(106, 94, 120)",
+          "bg": "rgb(255, 255, 255)",
+          "ratio": 6.02560209281045
+        },
+        {
+          "selector": ".preview-field label em",
+          "text": "*",
+          "fg": "rgb(106, 94, 120)",
+          "bg": "rgb(255, 255, 255)",
+          "ratio": 6.02560209281045
+        },
+        {
+          "selector": ".preview-field label em",
+          "text": "*",
+          "fg": "rgb(106, 94, 120)",
+          "bg": "rgb(255, 255, 255)",
+          "ratio": 6.02560209281045
+        }
+      ]
+    },
+    {
+      "route": "#/roster/1",
+      "width": 390,
+      "viewport": 390,
+      "document": 390,
+      "text": [
+        {
+          "selector": ".breadcrumb",
+          "text": "我的任务 / 任务 #1",
+          "fg": "rgb(98, 103, 117)",
+          "bg": "rgb(247, 248, 250)",
+          "ratio": 5.317707358853458
+        },
+        {
+          "selector": ".breadcrumb a",
+          "text": "我的任务",
+          "fg": "rgb(98, 103, 117)",
+          "bg": "rgb(247, 248, 250)",
+          "ratio": 5.317707358853458
+        }
+      ]
+    },
+    {
+      "route": "#/workbench/1",
+      "width": 390,
+      "viewport": 390,
+      "document": 390,
+      "text": [
+        {
+          "selector": ".breadcrumb",
+          "text": "我的任务 / 2026 秋季第 1 期团课报告（演示）",
+          "fg": "rgb(98, 103, 117)",
+          "bg": "rgb(247, 248, 250)",
+          "ratio": 5.317707358853458
+        },
+        {
+          "selector": ".breadcrumb a",
+          "text": "我的任务",
+          "fg": "rgb(98, 103, 117)",
+          "bg": "rgb(247, 248, 250)",
+          "ratio": 5.317707358853458
+        },
+        {
+          "selector": ".filter",
+          "text": "全部",
+          "fg": "rgb(98, 80, 213)",
+          "bg": "rgb(240, 237, 252)",
+          "ratio": 5.023788216522323
+        },
+        {
+          "selector": ".filter",
+          "text": "待处理",
+          "fg": "rgb(98, 103, 117)",
+          "bg": "rgb(255, 255, 255)",
+          "ratio": 5.650775488297563
+        },
+        {
+          "selector": ".filter",
+          "text": "已提交",
+          "fg": "rgb(98, 103, 117)",
+          "bg": "rgb(255, 255, 255)",
+          "ratio": 5.650775488297563
+        },
+        {
+          "selector": ".filter",
+          "text": "未提交",
+          "fg": "rgb(98, 103, 117)",
+          "bg": "rgb(255, 255, 255)",
+          "ratio": 5.650775488297563
+        },
+        {
+          "selector": ".filter",
+          "text": "有效免交",
+          "fg": "rgb(98, 103, 117)",
+          "bg": "rgb(255, 255, 255)",
+          "ratio": 5.650775488297563
+        }
+      ]
+    },
+    {
+      "route": "#/review/1/2",
+      "width": 390,
+      "viewport": 390,
+      "document": 390,
+      "text": [
+        {
+          "selector": ".breadcrumb",
+          "text": "我的任务 / 收集工作台 / 李四",
+          "fg": "rgb(98, 103, 117)",
+          "bg": "rgb(247, 248, 250)",
+          "ratio": 5.317707358853458
+        },
+        {
+          "selector": ".breadcrumb a",
+          "text": "我的任务",
+          "fg": "rgb(98, 103, 117)",
+          "bg": "rgb(247, 248, 250)",
+          "ratio": 5.317707358853458
+        },
+        {
+          "selector": ".breadcrumb a",
+          "text": "收集工作台",
+          "fg": "rgb(98, 103, 117)",
+          "bg": "rgb(247, 248, 250)",
+          "ratio": 5.317707358853458
+        }
+      ]
+    },
+    {
+      "route": "#/delivery/1",
+      "width": 390,
+      "viewport": 390,
+      "document": 390,
+      "text": [
+        {
+          "selector": ".breadcrumb",
+          "text": "我的任务 / 交付与归档",
+          "fg": "rgb(98, 103, 117)",
+          "bg": "rgb(247, 248, 250)",
+          "ratio": 5.317707358853458
+        },
+        {
+          "selector": ".breadcrumb a",
+          "text": "我的任务",
+          "fg": "rgb(98, 103, 117)",
+          "bg": "rgb(247, 248, 250)",
+          "ratio": 5.317707358853458
+        }
+      ]
+    },
+    {
+      "route": "#/tasks",
+      "width": 320,
+      "viewport": 320,
+      "document": 320,
+      "text": []
+    },
+    {
+      "route": "#/design/1",
+      "width": 320,
+      "viewport": 320,
+      "document": 320,
+      "text": [
+        {
+          "selector": ".breadcrumb",
+          "text": "我的任务 / 2026 秋季第 1 期团课报告（演示）",
+          "fg": "rgb(98, 103, 117)",
+          "bg": "rgb(247, 248, 250)",
+          "ratio": 5.317707358853458
+        },
+        {
+          "selector": ".breadcrumb a",
+          "text": "我的任务",
+          "fg": "rgb(98, 103, 117)",
+          "bg": "rgb(247, 248, 250)",
+          "ratio": 5.317707358853458
+        },
+        {
+          "selector": ".preview-banner > span:first-child",
+          "text": "名册收集",
+          "fg": "rgb(101, 87, 125)",
+          "bg": "rgb(246, 243, 252)",
+          "ratio": 5.958896890024272
+        },
+        {
+          "selector": ".preview-field label em",
+          "text": "*",
+          "fg": "rgb(106, 94, 120)",
+          "bg": "rgb(255, 255, 255)",
+          "ratio": 6.02560209281045
+        },
+        {
+          "selector": ".preview-field label em",
+          "text": "*",
+          "fg": "rgb(106, 94, 120)",
+          "bg": "rgb(255, 255, 255)",
+          "ratio": 6.02560209281045
+        },
+        {
+          "selector": ".preview-field label em",
+          "text": "*",
+          "fg": "rgb(106, 94, 120)",
+          "bg": "rgb(255, 255, 255)",
+          "ratio": 6.02560209281045
+        }
+      ]
+    },
+    {
+      "route": "#/roster/1",
+      "width": 320,
+      "viewport": 320,
+      "document": 320,
+      "text": [
+        {
+          "selector": ".breadcrumb",
+          "text": "我的任务 / 任务 #1",
+          "fg": "rgb(98, 103, 117)",
+          "bg": "rgb(247, 248, 250)",
+          "ratio": 5.317707358853458
+        },
+        {
+          "selector": ".breadcrumb a",
+          "text": "我的任务",
+          "fg": "rgb(98, 103, 117)",
+          "bg": "rgb(247, 248, 250)",
+          "ratio": 5.317707358853458
+        }
+      ]
+    },
+    {
+      "route": "#/workbench/1",
+      "width": 320,
+      "viewport": 320,
+      "document": 320,
+      "text": [
+        {
+          "selector": ".breadcrumb",
+          "text": "我的任务 / 2026 秋季第 1 期团课报告（演示）",
+          "fg": "rgb(98, 103, 117)",
+          "bg": "rgb(247, 248, 250)",
+          "ratio": 5.317707358853458
+        },
+        {
+          "selector": ".breadcrumb a",
+          "text": "我的任务",
+          "fg": "rgb(98, 103, 117)",
+          "bg": "rgb(247, 248, 250)",
+          "ratio": 5.317707358853458
+        },
+        {
+          "selector": ".filter",
+          "text": "全部",
+          "fg": "rgb(98, 80, 213)",
+          "bg": "rgb(240, 237, 252)",
+          "ratio": 5.023788216522323
+        },
+        {
+          "selector": ".filter",
+          "text": "待处理",
+          "fg": "rgb(98, 103, 117)",
+          "bg": "rgb(255, 255, 255)",
+          "ratio": 5.650775488297563
+        },
+        {
+          "selector": ".filter",
+          "text": "已提交",
+          "fg": "rgb(98, 103, 117)",
+          "bg": "rgb(255, 255, 255)",
+          "ratio": 5.650775488297563
+        },
+        {
+          "selector": ".filter",
+          "text": "未提交",
+          "fg": "rgb(98, 103, 117)",
+          "bg": "rgb(255, 255, 255)",
+          "ratio": 5.650775488297563
+        },
+        {
+          "selector": ".filter",
+          "text": "有效免交",
+          "fg": "rgb(98, 103, 117)",
+          "bg": "rgb(255, 255, 255)",
+          "ratio": 5.650775488297563
+        }
+      ]
+    },
+    {
+      "route": "#/review/1/2",
+      "width": 320,
+      "viewport": 320,
+      "document": 320,
+      "text": [
+        {
+          "selector": ".breadcrumb",
+          "text": "我的任务 / 收集工作台 / 李四",
+          "fg": "rgb(98, 103, 117)",
+          "bg": "rgb(247, 248, 250)",
+          "ratio": 5.317707358853458
+        },
+        {
+          "selector": ".breadcrumb a",
+          "text": "我的任务",
+          "fg": "rgb(98, 103, 117)",
+          "bg": "rgb(247, 248, 250)",
+          "ratio": 5.317707358853458
+        },
+        {
+          "selector": ".breadcrumb a",
+          "text": "收集工作台",
+          "fg": "rgb(98, 103, 117)",
+          "bg": "rgb(247, 248, 250)",
+          "ratio": 5.317707358853458
+        }
+      ]
+    },
+    {
+      "route": "#/delivery/1",
+      "width": 320,
+      "viewport": 320,
+      "document": 320,
+      "text": [
+        {
+          "selector": ".breadcrumb",
+          "text": "我的任务 / 交付与归档",
+          "fg": "rgb(98, 103, 117)",
+          "bg": "rgb(247, 248, 250)",
+          "ratio": 5.317707358853458
+        },
+        {
+          "selector": ".breadcrumb a",
+          "text": "我的任务",
+          "fg": "rgb(98, 103, 117)",
+          "bg": "rgb(247, 248, 250)",
+          "ratio": 5.317707358853458
+        }
+      ]
+    }
+  ]
+}

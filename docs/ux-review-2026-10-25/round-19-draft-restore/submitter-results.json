@@ -1,0 +1,26 @@
+{
+  "base": "http://127.0.0.1:8001",
+  "generatedAt": "2026-10-25T11:29:53.970Z",
+  "path": [
+    "credential login",
+    "complete fields",
+    "upload file",
+    "save server draft",
+    "reload draft",
+    "verify guide skips uploaded material",
+    "formal submit",
+    "read receipt"
+  ],
+  "uploadStatus": 200,
+  "draftStatus": 200,
+  "restoredDraftSkipsUploadedSlot": true,
+  "submitStatus": 200,
+  "receiptVisible": true,
+  "mobile": {
+    "viewport": 390,
+    "document": 390
+  },
+  "consoleErrors": [],
+  "pageErrors": [],
+  "badResponses": []
+}

@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        # Keep the Linux image stable; ubuntu-latest is moving to Ubuntu 26.
+        os: [ubuntu-24.04, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.lock
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - name: Install Python dependencies
+        run: python -m pip install --require-hashes -r requirements.lock
+      - name: Generate parser fixtures
+        run: python scripts/make_samples.py
+      - name: Verify parser fixtures
+        run: python scripts/check_samples.py
+      - name: Run Python tests
+        run: python -X tracemalloc=5 -W error::ResourceWarning -m pytest -o filterwarnings=error::pytest.PytestUnraisableExceptionWarning -q
+      - name: Run frontend contract tests
+        run: node --test tests/frontend_contracts.test.cjs tests/ux_browser.test.cjs
+      - name: Check frontend syntax
+        run: node --check app/static/app.js
+      - name: Check browser walkthrough syntax
+        run: >-
+          node -e 'const { readdirSync } = require("node:fs"); const { spawnSync } = require("node:child_process");
+          for (const file of readdirSync("scripts").filter((name) => (name.startsWith("ux_") || name === "showcase_check.cjs") && name.endsWith(".cjs"))) {
+            const result = spawnSync(process.execPath, ["--check", `scripts/${file}`], { stdio: "inherit" });
+            if (result.status !== 0) process.exit(result.status ?? 1);
+          }'

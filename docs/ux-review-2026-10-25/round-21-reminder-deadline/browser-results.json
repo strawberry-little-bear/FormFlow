@@ -1,0 +1,13 @@
+{
+  "base": "http://127.0.0.1:8001",
+  "desktopDraft": "你好，2026 秋季第 1 期团课报告（演示）还差你的材料。请在首次截止时间 2026-10-31 20:07 前完成登记并上传材料。如已提交请忽略。",
+  "mobile": {
+    "viewport": 390,
+    "document": 390,
+    "reminderText": "你好，2026 秋季第 1 期团课报告（演示）还差你的材料。请在首次截止时间 2026-10-31 20:07 前完成登记并上传材料。如已提交请忽略。"
+  },
+  "consoleErrors": [],
+  "pageErrors": [],
+  "badResponses": [],
+  "mutationPerformed": false
+}

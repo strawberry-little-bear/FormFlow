@@ -1,0 +1,16 @@
+# FormFlow 收齐啦 - Python 依赖
+fastapi>=0.110
+uvicorn[standard]>=0.29
+sqlalchemy>=2.0
+pydantic>=2.6
+httpx>=0.27
+mcp>=2.3,<3
+python-multipart>=0.0.9
+python-dotenv>=1.0
+PyMuPDF>=1.24
+python-docx>=1.1
+rapidocr-onnxruntime>=1.2
+pillow>=10.0
+pytest>=8.0
+
+tzdata>=2024.1

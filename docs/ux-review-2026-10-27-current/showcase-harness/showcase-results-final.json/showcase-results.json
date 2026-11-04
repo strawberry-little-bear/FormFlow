@@ -1,0 +1,301 @@
+{
+  "base": "http://127.0.0.1:8137",
+  "generatedAt": "2026-10-27T11:23:39.855Z",
+  "viewports": [
+    {
+      "name": "desktop",
+      "width": 1440,
+      "height": 950,
+      "routes": [
+        {
+          "name": "tasks",
+          "hash": "#/tasks",
+          "ok": true,
+          "missing": [],
+          "loadingStuck": false,
+          "overflow": {
+            "scrollWidth": 1440,
+            "clientWidth": 1440,
+            "overflow": false
+          }
+        },
+        {
+          "name": "design",
+          "hash": "#/design/1",
+          "ok": true,
+          "missing": [],
+          "loadingStuck": false,
+          "overflow": {
+            "scrollWidth": 1440,
+            "clientWidth": 1440,
+            "overflow": false
+          }
+        },
+        {
+          "name": "workbench",
+          "hash": "#/workbench/1",
+          "ok": true,
+          "missing": [],
+          "loadingStuck": false,
+          "overflow": {
+            "scrollWidth": 1440,
+            "clientWidth": 1440,
+            "overflow": false
+          }
+        },
+        {
+          "name": "review",
+          "hash": "#/review/1/2",
+          "ok": true,
+          "missing": [],
+          "loadingStuck": false,
+          "overflow": {
+            "scrollWidth": 1440,
+            "clientWidth": 1440,
+            "overflow": false
+          }
+        },
+        {
+          "name": "delivery",
+          "hash": "#/delivery/1",
+          "ok": true,
+          "missing": [],
+          "loadingStuck": false,
+          "overflow": {
+            "scrollWidth": 1440,
+            "clientWidth": 1440,
+            "overflow": false
+          }
+        },
+        {
+          "name": "roster-invalid",
+          "hash": "#/roster/9999",
+          "ok": true,
+          "missing": [],
+          "loadingStuck": false,
+          "overflow": {
+            "scrollWidth": 1440,
+            "clientWidth": 1440,
+            "overflow": false
+          }
+        },
+        {
+          "name": "review-invalid",
+          "hash": "#/review/1/9999",
+          "ok": true,
+          "missing": [],
+          "loadingStuck": false,
+          "overflow": {
+            "scrollWidth": 1440,
+            "clientWidth": 1440,
+            "overflow": false
+          }
+        }
+      ],
+      "overflow": {
+        "scrollWidth": 1440,
+        "clientWidth": 1440,
+        "overflow": false
+      },
+      "errors": [],
+      "badResponses": []
+    },
+    {
+      "name": "mobile-390",
+      "width": 390,
+      "height": 844,
+      "routes": [
+        {
+          "name": "tasks",
+          "hash": "#/tasks",
+          "ok": true,
+          "missing": [],
+          "loadingStuck": false,
+          "overflow": {
+            "scrollWidth": 390,
+            "clientWidth": 390,
+            "overflow": false
+          }
+        },
+        {
+          "name": "design",
+          "hash": "#/design/1",
+          "ok": true,
+          "missing": [],
+          "loadingStuck": false,
+          "overflow": {
+            "scrollWidth": 390,
+            "clientWidth": 390,
+            "overflow": false
+          }
+        },
+        {
+          "name": "workbench",
+          "hash": "#/workbench/1",
+          "ok": true,
+          "missing": [],
+          "loadingStuck": false,
+          "overflow": {
+            "scrollWidth": 390,
+            "clientWidth": 390,
+            "overflow": false
+          }
+        },
+        {
+          "name": "review",
+          "hash": "#/review/1/2",
+          "ok": true,
+          "missing": [],
+          "loadingStuck": false,
+          "overflow": {
+            "scrollWidth": 390,
+            "clientWidth": 390,
+            "overflow": false
+          }
+        },
+        {
+          "name": "delivery",
+          "hash": "#/delivery/1",
+          "ok": true,
+          "missing": [],
+          "loadingStuck": false,
+          "overflow": {
+            "scrollWidth": 390,
+            "clientWidth": 390,
+            "overflow": false
+          }
+        },
+        {
+          "name": "roster-invalid",
+          "hash": "#/roster/9999",
+          "ok": true,
+          "missing": [],
+          "loadingStuck": false,
+          "overflow": {
+            "scrollWidth": 390,
+            "clientWidth": 390,
+            "overflow": false
+          }
+        },
+        {
+          "name": "review-invalid",
+          "hash": "#/review/1/9999",
+          "ok": true,
+          "missing": [],
+          "loadingStuck": false,
+          "overflow": {
+            "scrollWidth": 390,
+            "clientWidth": 390,
+            "overflow": false
+          }
+        }
+      ],
+      "overflow": {
+        "scrollWidth": 390,
+        "clientWidth": 390,
+        "overflow": false
+      },
+      "errors": [],
+      "badResponses": []
+    },
+    {
+      "name": "mobile-320",
+      "width": 320,
+      "height": 760,
+      "routes": [
+        {
+          "name": "tasks",
+          "hash": "#/tasks",
+          "ok": true,
+          "missing": [],
+          "loadingStuck": false,
+          "overflow": {
+            "scrollWidth": 320,
+            "clientWidth": 320,
+            "overflow": false
+          }
+        },
+        {
+          "name": "design",
+          "hash": "#/design/1",
+          "ok": true,
+          "missing": [],
+          "loadingStuck": false,
+          "overflow": {
+            "scrollWidth": 320,
+            "clientWidth": 320,
+            "overflow": false
+          }
+        },
+        {
+          "name": "workbench",
+          "hash": "#/workbench/1",
+          "ok": true,
+          "missing": [],
+          "loadingStuck": false,
+          "overflow": {
+            "scrollWidth": 320,
+            "clientWidth": 320,
+            "overflow": false
+          }
+        },
+        {
+          "name": "review",
+          "hash": "#/review/1/2",
+          "ok": true,
+          "missing": [],
+          "loadingStuck": false,
+          "overflow": {
+            "scrollWidth": 320,
+            "clientWidth": 320,
+            "overflow": false
+          }
+        },
+        {
+          "name": "delivery",
+          "hash": "#/delivery/1",
+          "ok": true,
+          "missing": [],
+          "loadingStuck": false,
+          "overflow": {
+            "scrollWidth": 320,
+            "clientWidth": 320,
+            "overflow": false
+          }
+        },
+        {
+          "name": "roster-invalid",
+          "hash": "#/roster/9999",
+          "ok": true,
+          "missing": [],
+          "loadingStuck": false,
+          "overflow": {
+            "scrollWidth": 320,
+            "clientWidth": 320,
+            "overflow": false
+          }
+        },
+        {
+          "name": "review-invalid",
+          "hash": "#/review/1/9999",
+          "ok": true,
+          "missing": [],
+          "loadingStuck": false,
+          "overflow": {
+            "scrollWidth": 320,
+            "clientWidth": 320,
+            "overflow": false
+          }
+        }
+      ],
+      "overflow": {
+        "scrollWidth": 320,
+        "clientWidth": 320,
+        "overflow": false
+      },
+      "errors": [],
+      "badResponses": []
+    }
+  ],
+  "passed": true
+}

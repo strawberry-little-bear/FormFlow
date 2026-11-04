@@ -1,0 +1,48 @@
+{
+  "base": "http://127.0.0.1:8017",
+  "generatedAt": "2026-10-25T07:50:59.532Z",
+  "flow": [
+    "manual review of no-key semantic checks using current v1 original",
+    "accept current v1",
+    "formal snapshot",
+    "CSV + ZIP export"
+  ],
+  "reviewAccepted": true,
+  "mobile": {
+    "viewport": 390,
+    "document": 390
+  },
+  "delivery": {
+    "snapshotId": 1,
+    "snapshotTotals": {
+      "subjects": 5,
+      "included": 2,
+      "excluded": 3
+    },
+    "job": {
+      "job_id": 1,
+      "status": "success",
+      "error": "",
+      "csv": "E:\\FormFlow\\.tmp-ux-round-16-clean-flow-20261025\\storage\\exports\\snapshot_1\\summary_1_1.csv",
+      "zip": "E:\\FormFlow\\.tmp-ux-round-16-clean-flow-20261025\\storage\\exports\\snapshot_1\\materials_1_1.zip"
+    },
+    "artifacts": {
+      "csv": {
+        "status": 200,
+        "contentType": "text/csv; charset=utf-8",
+        "size": 617,
+        "filename": "attachment; filename=\"summary_1_1.csv\""
+      },
+      "zip": {
+        "status": 200,
+        "contentType": "application/zip",
+        "size": 2238,
+        "filename": "attachment; filename=\"materials_1_1.zip\""
+      }
+    }
+  },
+  "unnamedButtons": [],
+  "consoleErrors": [],
+  "pageErrors": [],
+  "badResponses": []
+}

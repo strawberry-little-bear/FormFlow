@@ -1,0 +1,442 @@
+{
+  "base": "http://127.0.0.1:8012",
+  "generatedAt": "2026-10-28T07:41:20.409Z",
+  "viewports": [
+    {
+      "name": "desktop",
+      "width": 1440,
+      "height": 950,
+      "routes": [
+        {
+          "name": "tasks",
+          "hash": "#/tasks",
+          "ok": true,
+          "missing": [],
+          "loadingStuck": false,
+          "overflow": {
+            "scrollWidth": 1440,
+            "clientWidth": 1440,
+            "overflow": false
+          },
+          "accessibility": {
+            "interactiveCount": 46,
+            "unnamed": [],
+            "unlabeledFields": [],
+            "hasRouteFocusTarget": true
+          }
+        },
+        {
+          "name": "design",
+          "hash": "#/design/1",
+          "ok": true,
+          "missing": [],
+          "loadingStuck": false,
+          "overflow": {
+            "scrollWidth": 1440,
+            "clientWidth": 1440,
+            "overflow": false
+          },
+          "accessibility": {
+            "interactiveCount": 23,
+            "unnamed": [],
+            "unlabeledFields": [],
+            "hasRouteFocusTarget": true
+          }
+        },
+        {
+          "name": "workbench",
+          "hash": "#/workbench/1",
+          "ok": true,
+          "missing": [],
+          "loadingStuck": false,
+          "overflow": {
+            "scrollWidth": 1440,
+            "clientWidth": 1440,
+            "overflow": false
+          },
+          "accessibility": {
+            "interactiveCount": 36,
+            "unnamed": [],
+            "unlabeledFields": [],
+            "hasRouteFocusTarget": true
+          }
+        },
+        {
+          "name": "review",
+          "hash": "#/review/1/2",
+          "ok": true,
+          "missing": [],
+          "loadingStuck": false,
+          "overflow": {
+            "scrollWidth": 1440,
+            "clientWidth": 1440,
+            "overflow": false
+          },
+          "accessibility": {
+            "interactiveCount": 41,
+            "unnamed": [],
+            "unlabeledFields": [],
+            "hasRouteFocusTarget": true
+          }
+        },
+        {
+          "name": "delivery",
+          "hash": "#/delivery/1",
+          "ok": true,
+          "missing": [],
+          "loadingStuck": false,
+          "overflow": {
+            "scrollWidth": 1440,
+            "clientWidth": 1440,
+            "overflow": false
+          },
+          "accessibility": {
+            "interactiveCount": 14,
+            "unnamed": [],
+            "unlabeledFields": [],
+            "hasRouteFocusTarget": true
+          }
+        },
+        {
+          "name": "roster-invalid",
+          "hash": "#/roster/9999",
+          "ok": true,
+          "missing": [],
+          "loadingStuck": false,
+          "overflow": {
+            "scrollWidth": 1440,
+            "clientWidth": 1440,
+            "overflow": false
+          },
+          "accessibility": {
+            "interactiveCount": 16,
+            "unnamed": [],
+            "unlabeledFields": [],
+            "hasRouteFocusTarget": true
+          }
+        },
+        {
+          "name": "review-invalid",
+          "hash": "#/review/1/9999",
+          "ok": true,
+          "missing": [],
+          "loadingStuck": false,
+          "overflow": {
+            "scrollWidth": 1440,
+            "clientWidth": 1440,
+            "overflow": false
+          },
+          "accessibility": {
+            "interactiveCount": 13,
+            "unnamed": [],
+            "unlabeledFields": [],
+            "hasRouteFocusTarget": true
+          }
+        }
+      ],
+      "overflow": {
+        "scrollWidth": 1440,
+        "clientWidth": 1440,
+        "overflow": false
+      },
+      "presentationExit": {
+        "exitedPresentation": true,
+        "taskListVisible": true,
+        "hasTaskHeading": true
+      },
+      "errors": [],
+      "badResponses": []
+    },
+    {
+      "name": "mobile-390",
+      "width": 390,
+      "height": 844,
+      "routes": [
+        {
+          "name": "tasks",
+          "hash": "#/tasks",
+          "ok": true,
+          "missing": [],
+          "loadingStuck": false,
+          "overflow": {
+            "scrollWidth": 390,
+            "clientWidth": 390,
+            "overflow": false
+          },
+          "accessibility": {
+            "interactiveCount": 45,
+            "unnamed": [],
+            "unlabeledFields": [],
+            "hasRouteFocusTarget": true
+          }
+        },
+        {
+          "name": "design",
+          "hash": "#/design/1",
+          "ok": true,
+          "missing": [],
+          "loadingStuck": false,
+          "overflow": {
+            "scrollWidth": 390,
+            "clientWidth": 390,
+            "overflow": false
+          },
+          "accessibility": {
+            "interactiveCount": 24,
+            "unnamed": [],
+            "unlabeledFields": [],
+            "hasRouteFocusTarget": true
+          }
+        },
+        {
+          "name": "workbench",
+          "hash": "#/workbench/1",
+          "ok": true,
+          "missing": [],
+          "loadingStuck": false,
+          "overflow": {
+            "scrollWidth": 390,
+            "clientWidth": 390,
+            "overflow": false
+          },
+          "accessibility": {
+            "interactiveCount": 35,
+            "unnamed": [],
+            "unlabeledFields": [],
+            "hasRouteFocusTarget": true
+          }
+        },
+        {
+          "name": "review",
+          "hash": "#/review/1/2",
+          "ok": true,
+          "missing": [],
+          "loadingStuck": false,
+          "overflow": {
+            "scrollWidth": 390,
+            "clientWidth": 390,
+            "overflow": false
+          },
+          "accessibility": {
+            "interactiveCount": 40,
+            "unnamed": [],
+            "unlabeledFields": [],
+            "hasRouteFocusTarget": true
+          }
+        },
+        {
+          "name": "delivery",
+          "hash": "#/delivery/1",
+          "ok": true,
+          "missing": [],
+          "loadingStuck": false,
+          "overflow": {
+            "scrollWidth": 390,
+            "clientWidth": 390,
+            "overflow": false
+          },
+          "accessibility": {
+            "interactiveCount": 13,
+            "unnamed": [],
+            "unlabeledFields": [],
+            "hasRouteFocusTarget": true
+          }
+        },
+        {
+          "name": "roster-invalid",
+          "hash": "#/roster/9999",
+          "ok": true,
+          "missing": [],
+          "loadingStuck": false,
+          "overflow": {
+            "scrollWidth": 390,
+            "clientWidth": 390,
+            "overflow": false
+          },
+          "accessibility": {
+            "interactiveCount": 15,
+            "unnamed": [],
+            "unlabeledFields": [],
+            "hasRouteFocusTarget": true
+          }
+        },
+        {
+          "name": "review-invalid",
+          "hash": "#/review/1/9999",
+          "ok": true,
+          "missing": [],
+          "loadingStuck": false,
+          "overflow": {
+            "scrollWidth": 390,
+            "clientWidth": 390,
+            "overflow": false
+          },
+          "accessibility": {
+            "interactiveCount": 12,
+            "unnamed": [],
+            "unlabeledFields": [],
+            "hasRouteFocusTarget": true
+          }
+        }
+      ],
+      "overflow": {
+        "scrollWidth": 390,
+        "clientWidth": 390,
+        "overflow": false
+      },
+      "presentationExit": {
+        "exitedPresentation": true,
+        "taskListVisible": true,
+        "hasTaskHeading": true
+      },
+      "errors": [],
+      "badResponses": []
+    },
+    {
+      "name": "mobile-320",
+      "width": 320,
+      "height": 760,
+      "routes": [
+        {
+          "name": "tasks",
+          "hash": "#/tasks",
+          "ok": true,
+          "missing": [],
+          "loadingStuck": false,
+          "overflow": {
+            "scrollWidth": 320,
+            "clientWidth": 320,
+            "overflow": false
+          },
+          "accessibility": {
+            "interactiveCount": 45,
+            "unnamed": [],
+            "unlabeledFields": [],
+            "hasRouteFocusTarget": true
+          }
+        },
+        {
+          "name": "design",
+          "hash": "#/design/1",
+          "ok": true,
+          "missing": [],
+          "loadingStuck": false,
+          "overflow": {
+            "scrollWidth": 320,
+            "clientWidth": 320,
+            "overflow": false
+          },
+          "accessibility": {
+            "interactiveCount": 24,
+            "unnamed": [],
+            "unlabeledFields": [],
+            "hasRouteFocusTarget": true
+          }
+        },
+        {
+          "name": "workbench",
+          "hash": "#/workbench/1",
+          "ok": true,
+          "missing": [],
+          "loadingStuck": false,
+          "overflow": {
+            "scrollWidth": 320,
+            "clientWidth": 320,
+            "overflow": false
+          },
+          "accessibility": {
+            "interactiveCount": 35,
+            "unnamed": [],
+            "unlabeledFields": [],
+            "hasRouteFocusTarget": true
+          }
+        },
+        {
+          "name": "review",
+          "hash": "#/review/1/2",
+          "ok": true,
+          "missing": [],
+          "loadingStuck": false,
+          "overflow": {
+            "scrollWidth": 320,
+            "clientWidth": 320,
+            "overflow": false
+          },
+          "accessibility": {
+            "interactiveCount": 40,
+            "unnamed": [],
+            "unlabeledFields": [],
+            "hasRouteFocusTarget": true
+          }
+        },
+        {
+          "name": "delivery",
+          "hash": "#/delivery/1",
+          "ok": true,
+          "missing": [],
+          "loadingStuck": false,
+          "overflow": {
+            "scrollWidth": 320,
+            "clientWidth": 320,
+            "overflow": false
+          },
+          "accessibility": {
+            "interactiveCount": 13,
+            "unnamed": [],
+            "unlabeledFields": [],
+            "hasRouteFocusTarget": true
+          }
+        },
+        {
+          "name": "roster-invalid",
+          "hash": "#/roster/9999",
+          "ok": true,
+          "missing": [],
+          "loadingStuck": false,
+          "overflow": {
+            "scrollWidth": 320,
+            "clientWidth": 320,
+            "overflow": false
+          },
+          "accessibility": {
+            "interactiveCount": 15,
+            "unnamed": [],
+            "unlabeledFields": [],
+            "hasRouteFocusTarget": true
+          }
+        },
+        {
+          "name": "review-invalid",
+          "hash": "#/review/1/9999",
+          "ok": true,
+          "missing": [],
+          "loadingStuck": false,
+          "overflow": {
+            "scrollWidth": 320,
+            "clientWidth": 320,
+            "overflow": false
+          },
+          "accessibility": {
+            "interactiveCount": 12,
+            "unnamed": [],
+            "unlabeledFields": [],
+            "hasRouteFocusTarget": true
+          }
+        }
+      ],
+      "overflow": {
+        "scrollWidth": 320,
+        "clientWidth": 320,
+        "overflow": false
+      },
+      "presentationExit": {
+        "exitedPresentation": true,
+        "taskListVisible": true,
+        "hasTaskHeading": true
+      },
+      "errors": [],
+      "badResponses": []
+    }
+  ],
+  "passed": true
+}

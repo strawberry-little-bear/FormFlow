@@ -1,0 +1,833 @@
+{
+  "base": "http://127.0.0.1:8024",
+  "generatedAt": "2026-10-26T05:15:24.150Z",
+  "standard": "WCAG 2.1/2.2 A/AA automated checks via axe-core",
+  "scans": [
+    {
+      "label": "login-organizer",
+      "route": "#/login",
+      "title": "收齐啦 · FormFlow",
+      "violations": [],
+      "incomplete": [
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "help": "Elements must meet minimum color contrast ratio thresholds",
+          "helpUrl": "https://dequeuniversity.com/rules/axe/4.14/color-contrast?application=axeAPI",
+          "nodes": [
+            {
+              "target": [
+                ".login-hero > .logo > .mark"
+              ],
+              "html": "<span class=\"mark\">齐</span>",
+              "summary": "Fix any of the following:\n  Element content is too short to determine if it is actual text content",
+              "checks": {
+                "any": [
+                  {
+                    "id": "color-contrast",
+                    "impact": "serious",
+                    "message": "Element content is too short to determine if it is actual text content",
+                    "data": {
+                      "contrastRatio": 0,
+                      "fontSize": "15.8pt (21px)",
+                      "fontWeight": "normal",
+                      "messageKey": "shortTextContent",
+                      "expectedContrastRatio": "4.5:1"
+                    }
+                  }
+                ],
+                "all": [],
+                "none": []
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "label": "tasks",
+      "route": "#/tasks",
+      "title": "收齐啦 · FormFlow",
+      "violations": [],
+      "incomplete": [
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "help": "Elements must meet minimum color contrast ratio thresholds",
+          "helpUrl": "https://dequeuniversity.com/rules/axe/4.14/color-contrast?application=axeAPI",
+          "nodes": [
+            {
+              "target": [
+                ".demo-route-focus-goal > b"
+              ],
+              "html": "<b>这一站要做到</b>",
+              "summary": "Fix any of the following:\n  Element's background color could not be determined due to a pseudo element",
+              "checks": {
+                "any": [
+                  {
+                    "id": "color-contrast",
+                    "impact": "serious",
+                    "message": "Element's background color could not be determined due to a pseudo element",
+                    "data": {
+                      "fontSize": "6.8pt (9px)",
+                      "fontWeight": "bold",
+                      "messageKey": "pseudoContent",
+                      "expectedContrastRatio": "4.5:1"
+                    }
+                  }
+                ],
+                "all": [],
+                "none": []
+              }
+            },
+            {
+              "target": [
+                ".demo-route-focus-evidence > span"
+              ],
+              "html": "<span>打开规则证据</span>",
+              "summary": "Fix any of the following:\n  Element's background color could not be determined due to a pseudo element",
+              "checks": {
+                "any": [
+                  {
+                    "id": "color-contrast",
+                    "impact": "serious",
+                    "message": "Element's background color could not be determined due to a pseudo element",
+                    "data": {
+                      "fontSize": "6.8pt (9px)",
+                      "fontWeight": "normal",
+                      "messageKey": "pseudoContent",
+                      "expectedContrastRatio": "4.5:1"
+                    }
+                  }
+                ],
+                "all": [],
+                "none": []
+              }
+            },
+            {
+              "target": [
+                ".demo-route-cue > div > .eyebrow"
+              ],
+              "html": "<span class=\"eyebrow\">现场讲解</span>",
+              "summary": "Fix any of the following:\n  Element's background color could not be determined due to a pseudo element",
+              "checks": {
+                "any": [
+                  {
+                    "id": "color-contrast",
+                    "impact": "serious",
+                    "message": "Element's background color could not be determined due to a pseudo element",
+                    "data": {
+                      "fontSize": "6.8pt (9px)",
+                      "fontWeight": "normal",
+                      "messageKey": "pseudoContent",
+                      "expectedContrastRatio": "4.5:1"
+                    }
+                  }
+                ],
+                "all": [],
+                "none": []
+              }
+            },
+            {
+              "target": [
+                "button[onclick=\"copyDemoRouteCue(this)\"] > span"
+              ],
+              "html": "<span>复制讲解</span>",
+              "summary": "Fix any of the following:\n  Element's background color could not be determined due to a pseudo element",
+              "checks": {
+                "any": [
+                  {
+                    "id": "color-contrast",
+                    "impact": "serious",
+                    "message": "Element's background color could not be determined due to a pseudo element",
+                    "data": {
+                      "fontSize": "9.0pt (12px)",
+                      "fontWeight": "normal",
+                      "messageKey": "pseudoContent",
+                      "expectedContrastRatio": "4.5:1"
+                    }
+                  }
+                ],
+                "all": [],
+                "none": []
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "label": "design",
+      "route": "#/design/1",
+      "title": "收齐啦 · FormFlow",
+      "violations": [],
+      "incomplete": [
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "help": "Elements must meet minimum color contrast ratio thresholds",
+          "helpUrl": "https://dequeuniversity.com/rules/axe/4.14/color-contrast?application=axeAPI",
+          "nodes": [
+            {
+              "target": [
+                ".mark"
+              ],
+              "html": "<span class=\"mark\">齐</span>",
+              "summary": "Fix any of the following:\n  Element content is too short to determine if it is actual text content",
+              "checks": {
+                "any": [
+                  {
+                    "id": "color-contrast",
+                    "impact": "serious",
+                    "message": "Element content is too short to determine if it is actual text content",
+                    "data": {
+                      "contrastRatio": 0,
+                      "fontSize": "15.8pt (21px)",
+                      "fontWeight": "normal",
+                      "messageKey": "shortTextContent",
+                      "expectedContrastRatio": "4.5:1"
+                    }
+                  }
+                ],
+                "all": [],
+                "none": []
+              }
+            },
+            {
+              "target": [
+                ".llm-banner-icon"
+              ],
+              "html": "<span class=\"llm-banner-icon\">ⓘ</span>",
+              "summary": "Fix any of the following:\n  Element content contains only non-text characters",
+              "checks": {
+                "any": [
+                  {
+                    "id": "color-contrast",
+                    "impact": "serious",
+                    "message": "Element content contains only non-text characters",
+                    "data": {
+                      "messageKey": "nonBmp"
+                    }
+                  }
+                ],
+                "all": [],
+                "none": []
+              }
+            },
+            {
+              "target": [
+                "#llm-status-banner > span:nth-child(2)"
+              ],
+              "html": "<span>当前没有配置 AI 模型密钥，所以智能起草暂时用不了。不过你可以用下面的模板快速开始，或者直接手动编辑草案。</span>",
+              "summary": "Fix any of the following:\n  Element's background color could not be determined due to a background gradient",
+              "checks": {
+                "any": [
+                  {
+                    "id": "color-contrast",
+                    "impact": "serious",
+                    "message": "Element's background color could not be determined due to a background gradient",
+                    "data": {
+                      "contrastRatio": 0,
+                      "fontSize": "9.0pt (12px)",
+                      "fontWeight": "normal",
+                      "messageKey": "bgGradient",
+                      "expectedContrastRatio": "4.5:1"
+                    }
+                  }
+                ],
+                "all": [],
+                "none": []
+              }
+            },
+            {
+              "target": [
+                ".readiness-head > div > .eyebrow"
+              ],
+              "html": "<div class=\"eyebrow\">PUBLISH READINESS</div>",
+              "summary": "Fix any of the following:\n  Element's background color could not be determined due to a background gradient",
+              "checks": {
+                "any": [
+                  {
+                    "id": "color-contrast",
+                    "impact": "serious",
+                    "message": "Element's background color could not be determined due to a background gradient",
+                    "data": {
+                      "contrastRatio": 0,
+                      "fontSize": "7.5pt (10px)",
+                      "fontWeight": "normal",
+                      "messageKey": "bgGradient",
+                      "expectedContrastRatio": "4.5:1"
+                    }
+                  }
+                ],
+                "all": [],
+                "none": []
+              }
+            },
+            {
+              "target": [
+                ".readiness-head > div > h2"
+              ],
+              "html": "<h2>发布前核对</h2>",
+              "summary": "Fix any of the following:\n  Element's background color could not be determined due to a background gradient",
+              "checks": {
+                "any": [
+                  {
+                    "id": "color-contrast",
+                    "impact": "serious",
+                    "message": "Element's background color could not be determined due to a background gradient",
+                    "data": {
+                      "contrastRatio": 0,
+                      "fontSize": "12.8pt (17px)",
+                      "fontWeight": "bold",
+                      "messageKey": "bgGradient",
+                      "expectedContrastRatio": "4.5:1"
+                    }
+                  }
+                ],
+                "all": [],
+                "none": []
+              }
+            },
+            {
+              "target": [
+                ".readiness-head > div > p"
+              ],
+              "html": "<p>把提交者要做的事、系统会检查的范围和你要确认的边界放在一张清单里。</p>",
+              "summary": "Fix any of the following:\n  Element's background color could not be determined due to a background gradient",
+              "checks": {
+                "any": [
+                  {
+                    "id": "color-contrast",
+                    "impact": "serious",
+                    "message": "Element's background color could not be determined due to a background gradient",
+                    "data": {
+                      "contrastRatio": 0,
+                      "fontSize": "9.0pt (12px)",
+                      "fontWeight": "normal",
+                      "messageKey": "bgGradient",
+                      "expectedContrastRatio": "4.5:1"
+                    }
+                  }
+                ],
+                "all": [],
+                "none": []
+              }
+            },
+            {
+              "target": [
+                ".readiness-foot > div > .readiness-label"
+              ],
+              "html": "<span class=\"readiness-label\">交付与数据边界</span>",
+              "summary": "Fix any of the following:\n  Element's background color could not be determined due to a background gradient",
+              "checks": {
+                "any": [
+                  {
+                    "id": "color-contrast",
+                    "impact": "serious",
+                    "message": "Element's background color could not be determined due to a background gradient",
+                    "data": {
+                      "contrastRatio": 0,
+                      "fontSize": "7.5pt (10px)",
+                      "fontWeight": "normal",
+                      "messageKey": "bgGradient",
+                      "expectedContrastRatio": "4.5:1"
+                    }
+                  }
+                ],
+                "all": [],
+                "none": []
+              }
+            },
+            {
+              "target": [
+                ".readiness-boundary:nth-child(2) > span"
+              ],
+              "html": "<span>交付安排</span>",
+              "summary": "Fix any of the following:\n  Element's background color could not be determined due to a background gradient",
+              "checks": {
+                "any": [
+                  {
+                    "id": "color-contrast",
+                    "impact": "serious",
+                    "message": "Element's background color could not be determined due to a background gradient",
+                    "data": {
+                      "contrastRatio": 0,
+                      "fontSize": "8.3pt (11px)",
+                      "fontWeight": "normal",
+                      "messageKey": "bgGradient",
+                      "expectedContrastRatio": "4.5:1"
+                    }
+                  }
+                ],
+                "all": [],
+                "none": []
+              }
+            },
+            {
+              "target": [
+                ".readiness-boundary:nth-child(2) > b"
+              ],
+              "html": "<b class=\"\">按class_name整理，命名规则 {subject_id}_{field:name}。</b>",
+              "summary": "Fix any of the following:\n  Element's background color could not be determined due to a background gradient",
+              "checks": {
+                "any": [
+                  {
+                    "id": "color-contrast",
+                    "impact": "serious",
+                    "message": "Element's background color could not be determined due to a background gradient",
+                    "data": {
+                      "contrastRatio": 0,
+                      "fontSize": "8.3pt (11px)",
+                      "fontWeight": "normal",
+                      "messageKey": "bgGradient",
+                      "expectedContrastRatio": "4.5:1"
+                    }
+                  }
+                ],
+                "all": [],
+                "none": []
+              }
+            },
+            {
+              "target": [
+                ".readiness-boundary:nth-child(3) > span"
+              ],
+              "html": "<span>收集用途</span>",
+              "summary": "Fix any of the following:\n  Element's background color could not be determined due to a background gradient",
+              "checks": {
+                "any": [
+                  {
+                    "id": "color-contrast",
+                    "impact": "serious",
+                    "message": "Element's background color could not be determined due to a background gradient",
+                    "data": {
+                      "contrastRatio": 0,
+                      "fontSize": "8.3pt (11px)",
+                      "fontWeight": "normal",
+                      "messageKey": "bgGradient",
+                      "expectedContrastRatio": "4.5:1"
+                    }
+                  }
+                ],
+                "all": [],
+                "none": []
+              }
+            },
+            {
+              "target": [
+                ".readiness-boundary:nth-child(3) > .readiness-missing"
+              ],
+              "html": "<b class=\"readiness-missing\">未填写用途</b>",
+              "summary": "Fix any of the following:\n  Element's background color could not be determined due to a background gradient",
+              "checks": {
+                "any": [
+                  {
+                    "id": "color-contrast",
+                    "impact": "serious",
+                    "message": "Element's background color could not be determined due to a background gradient",
+                    "data": {
+                      "contrastRatio": 0,
+                      "fontSize": "8.3pt (11px)",
+                      "fontWeight": "normal",
+                      "messageKey": "bgGradient",
+                      "expectedContrastRatio": "4.5:1"
+                    }
+                  }
+                ],
+                "all": [],
+                "none": []
+              }
+            },
+            {
+              "target": [
+                ".readiness-boundary:nth-child(4) > span"
+              ],
+              "html": "<span>模型处理</span>",
+              "summary": "Fix any of the following:\n  Element's background color could not be determined due to a background gradient",
+              "checks": {
+                "any": [
+                  {
+                    "id": "color-contrast",
+                    "impact": "serious",
+                    "message": "Element's background color could not be determined due to a background gradient",
+                    "data": {
+                      "contrastRatio": 0,
+                      "fontSize": "8.3pt (11px)",
+                      "fontWeight": "normal",
+                      "messageKey": "bgGradient",
+                      "expectedContrastRatio": "4.5:1"
+                    }
+                  }
+                ],
+                "all": [],
+                "none": []
+              }
+            },
+            {
+              "target": [
+                ".readiness-boundary:nth-child(4) > .readiness-missing"
+              ],
+              "html": "<b class=\"readiness-missing\">未填写模型处理说明（2 条语义审核规则）</b>",
+              "summary": "Fix any of the following:\n  Element's background color could not be determined due to a background gradient",
+              "checks": {
+                "any": [
+                  {
+                    "id": "color-contrast",
+                    "impact": "serious",
+                    "message": "Element's background color could not be determined due to a background gradient",
+                    "data": {
+                      "contrastRatio": 0,
+                      "fontSize": "8.3pt (11px)",
+                      "fontWeight": "normal",
+                      "messageKey": "bgGradient",
+                      "expectedContrastRatio": "4.5:1"
+                    }
+                  }
+                ],
+                "all": [],
+                "none": []
+              }
+            },
+            {
+              "target": [
+                ".readiness-boundary:nth-child(5) > span"
+              ],
+              "html": "<span>留存与删除</span>",
+              "summary": "Fix any of the following:\n  Element's background color could not be determined due to a background gradient",
+              "checks": {
+                "any": [
+                  {
+                    "id": "color-contrast",
+                    "impact": "serious",
+                    "message": "Element's background color could not be determined due to a background gradient",
+                    "data": {
+                      "contrastRatio": 0,
+                      "fontSize": "8.3pt (11px)",
+                      "fontWeight": "normal",
+                      "messageKey": "bgGradient",
+                      "expectedContrastRatio": "4.5:1"
+                    }
+                  }
+                ],
+                "all": [],
+                "none": []
+              }
+            },
+            {
+              "target": [
+                ".readiness-boundary:nth-child(5) > .readiness-missing"
+              ],
+              "html": "<b class=\"readiness-missing\">未填写留存与删除安排</b>",
+              "summary": "Fix any of the following:\n  Element's background color could not be determined due to a background gradient",
+              "checks": {
+                "any": [
+                  {
+                    "id": "color-contrast",
+                    "impact": "serious",
+                    "message": "Element's background color could not be determined due to a background gradient",
+                    "data": {
+                      "contrastRatio": 0,
+                      "fontSize": "8.3pt (11px)",
+                      "fontWeight": "normal",
+                      "messageKey": "bgGradient",
+                      "expectedContrastRatio": "4.5:1"
+                    }
+                  }
+                ],
+                "all": [],
+                "none": []
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "label": "roster",
+      "route": "#/roster/1",
+      "title": "收齐啦 · FormFlow",
+      "violations": [],
+      "incomplete": [
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "help": "Elements must meet minimum color contrast ratio thresholds",
+          "helpUrl": "https://dequeuniversity.com/rules/axe/4.14/color-contrast?application=axeAPI",
+          "nodes": [
+            {
+              "target": [
+                ".mark"
+              ],
+              "html": "<span class=\"mark\">齐</span>",
+              "summary": "Fix any of the following:\n  Element content is too short to determine if it is actual text content",
+              "checks": {
+                "any": [
+                  {
+                    "id": "color-contrast",
+                    "impact": "serious",
+                    "message": "Element content is too short to determine if it is actual text content",
+                    "data": {
+                      "contrastRatio": 0,
+                      "fontSize": "15.8pt (21px)",
+                      "fontWeight": "normal",
+                      "messageKey": "shortTextContent",
+                      "expectedContrastRatio": "4.5:1"
+                    }
+                  }
+                ],
+                "all": [],
+                "none": []
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "label": "workbench",
+      "route": "#/workbench/1",
+      "title": "收齐啦 · FormFlow",
+      "violations": [],
+      "incomplete": [
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "help": "Elements must meet minimum color contrast ratio thresholds",
+          "helpUrl": "https://dequeuniversity.com/rules/axe/4.14/color-contrast?application=axeAPI",
+          "nodes": [
+            {
+              "target": [
+                ".mark"
+              ],
+              "html": "<span class=\"mark\">齐</span>",
+              "summary": "Fix any of the following:\n  Element content is too short to determine if it is actual text content",
+              "checks": {
+                "any": [
+                  {
+                    "id": "color-contrast",
+                    "impact": "serious",
+                    "message": "Element content is too short to determine if it is actual text content",
+                    "data": {
+                      "contrastRatio": 0,
+                      "fontSize": "15.8pt (21px)",
+                      "fontWeight": "normal",
+                      "messageKey": "shortTextContent",
+                      "expectedContrastRatio": "4.5:1"
+                    }
+                  }
+                ],
+                "all": [],
+                "none": []
+              }
+            },
+            {
+              "target": [
+                ".wb-next-kicker"
+              ],
+              "html": "<span class=\"wb-next-kicker\">需要补正</span>",
+              "summary": "Fix any of the following:\n  Element's background color could not be determined due to a background gradient",
+              "checks": {
+                "any": [
+                  {
+                    "id": "color-contrast",
+                    "impact": "serious",
+                    "message": "Element's background color could not be determined due to a background gradient",
+                    "data": {
+                      "contrastRatio": 0,
+                      "fontSize": "8.3pt (11px)",
+                      "fontWeight": "normal",
+                      "messageKey": "bgGradient",
+                      "expectedContrastRatio": "4.5:1"
+                    }
+                  }
+                ],
+                "all": [],
+                "none": []
+              }
+            },
+            {
+              "target": [
+                ".wb-next-copy > h2"
+              ],
+              "html": "<h2>先看看李四的材料</h2>",
+              "summary": "Fix any of the following:\n  Element's background color could not be determined due to a background gradient",
+              "checks": {
+                "any": [
+                  {
+                    "id": "color-contrast",
+                    "impact": "serious",
+                    "message": "Element's background color could not be determined due to a background gradient",
+                    "data": {
+                      "contrastRatio": 0,
+                      "fontSize": "12.8pt (17px)",
+                      "fontWeight": "bold",
+                      "messageKey": "bgGradient",
+                      "expectedContrastRatio": "4.5:1"
+                    }
+                  }
+                ],
+                "all": [],
+                "none": []
+              }
+            },
+            {
+              "target": [
+                ".wb-next-copy > p"
+              ],
+              "html": "<p>有 1 项问题尚未处理。确认问题不会自动结束补正，核对后再决定下一步。</p>",
+              "summary": "Fix any of the following:\n  Element's background color could not be determined due to a background gradient",
+              "checks": {
+                "any": [
+                  {
+                    "id": "color-contrast",
+                    "impact": "serious",
+                    "message": "Element's background color could not be determined due to a background gradient",
+                    "data": {
+                      "contrastRatio": 0,
+                      "fontSize": "9.0pt (12px)",
+                      "fontWeight": "normal",
+                      "messageKey": "bgGradient",
+                      "expectedContrastRatio": "4.5:1"
+                    }
+                  }
+                ],
+                "all": [],
+                "none": []
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "label": "review",
+      "route": "#/review/1/2",
+      "title": "收齐啦 · FormFlow",
+      "violations": [],
+      "incomplete": [
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "help": "Elements must meet minimum color contrast ratio thresholds",
+          "helpUrl": "https://dequeuniversity.com/rules/axe/4.14/color-contrast?application=axeAPI",
+          "nodes": [
+            {
+              "target": [
+                ".mark"
+              ],
+              "html": "<span class=\"mark\">齐</span>",
+              "summary": "Fix any of the following:\n  Element content is too short to determine if it is actual text content",
+              "checks": {
+                "any": [
+                  {
+                    "id": "color-contrast",
+                    "impact": "serious",
+                    "message": "Element content is too short to determine if it is actual text content",
+                    "data": {
+                      "contrastRatio": 0,
+                      "fontSize": "15.8pt (21px)",
+                      "fontWeight": "normal",
+                      "messageKey": "shortTextContent",
+                      "expectedContrastRatio": "4.5:1"
+                    }
+                  }
+                ],
+                "all": [],
+                "none": []
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "label": "delivery",
+      "route": "#/delivery/1",
+      "title": "收齐啦 · FormFlow",
+      "violations": [],
+      "incomplete": [
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "help": "Elements must meet minimum color contrast ratio thresholds",
+          "helpUrl": "https://dequeuniversity.com/rules/axe/4.14/color-contrast?application=axeAPI",
+          "nodes": [
+            {
+              "target": [
+                ".mark"
+              ],
+              "html": "<span class=\"mark\">齐</span>",
+              "summary": "Fix any of the following:\n  Element content is too short to determine if it is actual text content",
+              "checks": {
+                "any": [
+                  {
+                    "id": "color-contrast",
+                    "impact": "serious",
+                    "message": "Element content is too short to determine if it is actual text content",
+                    "data": {
+                      "contrastRatio": 0,
+                      "fontSize": "15.8pt (21px)",
+                      "fontWeight": "normal",
+                      "messageKey": "shortTextContent",
+                      "expectedContrastRatio": "4.5:1"
+                    }
+                  }
+                ],
+                "all": [],
+                "none": []
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "label": "submitter-entry",
+      "route": "#/login (submitter tab)",
+      "title": "收齐啦 · FormFlow",
+      "violations": [],
+      "incomplete": [
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "help": "Elements must meet minimum color contrast ratio thresholds",
+          "helpUrl": "https://dequeuniversity.com/rules/axe/4.14/color-contrast?application=axeAPI",
+          "nodes": [
+            {
+              "target": [
+                ".login-hero > .logo > .mark"
+              ],
+              "html": "<span class=\"mark\">齐</span>",
+              "summary": "Fix any of the following:\n  Element content is too short to determine if it is actual text content",
+              "checks": {
+                "any": [
+                  {
+                    "id": "color-contrast",
+                    "impact": "serious",
+                    "message": "Element content is too short to determine if it is actual text content",
+                    "data": {
+                      "contrastRatio": 0,
+                      "fontSize": "15.8pt (21px)",
+                      "fontWeight": "normal",
+                      "messageKey": "shortTextContent",
+                      "expectedContrastRatio": "4.5:1"
+                    }
+                  }
+                ],
+                "all": [],
+                "none": []
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": {
+    "console": [],
+    "page": [],
+    "responses": []
+  },
+  "violationCount": 0
+}

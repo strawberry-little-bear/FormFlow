@@ -1,0 +1,22 @@
+{
+  "date": "2026-10-26",
+  "round": "backup-integrity",
+  "scope": "demo backup manifest validation and failed-restore cleanup",
+  "checks": {
+    "python_backup_tests": {
+      "command": "python -m pytest -q tests/test_backup_demo.py",
+      "passed": 9,
+      "failed": 0
+    },
+    "python_compile": true,
+    "git_diff_check": true
+  },
+  "boundaries": {
+    "data": "isolated fictional demo database and private attachments",
+    "manifest_records_source": true,
+    "manifest_validates_sha256_shape": true,
+    "failed_restore_leaves_target": false,
+    "offsite_backup_or_retention": false,
+    "migration_rollback": false
+  }
+}

@@ -1,0 +1,50 @@
+[
+  {
+    "viewport": {
+      "width": 1440,
+      "height": 1000
+    },
+    "found": 1,
+    "hasIntent": true,
+    "hasCorrelation": true,
+    "hasTools": true,
+    "overflow": {
+      "scrollWidth": 1440,
+      "clientWidth": 1440
+    },
+    "consoleErrors": [],
+    "failed": []
+  },
+  {
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "found": 1,
+    "hasIntent": true,
+    "hasCorrelation": true,
+    "hasTools": true,
+    "overflow": {
+      "scrollWidth": 390,
+      "clientWidth": 390
+    },
+    "consoleErrors": [],
+    "failed": []
+  },
+  {
+    "viewport": {
+      "width": 320,
+      "height": 800
+    },
+    "found": 1,
+    "hasIntent": true,
+    "hasCorrelation": true,
+    "hasTools": true,
+    "overflow": {
+      "scrollWidth": 320,
+      "clientWidth": 320
+    },
+    "consoleErrors": [],
+    "failed": []
+  }
+]

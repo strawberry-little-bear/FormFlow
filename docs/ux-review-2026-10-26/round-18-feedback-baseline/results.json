@@ -1,0 +1,26 @@
+{
+  "date": "2026-10-26",
+  "round": "feedback-baseline",
+  "scope": "short-term UX feedback closure and MCP documentation alignment",
+  "checks": {
+    "python_focused": {
+      "command": "python -m pytest -q tests/test_start_demo.py tests/test_export.py tests/test_agent_runtime.py tests/test_mcp_server.py tests/test_demo_mcp_script.py",
+      "passed": 51,
+      "failed": 0
+    },
+    "frontend_contracts": {
+      "command": "node --test tests/frontend_contracts.test.cjs",
+      "passed": 162,
+      "failed": 0
+    },
+    "javascript_syntax": true,
+    "git_diff_check": true,
+    "api_port_8000_released": true
+  },
+  "boundaries": {
+    "web_mcp_path": "server-side MCP-compatible read-only bridge",
+    "external_mcp_path": "independent stdio sidecar",
+    "browser_receives_mcp_token": false,
+    "read_only_projection_exposes_subject_rows_material_body_or_review_evidence": false
+  }
+}

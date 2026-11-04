@@ -1,0 +1,34 @@
+{
+  "base": "http://127.0.0.1:8027",
+  "generatedAt": "2026-10-26T19:47:59.327Z",
+  "checks": [
+    {
+      "viewport": 1440,
+      "document": 1440,
+      "text": "张",
+      "display": "flex",
+      "fontSize": "13px",
+      "alignItems": "center",
+      "justifyContent": "center",
+      "whiteSpace": "normal",
+      "box": 34,
+      "width": 1440
+    },
+    {
+      "viewport": 390,
+      "document": 390,
+      "text": "张",
+      "display": "flex",
+      "fontSize": "13px",
+      "alignItems": "center",
+      "justifyContent": "center",
+      "whiteSpace": "normal",
+      "box": 34,
+      "width": 390
+    }
+  ],
+  "failures": [],
+  "consoleErrors": [],
+  "pageErrors": [],
+  "badResponses": []
+}

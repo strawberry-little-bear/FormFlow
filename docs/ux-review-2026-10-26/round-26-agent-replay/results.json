@@ -1,0 +1,37 @@
+{
+  "date": "2026-10-26",
+  "round": "agent-replay",
+  "goal": "把任务首页的 MCP-compatible Agent 导览做成可回放的受限演示",
+  "contracts": {
+    "mcp_replay_steps": 4,
+    "browser_receives_mcp_token": false,
+    "writes_added": false
+  },
+  "tests": {
+    "python": {
+      "command": "python -m pytest -q tests/test_agent_runtime.py tests/test_mcp_server.py tests/test_demo_mcp_script.py",
+      "passed": 19
+    },
+    "frontend": {
+      "command": "node --test tests/frontend_contracts.test.cjs",
+      "passed": 162
+    },
+    "syntax": [
+      "node --check app/static/app.js",
+      "git diff --check"
+    ]
+  },
+  "browser": {
+    "desktop_viewport": "1440x950",
+    "mobile_viewport": "390x844",
+    "mobile_scroll_width": 390,
+    "mobile_client_width": 390,
+    "console_errors": 0,
+    "bad_responses": 0,
+    "replay_states": ["0/4", "1/4", "4/4 complete"]
+  },
+  "evidence": [
+    "docs/ux-review-2026-10-26/round-26-agent-replay/verification.md",
+    ".tmp-ux-mcp-replay-20261026/mcp-replay-complete.png"
+  ]
+}
