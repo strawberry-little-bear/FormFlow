@@ -1,28 +1,24 @@
 # 验证档案索引
 
-这里收录 FormFlow 的可复现体验记录。每份记录都说明运行场景、用户能看到的结果、证据入口和结论边界；读者可以直接从场景进入，不需要按日期阅读开发过程。
+这里收录 FormFlow 的可复现产品证据。每份档案围绕一个用户场景组织：读者可以先看到场景和结果，再进入截图、脚本和运行数据，不需要按开发轮次阅读。
 
 ## 推荐入口
 
 | 想了解什么 | 从这里开始 |
 | --- | --- |
-| 完整收集、审核和交付 | [收集、复核与交付](ux-review-2026-10-23/verification.md) |
-| 来源资料如何进入需求蓝图 | [来源资料到需求 Agent](ux-review-2026-11-06-requirements-agent/verification.md) |
-| 首次启动和空库闭环 | [空库首次启动](ux-review-2026-11-03-first-run/verification.md) |
-| 启动参数与失败状态 | [启动参数与失败状态](ux-review-2026-10-26b/feedback.md) |
-| 展示与提交者闭环 | [展示与提交者闭环](ux-review-2026-11-04/verification.md) |
-| Agent、Skill、Harness 与 MCP | `round-16-agent-architecture`、`round-17-mcp-agent-bridge` |
-| 键盘与可访问性 | `ux-review-2026-11-04-keyboard`、`ux-review-2026-11-04b` |
+| 一次完整的收集、审核和交付 | [收集、复核与交付](ux-review-2026-10-23/verification.md) |
+| 通知、名单和模板如何进入需求 Agent | [来源资料到需求 Agent](ux-review-2026-11-06-requirements-agent/verification.md) |
+| 第一次启动和空库闭环 | [空库首次启动](ux-review-2026-11-03-first-run/verification.md) |
+| 启动参数、错误恢复和失败状态 | [启动参数与失败状态](ux-review-2026-10-26b/feedback.md) |
+| 展示模式与提交者闭环 | [展示与提交者闭环](ux-review-2026-11-04/verification.md) |
+| Agent、Skill、Harness 与 MCP 的边界 | `round-16-agent-architecture`、`round-17-mcp-agent-bridge` |
+| 键盘路径与可访问性 | `ux-review-2026-11-04-keyboard`、`ux-review-2026-11-04b` |
 
-## 记录格式
+## 每份档案回答什么
 
-每份档案只回答四件事：
-
-1. **场景**：使用的数据、设备和配置。
+1. **场景**：使用的数据、设备、配置和入口。
 2. **结果**：访客完成了什么，页面显示了什么。
 3. **证据**：截图、脚本、自动化结果或复现命令。
 4. **边界**：没有覆盖的 provider、材料、设备或生产条件。
 
-日期、端口、提交号和测试数量只用于复现定位。档案中的“通过”只代表指定环境下的行为已经核对，不代表真实模型质量或公网部署已经验收。
-
-历史走查记录保留原始事实；产品介绍、实现计划和未来承诺放在根目录 README、部署文档或路线图中。
+日期、端口、提交号和测试数量只用于复现定位。档案中的“通过”只代表指定环境下的行为已经核对，不代表真实模型质量、屏幕阅读器体验或公网部署已经验收。历史记录保留事实，但不承担产品介绍和开发进度汇报的作用。
