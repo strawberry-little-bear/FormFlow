@@ -1,5 +1,8 @@
 # Round 8: Submitter Network Recovery
 
+
+> 这是一份历史验证存档：记录指定版本、数据和环境下的用户可见结果。它不是产品介绍、开发日报或未来承诺。
+
 Date: 2026-10-25
 
 ## Environment
@@ -16,7 +19,7 @@ Date: 2026-10-25
 
 The browser automation reported all these assertions as passing. This covers submitter initial load, upload retry, and idempotent recovery after an ambiguous submit response.
 
-## Follow-up Contract Coverage
+## Verification Coverage
 
 - Submitter result reads keep existing content visible on failure and expose a manual reload action.
 - A transient 503 schedules a retry after 3 seconds. Reconnection triggers an immediate read, and a successful response resets the retry state.

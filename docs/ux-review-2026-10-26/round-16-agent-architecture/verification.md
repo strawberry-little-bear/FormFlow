@@ -1,5 +1,8 @@
 # Round 16 - Agent architecture display
 
+
+> 这是一份历史验证存档：记录指定版本、数据和环境下的用户可见结果。它不是产品介绍、开发日报或未来承诺。
+
 Date: 2026-10-26 (Asia/Shanghai)
 
 This round adds a visible Agent control plane to the first-entry task route and labels the read-only MCP snapshot with product-facing capability names while retaining raw tool evidence.

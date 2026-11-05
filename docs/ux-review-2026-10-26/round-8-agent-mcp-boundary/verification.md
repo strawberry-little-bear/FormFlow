@@ -1,6 +1,9 @@
 # 2026-10-25 Agent MCP Boundary Check
 
-## Change
+
+> 这是一份历史验证存档：记录指定版本、数据和环境下的用户可见结果。它不是产品介绍、开发日报或未来承诺。
+
+## Results
 
 The offline Agent walkthrough now lists all four read-only MCP sidecar tools, including `get_task_collection_progress`. Its boundary text says the sidecar returns task navigation, applicable collection-stage aggregate counts, and Agent runtime; it does not read person-level roster rows, material contents, or review results, and the webpage Agent does not call it. The frontend contract asserts the fourth tool and these boundaries.
 

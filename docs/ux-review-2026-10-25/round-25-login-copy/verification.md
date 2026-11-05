@@ -1,5 +1,8 @@
 # Round 25: Login Capability Copy
 
+
+> 这是一份历史验证存档：记录指定版本、数据和环境下的用户可见结果。它不是产品介绍、开发日报或未来承诺。
+
 Date: 2026-10-25
 
 ## Finding and Change

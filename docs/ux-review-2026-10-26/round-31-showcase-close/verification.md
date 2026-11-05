@@ -1,10 +1,13 @@
 # Round 31 · 启动器与展示首屏收口
 
+
+> 这是一份历史验证存档：记录指定版本、数据和环境下的用户可见结果。它不是产品介绍、开发日报或未来承诺。
+
 日期：2026-10-26
 
-本轮承接 `feedback.md` 的短期评审意见，核对上一轮修复仍然有效，并收口两项展示前阻塞：Windows 一键启动器在第二次运行时的编码异常，以及展示模式首屏重复显示完整运行时摘要。
+本记录承接 `feedback.md` 的短期评审意见，核对上一轮修复仍然有效，并收口两项展示前阻塞：Windows 一键启动器在第二次运行时的编码异常，以及展示模式首屏重复显示完整运行时摘要。
 
-## 处理
+## 结果
 
 - `scripts/start_demo.py` 调用 `tasklist` 和种子脚本时改为捕获 bytes，再按 UTF-8 / Windows `mbcs` 解码；同时兼容测试夹具返回字符串的情况。这样在 `PYTHONUTF8=1` 与中文 Windows 代码页并存时，`--check`、`--stop`、`--reset` 不会因为子进程输出解码失败而崩溃。
 - 展示模式隐藏重复的完整 `workspace-runtime-strip`，首屏继续保留 `LIVE SHOWCASE STATE`、当前路线、Agent runtime、MCP 只读回放和人工接管摘要；完整运行边界仍可在普通任务页和 Agent walkthrough 中按需展开。

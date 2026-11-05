@@ -1,5 +1,8 @@
 # 2026-10-25 Round 17: Login and Mobile Agent Tour
 
+
+> 这是一份历史验证存档：记录指定版本、数据和环境下的用户可见结果。它不是产品介绍、开发日报或未来承诺。
+
 ## Scope
 
 - Read-only Playwright walkthrough against `http://127.0.0.1:8000` using the existing fictional demo seed and the empty-model-key presentation configuration.

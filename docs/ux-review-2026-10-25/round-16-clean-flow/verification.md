@@ -1,5 +1,8 @@
 # 2026-10-25 Round 16: Clean Submission and Review Flow
 
+
+> 这是一份历史验证存档：记录指定版本、数据和环境下的用户可见结果。它不是产品介绍、开发日报或未来承诺。
+
 ## Scope
 
 - End-to-end organizer and submitter walkthrough on an isolated SQLite demo seed, using the local service at `http://127.0.0.1:8017`.
@@ -14,7 +17,7 @@
 - Follow-up Playwright + local Chrome presentation check measured 19 route/viewport combinations at 320, 390, and 1440px. There was no horizontal overflow, console error, page error, or 4xx/5xx response. The missing-subject review route showed its Chinese empty state.
 - Frontend contract tests: 147 passed. `node --check app/static/app.js` and `git diff --check` passed.
 
-## Follow-up Fix
+## Result
 
 The review rule badge and count describe a failed technical check as `检查未完成` with the information tone. The run-summary chip had still used the warning tone. It now uses the same information tone; the semantic `failed` result and acceptance blocking behavior are unchanged. A contract assertion covers the run-summary chip.
 

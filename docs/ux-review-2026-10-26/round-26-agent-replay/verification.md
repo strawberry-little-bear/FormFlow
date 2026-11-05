@@ -1,10 +1,13 @@
 # 2026-10-26 Agent 导览回放收口
 
-## 本轮目标
+
+> 这是一份历史验证存档：记录指定版本、数据和环境下的用户可见结果。它不是产品介绍、开发日报或未来承诺。
+
+## 验证范围
 
 让任务首页的 Agent 展示从静态说明变成可现场回放的受限运行：评委能看到调用顺序、当前阶段、预算摘要和人工接手边界，同时不接触 MCP 会话 token、工具参数、材料正文或隐藏推理。
 
-## 实现范围
+## 结果范围
 
 - `/api/tasks/{task_id}/mcp-snapshot` 与 `/mcp-demo` 的 `execution` 增加四步 `replay` 和 `replay_budget`，来源仍是服务端 runtime 合同与受限聚合投影。
 - 前端“运行 Agent 导览”按 4 个只读调用逐步显现：`0/4` 等待首步、逐项显示 `1/4` 至 `4/4`，随后恢复完整调用账本。
@@ -35,4 +38,4 @@ git diff --check -- app/api/routes.py app/static/app.js app/static/style.css tes
 
 ## 边界
 
-本轮只增强展示回放和脱敏合同，不代表外部 MCP sidecar 自动接入网页 Agent，也不代表 Agent 可以发布蓝图、认定资格、处理补正或完成最终验收。
+本记录只增强展示回放和脱敏合同，不代表外部 MCP sidecar 自动接入网页 Agent，也不代表 Agent 可以发布蓝图、认定资格、处理补正或完成最终验收。

@@ -1,5 +1,8 @@
 # 2026-10-25 Current Presentation Baseline
 
+
+> 这是一份历史验证存档：记录指定版本、数据和环境下的用户可见结果。它不是产品介绍、开发日报或未来承诺。
+
 ## Scope
 
 Read-only browser walkthrough of the local presentation service at `http://127.0.0.1:8000`, using the existing fictional demo seed and an empty `FORMFLOW_LLM_API_KEY`. The run covered organizer login and task/design/roster/workbench/review/delivery routes, the missing-subject review route, the submitter login entry, and 320px/390px/1440px viewports. Evidence and raw measurements are in this directory; `results.json` was generated at `2026-10-25T08:34:51.603Z`.

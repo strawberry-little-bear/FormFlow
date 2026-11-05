@@ -1,5 +1,8 @@
 # Agent Runtime Manifest Walkthrough
 
+
+> 这是一份历史验证存档：记录指定版本、数据和环境下的用户可见结果。它不是产品介绍、开发日报或未来承诺。
+
 Date: 2026-10-25
 
 Environment: local demo service at `http://127.0.0.1:8000`; browser automation used the bundled Playwright package with the installed Google Chrome executable. The walkthrough used the read-only organizer script `scripts/ux_walkthrough_2026-10-25.cjs` and wrote screenshots into this directory.
