@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+from contextlib import asynccontextmanager
 from typing import Any
 from urllib.parse import urlparse
 
@@ -46,10 +47,25 @@ def _api_client_from_env() -> httpx.AsyncClient:
     )
 
 
-def create_server(client: httpx.AsyncClient | None = None) -> MCPServer:
+def create_server(
+    client: httpx.AsyncClient | None = None,
+    *,
+    close_client_on_exit: bool = False,
+) -> MCPServer:
     """Build the server; client injection keeps protocol tests isolated."""
     api = client
-    server = MCPServer("FormFlow Organizer Read-only")
+    lifespan = None
+    if close_client_on_exit and client is not None:
+        @asynccontextmanager
+        async def close_client(_server: MCPServer):
+            try:
+                yield
+            finally:
+                await client.aclose()
+
+        lifespan = close_client
+
+    server = MCPServer("FormFlow Organizer Read-only", lifespan=lifespan)
     readonly = ToolAnnotations(readOnlyHint=True, destructiveHint=False)
 
     async def request(path: str) -> Any:
@@ -231,12 +247,7 @@ def create_server(client: httpx.AsyncClient | None = None) -> MCPServer:
 
 def main() -> None:
     client = _api_client_from_env()
-    try:
-        create_server(client).run(transport="stdio")
-    finally:
-        import asyncio
-
-        asyncio.run(client.aclose())
+    create_server(client, close_client_on_exit=True).run(transport="stdio")
 
 
 if __name__ == "__main__":
