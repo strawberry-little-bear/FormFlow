@@ -1,19 +1,19 @@
-# CI 与提交者校验续轮复核
+# CI 与提交者校验验证档案
 
 
 > 这是一份历史验证存档：记录指定版本、数据和环境下的用户可见结果。它不是产品介绍、开发日报或未来承诺。
 
-日期：2026-10-30
+验证日期：2026-10-30
 
 ## 验证范围
 
-解释 CI 反复失败的真实原因，确认修复在本机按 GitHub Actions 原顺序可复现，并验证提交者第一次校验失败后继续编辑不会留下过期的错误摘要。
+验证 CI 历史失败的原因，确认修复可以按 GitHub Actions 的执行顺序在本机复现，并验证提交者第一次校验失败后继续编辑不会留下过期的错误摘要。
 
 ## CI 结果与原因
 
 历史失败集中在四处：干净 runner 没有被 `.gitignore` 忽略的 `data/samples/` 解析夹具；Ubuntu 模拟 Windows `tasklist` 时使用了不存在的 `mbcs` codec；Windows 前端契约中的异步测试主体误包住了后续用例，导致后续用例被取消；GitHub Actions 使用旧 Node 20 runtime。
 
-当前处理分别是：工作流在 pytest 前运行 `python scripts/make_samples.py`；测试夹具改为 ASCII bytes，生产代码在 Windows 优先使用 `mbcs`、跨平台测试时回退本地首选编码；异步契约测试拆成独立的 `test()`；checkout、setup-python、setup-node 升级到 v7，Python 3.12 和 Node.js 22 保持不变。
+对应处理是：工作流在 pytest 前运行 `python scripts/make_samples.py`；测试夹具改为 ASCII bytes，生产代码在 Windows 优先使用 `mbcs`、跨平台测试时回退本地首选编码；异步契约测试拆成独立的 `test()`；checkout、setup-python、setup-node 升级到 v7，Python 3.12 和 Node.js 22 保持不变。
 
 ## 本机 CI 等价检查
 
@@ -33,6 +33,6 @@
 2. 填写姓名并上传报告后，错误摘要自动隐藏，字段恢复为有效状态；刷新错误摘要没有再次抢焦点。
 3. 上传接口返回 HTTP 200；本次浏览器检查无控制台错误、页面错误或失败 HTTP 响应。
 
-## 结论
+## 结论与边界
 
-CI 失败不是业务规则本身不稳定，而是测试夹具、跨平台编码、异步测试边界和 Action runtime 的组合问题。当前代码在本机完整等价检查通过，提交者校验也完成了从失败到修正的闭环。下一步只需将本轮业务代码、测试和记录提交并推送，再确认新的双平台 Actions 运行。
+CI 历史失败来自测试夹具、跨平台编码、异步测试边界和 Action runtime 的组合问题，而不是业务规则本身不稳定。当前代码在本机完整等价检查通过，提交者校验也完成了从失败到修正的闭环。该记录只覆盖本机等价检查和本地浏览器，不替代 GitHub Actions 双平台运行、真实模型评估或公网部署验收。
