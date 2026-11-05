@@ -8,11 +8,15 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass
 from typing import Optional
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from ..llm import LLMClient, LLMError, LLMUnavailable, get_client
+from ..llm import (DocumentInput, LLMClient, LLMError, LLMInputUnsupported,
+                   LLMUnavailable, get_client)
+from ..config import settings
+from ..parsing import ParseError, parse_file
 from pydantic import ValidationError
 from ..schemas import (
     Blueprint,
@@ -32,6 +36,97 @@ SOURCE_MATERIAL_KINDS = {"notice", "roster", "template", "attachment", "other"}
 MAX_SOURCE_MATERIALS = 8
 MAX_SOURCE_MATERIAL_CHARS = 12_000
 MAX_SOURCE_TOTAL_CHARS = 30_000
+MAX_CLARIFICATIONS = 3
+
+
+@dataclass(frozen=True)
+class RequirementsSkillSpec:
+    """Executable contract for the requirements Agent workflow.
+
+    The prompt explains the method to the model; this contract gives the
+    application something concrete to validate and expose in the runtime
+    manifest.  The durable request queue remains the execution harness for
+    this application-owned skill.
+    """
+
+    name: str
+    description: str
+    stages: tuple[str, ...]
+    max_source_materials: int
+    max_source_material_chars: int
+    max_source_total_chars: int
+    max_clarifications: int
+    idempotency: str
+    version_conflict: str
+    human_gate: str
+
+
+REQUIREMENTS_DRAFT_SKILL = RequirementsSkillSpec(
+    name="requirements_draft",
+    description="读取并分类来源资料，整理有来源的蓝图草案，提出澄清；不自行发布。",
+    stages=(
+        "classify_sources",
+        "extract_requirements",
+        "check_conflicts",
+        "compile_blueprint",
+        "ask_clarifications",
+        "return_editable_draft",
+        "organizer_publish_gate",
+    ),
+    max_source_materials=MAX_SOURCE_MATERIALS,
+    max_source_material_chars=MAX_SOURCE_MATERIAL_CHARS,
+    max_source_total_chars=MAX_SOURCE_TOTAL_CHARS,
+    max_clarifications=MAX_CLARIFICATIONS,
+    idempotency="task_account_request_id",
+    version_conflict="fail_closed",
+    human_gate="发布前必须由组织者确认",
+)
+
+
+def requirements_skill_manifest() -> dict[str, object]:
+    """Return the non-sensitive, server-owned requirements Skill contract."""
+    return {
+        "name": REQUIREMENTS_DRAFT_SKILL.name,
+        "description": REQUIREMENTS_DRAFT_SKILL.description,
+        "stages": list(REQUIREMENTS_DRAFT_SKILL.stages),
+        "source_limits": {
+            "materials": REQUIREMENTS_DRAFT_SKILL.max_source_materials,
+            "per_material_chars": REQUIREMENTS_DRAFT_SKILL.max_source_material_chars,
+            "total_chars": REQUIREMENTS_DRAFT_SKILL.max_source_total_chars,
+        },
+        "max_clarifications": REQUIREMENTS_DRAFT_SKILL.max_clarifications,
+        "idempotency": REQUIREMENTS_DRAFT_SKILL.idempotency,
+        # Keep the explicit runtime-facing name used by older showcase clients.
+        "request_idempotency": REQUIREMENTS_DRAFT_SKILL.idempotency,
+        "version_conflict": REQUIREMENTS_DRAFT_SKILL.version_conflict,
+        "human_gate": REQUIREMENTS_DRAFT_SKILL.human_gate,
+        "execution": "application_service",
+        "allowed_tools": [],
+    }
+
+
+def requirements_skill_self_test() -> dict[str, object]:
+    """Validate the contract without calling a model or reading materials."""
+    checks = [
+        ("source_classification", REQUIREMENTS_DRAFT_SKILL.stages[0] == "classify_sources"),
+        ("source_limits", all(v > 0 for v in (
+            REQUIREMENTS_DRAFT_SKILL.max_source_materials,
+            REQUIREMENTS_DRAFT_SKILL.max_source_material_chars,
+            REQUIREMENTS_DRAFT_SKILL.max_source_total_chars,
+        ))),
+        ("clarification_bound", REQUIREMENTS_DRAFT_SKILL.max_clarifications <= 3),
+        ("publish_gate", REQUIREMENTS_DRAFT_SKILL.human_gate != ""),
+        ("durable_idempotency", REQUIREMENTS_DRAFT_SKILL.idempotency == "task_account_request_id"),
+        ("fail_closed_conflict", REQUIREMENTS_DRAFT_SKILL.version_conflict == "fail_closed"),
+    ]
+    passed = sum(1 for _, ok in checks if ok)
+    return {
+        "status": "passed" if passed == len(checks) else "needs_attention",
+        "passed": passed,
+        "total": len(checks),
+        "checks": [{"id": key, "passed": ok} for key, ok in checks],
+        "note": "只验证需求 Skill 的阶段、输入边界、幂等和发布门槛；没有调用模型。",
+    }
 
 SYSTEM_PROMPT = """你是"收齐啦"平台的需求 Agent。把组织者的自然语言收集要求编译成结构化任务蓝图草案。
 
@@ -559,6 +654,7 @@ def draft_blueprint(
     client: Optional[LLMClient] = None,
     prior_source: str = "",
     source_materials: Optional[list[dict]] = None,
+    source_documents: Optional[list[DocumentInput]] = None,
 ) -> DraftResult:
     """需求 Agent 主入口：自然语言要求 → 蓝图草案。"""
     normalized_materials = normalize_source_materials(source_materials)
@@ -568,14 +664,54 @@ def draft_blueprint(
             warnings=["输入为空：不生成虚构要求，请填写原始要求或选择模板"],
         )
     client = client or get_client()
+    source_documents = list(source_documents or [])
     system = REVISION_SYSTEM_PROMPT if current_draft is not None else SYSTEM_PROMPT
+    messages = [
+        {"role": "system", "content": system},
+        {"role": "user", "content": _build_user_prompt(requirement_text, template, answered, current_draft, instruction, normalized_materials)},
+    ]
     try:
-        payload = client.chat_json(
-            [
-                {"role": "system", "content": system},
-                {"role": "user", "content": _build_user_prompt(requirement_text, template, answered, current_draft, instruction, normalized_materials)},
-            ]
-        )
+        if source_documents and client.direct_documents_enabled:
+            try:
+                payload = client.chat_json_documents(messages, source_documents)
+            except LLMInputUnsupported as exc:
+                if settings.llm_input_mode == "direct":
+                    return DraftResult(
+                        blueprint=current_draft or Blueprint(),
+                        warnings=[f"原始文件直传不可用（{exc}）；当前配置禁止文字/OCR 降级。"],
+                        source_materials=source_material_summaries(normalized_materials),
+                    )
+                # auto 模式才进入本地文字解析/OCR，避免 direct 约束被偷偷绕过。
+                payload = None
+            except LLMError:
+                if settings.llm_input_mode == "direct":
+                    raise
+                payload = None
+            if payload is None:
+                fallback_materials: list[dict] = []
+                for material, document in zip(normalized_materials, source_documents):
+                    content = material["content"]
+                    if not content or content.startswith("（原始文件尚未"):
+                        try:
+                            parsed = parse_file(
+                                document.path,
+                                allow_ocr=settings.llm_input_mode in {"auto", "ocr"},
+                            )
+                            content = "\n\n".join(p for p in parsed.pages if p.strip())
+                            if parsed.unread_pages or parsed.failed_pages:
+                                content += ("\n【部分页面未读，不能据此判定材料缺失】"
+                                            if content else "【文件存在未读页面】")
+                        except (ParseError, OSError) as exc:
+                            content = f"【文件解析失败：{str(exc)[:180]}】"
+                    fallback_materials.append({**material, "content": content})
+                fallback_materials = normalize_source_materials(fallback_materials)
+                fallback_messages = [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": _build_user_prompt(requirement_text, template, answered, current_draft, instruction, fallback_materials)},
+                ]
+                payload = client.chat_json(fallback_messages)
+        else:
+            payload = client.chat_json(messages)
         result = _parse_draft(payload)
     except LLMUnavailable as e:
         return DraftResult(

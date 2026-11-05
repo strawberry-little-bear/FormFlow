@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from ..agents.requirements_agent import (blueprint_diff, build_source_text, draft_blueprint,
                                            template_blueprint, validate_blueprint)
-from ..llm import LLMClient
+from ..llm import DocumentInput, LLMClient
 from ..models import (
     RUN_QUEUED,
     RUN_RUNNING,
@@ -174,12 +174,15 @@ def _design_history(db: Session, task: Task) -> list[dict]:
 
 def draft_from_requirement(db: Session, task: Task, requirement_text: str,
                            template: Optional[str] = None,
-                           source_materials: Optional[list[dict]] = None) -> tuple[DraftResult, BlueprintVersion]:
+                           source_materials: Optional[list[dict]] = None,
+                           source_documents: Optional[list[DocumentInput]] = None) -> tuple[DraftResult, BlueprintVersion]:
     """需求 Agent 起草并保存草案。模型不可用时保留原草案并给警告。"""
     ensure_task_writable(task)
     kwargs = {"template": template}
     if source_materials:
         kwargs["source_materials"] = source_materials
+    if source_documents:
+        kwargs["source_documents"] = source_documents
     result = draft_blueprint(requirement_text, **kwargs)
     bp = save_draft(db, task, result,
                     source_text=build_source_text(requirement_text,
@@ -220,6 +223,7 @@ def revise_draft(db: Session, task: Task, blueprint_version_id: int, *,
                  requirement: str = "", answered: Optional[dict] = None,
                  instruction: str = "",
                  source_materials: Optional[list[dict]] = None,
+                 source_documents: Optional[list[DocumentInput]] = None,
                  client: Optional[LLMClient] = None) -> tuple[DraftResult, BlueprintVersion, dict]:
     """澄清轮次闭环：组织者回答澄清/提出修改意见后，基于当前草案修订（第 3 节）。
 
@@ -236,7 +240,8 @@ def revise_draft(db: Session, task: Task, blueprint_version_id: int, *,
     result = draft_blueprint(requirement, answered=answered or {},
                              current_draft=current, instruction=instruction,
                              prior_source=prior_source, client=client,
-                             source_materials=source_materials)
+                             source_materials=source_materials,
+                             source_documents=source_documents)
     _restore_dropped_check_specs(current, result.blueprint)
     if result.blueprint.model_dump() == current.model_dump():
         # 无实质变化（含模型不可用降级保留原草案）：不制造新版本

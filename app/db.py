@@ -65,6 +65,7 @@ _SQLITE_COLUMNS = {
     "manual_decisions": [("eligibility", "VARCHAR(16)"), ("eligibility_members_hash", "VARCHAR(64)"),
                          ("revokes_decision_id", "INTEGER REFERENCES manual_decisions(id)")],
     "check_runs": [("execution_mode", "VARCHAR(24) DEFAULT 'live'")],
+    "rule_results": [("organizer_next_step", "TEXT DEFAULT ''")],
 }
 
 

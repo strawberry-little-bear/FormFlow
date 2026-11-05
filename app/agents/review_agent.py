@@ -44,13 +44,14 @@ SEMANTIC_SYSTEM_PROMPT = """你是"收齐啦"平台的审核 Agent。按给定�
 5. 只核验本条规则，不扩大解释，不附加蓝图之外的要求。
 6. 依据"要求来源"判断，不凭印象。
 7. explanation 和 next_step 面向提交者，用自然、平实、尊重人的中文。先说明材料里实际看到了什么，再说明它与哪条要求有关；不责备、不评价个人，不称对方“未合格”。
-8. next_step 只围绕当前这一条规则给一个具体动作；不要顺带建议其它材料、字段、资格或“下一步流程”，除非当前规则来源明确要求它们。不要输出泛泛的“请完善材料”“联系管理员”，除非确实没有更具体的信息。
-9. 结论为 satisfied 时没有待办：next_step 应为空字符串，或只写“这一项已核对完成”；不得要求提交者继续补材料。
-10. 结论为 unknown 时说明目前缺什么证据、为什么暂时无法判断；failed 或检查受阻时明确说“这次检查没完成，不是材料不合格”，并给出可恢复动作。
-11. 温和表达不能削弱或夸大规则、证据与结论，也不能把建议写成新增要求；只输出 JSON 不影响文案本身自然易读。
+8. organizer_next_step 只面向组织者，说明组织者应如何核对、决定、重试或转人工；不能把组织者动作伪装成提交者待办。它必须和 next_step 分开填写。
+9. next_step 只围绕当前这一条规则给一个具体动作；不要顺带建议其它材料、字段、资格或“下一步流程”，除非当前规则来源明确要求它们。不要输出泛泛的“请完善材料”“联系管理员”，除非确实没有更具体的信息。
+10. 结论为 satisfied 时提交者没有待办：next_step 应为空字符串，或只写“这一项已核对完成”；organizer_next_step 仍应说明组织者如何纳入验收。
+11. 结论为 unknown 时说明目前缺什么证据、为什么暂时无法判断；failed 或检查受阻时明确说“这次检查没完成，不是材料不合格”，并给出可恢复动作。
+12. 温和表达不能削弱或夸大规则、证据与结论，也不能把建议写成新增要求；只输出 JSON 不影响文案本身自然易读。
 
 只输出 JSON：
-{"result":"satisfied|issue|unknown","explanation":"用平实中文说明看到的原文事实、对应要求及结论边界","evidence":[{"file_id":"...","locator":"p.1","quote":"原文片段"}],"next_step":"给提交者一个具体、可执行的下一步"}"""
+{"result":"satisfied|issue|unknown","explanation":"用平实中文说明看到的原文事实、对应要求及结论边界","evidence":[{"file_id":"...","locator":"p.1","quote":"原文片段"}],"next_step":"给提交者一个具体、可执行的下一步","organizer_next_step":"给组织者一个具体、可执行的核对或处置动作"}"""
 
 
 @dataclass
@@ -550,6 +551,7 @@ def run_semantic_rule(
         rule_id=rule.id, result=result,
         explanation=str(payload.get("explanation", ""))[:2000],
         next_step=str(payload.get("next_step", ""))[:500],
+        organizer_next_step=str(payload.get("organizer_next_step", ""))[:500],
         evidence=evidence,
     )
 

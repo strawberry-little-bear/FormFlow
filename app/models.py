@@ -48,6 +48,14 @@ FILE_PROCESSING = "processing"
 FILE_READY = "ready"
 FILE_FAILED = "failed"
 
+# 组织者来源资料（通知、名单、模板与附件）的读取状态。来源资料与提交者
+# FileObject 分开建模，避免把组织者私有材料混入提交版本或公开响应。
+SOURCE_RECEIVED = "received"
+SOURCE_PROCESSING = "processing"
+SOURCE_READY = "ready"
+SOURCE_UNREAD = "unread"
+SOURCE_FAILED = "failed"
+
 # 检查运行
 RUN_QUEUED = "queued"
 RUN_RUNNING = "running"
@@ -288,6 +296,35 @@ class FileObject(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow_naive)
 
 
+class RequirementSourceMaterial(Base):
+    """组织者用于生成收集规则的私有来源资料。
+
+    原件按稳定 source_id 存在受控存储中；解析摘要仅用于模型降级，API 不直接
+    返回正文，审计事件只记录 source_id 与状态。
+    """
+
+    __tablename__ = "requirement_source_materials"
+    __table_args__ = (UniqueConstraint("task_id", "source_id", name="uq_requirement_source"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id"), index=True)
+    source_id: Mapped[str] = mapped_column(String(48), unique=True, index=True)
+    kind: Mapped[str] = mapped_column(String(16), default="other")
+    original_name: Mapped[str] = mapped_column(String(255))
+    safe_name: Mapped[str] = mapped_column(String(255))
+    mime: Mapped[str] = mapped_column(String(128), default="")
+    size: Mapped[int] = mapped_column(Integer, default=0)
+    sha256: Mapped[str] = mapped_column(String(64), default="")
+    status: Mapped[str] = mapped_column(String(16), default=SOURCE_RECEIVED)
+    extracted_text: Mapped[str] = mapped_column(Text, default="")
+    parse_method: Mapped[str] = mapped_column(String(32), default="none")
+    parse_error: Mapped[str] = mapped_column(Text, default="")
+    storage_path: Mapped[str] = mapped_column(String(512), default="")
+    created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("accounts.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow_naive)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow_naive,
+                                                  onupdate=_utcnow_naive)
+
+
 class ParseIndex(Base):
     """文件解析索引：文本/页数与覆盖记录，供审核 Agent 只读使用。"""
 
@@ -336,6 +373,7 @@ class RuleResult(Base):
     severity: Mapped[str] = mapped_column(String(16), default="blocking")  # blocking/advisory
     explanation: Mapped[str] = mapped_column(Text, default="")
     next_step: Mapped[str] = mapped_column(Text, default="")
+    organizer_next_step: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow_naive)
 
 

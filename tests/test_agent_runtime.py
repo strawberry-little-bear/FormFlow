@@ -67,7 +67,7 @@ def test_agent_runtime_manifest_is_owner_scoped_and_descriptive(db_session):
         assert payload["harness"]["semantic_model_calls_per_run"] == settings.max_llm_calls_per_run
         assert payload["harness"]["parsed_pages_per_run"] == settings.max_pages_per_run
         assert payload["contract_self_test"]["status"] == "passed"
-        assert payload["contract_self_test"]["passed"] == payload["contract_self_test"]["total"] == 5
+        assert payload["contract_self_test"]["passed"] == payload["contract_self_test"]["total"] == 6
         assert "没有调用模型" in payload["contract_self_test"]["note"]
         assert {tool["name"] for tool in payload["tools"]} == {
             "review.deterministic_rule", "review.semantic_rule"
@@ -77,9 +77,17 @@ def test_agent_runtime_manifest_is_owner_scoped_and_descriptive(db_session):
         requirements = next(skill for skill in payload["skills"] if skill["name"] == "requirements_draft")
         assert requirements["allowed_tools"] == []
         assert requirements["execution"] == "application_service"
+        assert requirements["stages"] == [
+            "classify_sources", "extract_requirements", "check_conflicts",
+            "compile_blueprint", "ask_clarifications", "return_editable_draft",
+            "organizer_publish_gate",
+        ]
+        assert requirements["source_limits"]["materials"] == 8
+        assert requirements["max_clarifications"] == 3
         assert requirements["request_idempotency"] == "task_account_request_id"
         assert requirements["version_conflict"] == "fail_closed"
         assert requirements["human_gate"]
+        assert requirements["self_test"]["status"] == "passed"
 
 
 def test_mcp_snapshot_is_owner_scoped_and_redacted(db_session):

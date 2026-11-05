@@ -157,4 +157,23 @@ class RuleResultOut(BaseModel):
     result: str  # satisfied/issue/unknown/not_applicable/failed
     explanation: str = ""
     next_step: str = ""
+    organizer_next_step: str = ""
     evidence: list[EvidenceOut] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def fill_organizer_next_step(self):
+        """Keep organizer handling explicit even for older tools/providers."""
+        if self.organizer_next_step.strip():
+            return self
+        defaults = {
+            "satisfied": "组织者核对证据后，可将本条纳入当前版本验收。",
+            "issue": "组织者核对证据并决定：确认问题后要求补正，或记录有范围的人工例外。",
+            "unknown": "组织者核对原件或补充证据；在确认前不要按缺失或不满足处理。",
+            "failed": "组织者查看检查失败原因，重试检查或转人工核对。",
+            "manual_pending": "组织者按要求人工核对，并记录决定与理由。",
+            "not_applicable": "组织者确认适用条件不成立，并保留本条不适用的依据。",
+        }
+        self.organizer_next_step = defaults.get(
+            self.result, "组织者核对本条结果后决定下一步。"
+        )
+        return self

@@ -7,12 +7,29 @@ from app.agents.requirements_agent import (
     build_source_text,
     draft_blueprint,
     normalize_source_materials,
+    requirements_skill_manifest,
+    requirements_skill_self_test,
     template_blueprint,
     validate_blueprint,
 )
 from app.schemas import Blueprint, FieldDef, RuleDef, SlotDef, TimePolicy
 
 REQUIREMENT = "请名册内同学提交 2026 秋季第 1 期团课报告，包含姓名和期次，PDF 或 DOCX，最大 10 MiB、20 页，11 月 8 日 18:00 前提交。"
+
+
+def test_requirements_skill_contract_is_bounded_and_publish_gated():
+    manifest = requirements_skill_manifest()
+    assert manifest["name"] == "requirements_draft"
+    assert manifest["allowed_tools"] == []
+    assert manifest["execution"] == "application_service"
+    assert manifest["source_limits"] == {
+        "materials": 8, "per_material_chars": 12_000, "total_chars": 30_000,
+    }
+    assert manifest["max_clarifications"] == 3
+    assert manifest["idempotency"] == "task_account_request_id"
+    assert manifest["version_conflict"] == "fail_closed"
+    assert manifest["human_gate"] == "发布前必须由组织者确认"
+    assert requirements_skill_self_test()["status"] == "passed"
 
 
 def _draft_payload():

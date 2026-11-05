@@ -181,7 +181,8 @@ def _execute_check_pipeline(db: Session, run: CheckRun, client=None) -> CheckRun
     for r in outcome.results:
         rr = RuleResult(run_id=run.id, rule_id=r.rule_id, result=r.result,
                         severity=_severity_of(blueprint, r.rule_id),
-                        explanation=r.explanation, next_step=r.next_step)
+                        explanation=r.explanation, next_step=r.next_step,
+                        organizer_next_step=r.organizer_next_step)
         db.add(rr)
         db.flush()
         for ev in r.evidence:
@@ -325,6 +326,7 @@ def rule_details(db: Session, run: Optional[CheckRun]) -> list[dict]:
         out.append({
             "rule_id": r.rule_id, "result": r.result, "severity": r.severity,
             "explanation": r.explanation, "next_step": r.next_step,
+            "organizer_next_step": r.organizer_next_step,
             "requirement": rules_meta.get(r.rule_id, {}),
             "evidence": evs,
         })
@@ -345,7 +347,8 @@ def review_rule_details(db: Session, run: Optional[CheckRun], task: Task,
             rows.append({"rule_id": rule.id, "result": "manual_pending",
                          "severity": rule.severity, "requirement": rule.model_dump(),
                          "explanation": "此项须由组织者人工核对，系统不生成机器结论。",
-                         "next_step": "核对材料后，记录本项决定与理由。", "evidence": []})
+                         "next_step": "这一项由组织者处理，你暂时不用修改材料。",
+                         "organizer_next_step": "核对材料后，记录本项决定与理由。", "evidence": []})
     effects = effective_rules(_active_decisions(db, task.id, subject_id, revision_id))
     for row in rows:
         d = effects.get(row["rule_id"])

@@ -607,7 +607,9 @@ function submitterGuidance(r) {
       ? "系统当时还不能确认这一项，组织者已经人工核对过了，原始意见和后续处理分开展示。"
       : "组织者已记录处理结果，原始检查意见和人工决定会分开展示。"
     : "组织者确认这项还需要处理，可以按下方建议补充或核对。";
-  if (r.result === "issue") return "这项材料还需要核对；只针对这条收集要求，不是在评价你本人。";
+  if (r.result === "issue") return r.decision
+    ? "组织者已确认这项需要处理；请按下方补正建议修改后重新正式提交。"
+    : "这项材料还需要核对；只针对这条收集要求，不是在评价你本人。";
   if (r.result === "unknown") return "目前还没能从材料中找到足够清楚、可核对的依据；这不代表缺失，组织者可以帮你确认。";
   if (r.result === "failed") return "这次检查没能完成，材料已经收到；这不代表不合格。你可以稍后再看，组织者也可以重试或人工核对。";
   if (r.result === "manual_pending") return "这一项由组织者来确认，你暂时不用修改材料。";
@@ -625,6 +627,8 @@ function submitterNextStep(r) {
   if (r.result === "satisfied") return "";
   if (r.decision?.resolves) return "组织者已处理这一项，无需重复提交。";
   const raw = String(r.next_step || "").trim();
+  if (r.result === "issue" && !r.decision)
+    return raw || "先等待组织者核对；如果组织者确认需要补正，页面会显示具体修改动作。";
   if (r.result === "unknown" && (!raw || /转人工|人工复核|模型结论|无法判断/.test(raw)))
     return "请联系组织者帮你确认；如果方便，也可以补一份更清晰的材料。";
   if (r.result === "failed") return "稍后刷新查看；如果赶截止时间，请联系组织者协助核对。";
@@ -717,8 +721,11 @@ function jumpToSubmitResults() {
   target.scrollIntoView?.({behavior: reduceMotion ? "auto" : "smooth", block: "start"});
   target.focus?.({preventScroll: true});
 }
-const ruleCard = (r) => {
-  const explanation = submitterExplanation(r), nextStep = submitterNextStep(r);
+const ruleCard = (r, audience = "submitter") => {
+  const explanation = submitterExplanation(r);
+  const nextStep = audience === "organizer"
+    ? String(r.organizer_next_step || r.next_step || "组织者核对本条结果后决定下一步。")
+    : submitterNextStep(r);
   const evidence = (r.evidence || []).map(e =>
     `<div class="evidence">[${esc(e.locator || "未标位置")} · ${esc(submitterEvidenceMethod(e.method))}] ${esc(e.quote || "")}</div>`).join("");
   const noEvidence = ["manual_pending", "failed"].includes(r.result) ? ""
@@ -729,7 +736,7 @@ const ruleCard = (r) => {
     <p class="result-human-note">${esc(submitterGuidance(r))}</p>
     ${r.decision ? `<div class="notice-warn"><b>${esc(DECISION_LABEL[r.decision.decision] || r.decision.decision)}</b><p>${esc(r.decision.reason)}</p><span>人工决定与原始检查结论分开保留。</span></div>` : ""}
     ${explanation ? `<p>${esc(explanation)}</p>` : ""}
-    ${nextStep ? `<div class="result-next-step"><b>${r.decision ? "组织者记录的后续建议" : "可以这样处理"}</b><p>${esc(nextStep)}</p></div>` : ""}
+    ${nextStep ? `<div class="result-next-step"><b>${audience === "organizer" ? "组织者处理建议" : r.decision ? "组织者记录的后续建议" : "可以这样处理"}</b><p>${esc(nextStep)}</p></div>` : ""}
     ${r.requirement && r.requirement.statement ?
       `<p class="kv">对应要求：${esc(submitterRequirementSource(r.requirement.requirement_source))}</p>` : ""}
     ${evidence || noEvidence}
@@ -3756,7 +3763,8 @@ function paintReview(taskId, sid) {
       ${active.decision ? `<div class="notice-warn"><b>${esc(DECISION_LABEL[active.decision.decision] || active.decision.decision)}</b><p>${esc(active.decision.reason)}</p><span class="muted">人工决定不改写原始检查结果；撤销后可重新核对。</span></div>` : ""}
       ${active.explanation ? `<p class="evidence-explanation">${esc(active.explanation)}</p>` : ""}
       ${(active.evidence || []).length ? `<div class="evidence-list">${active.evidence.map(e => { const file = e.file_id ? reviewFiles.get(e.file_id) : null; const fileLink = file?.url ? `<a class="evidence-file-link" href="${esc(file.url)}" data-file-url="${esc(file.url)}" onclick="return openReviewFile(event,this.dataset.fileUrl)" target="_blank" rel="noreferrer">${icon("delivery")} 打开原件 · ${esc(file.name || "未命名文件")}</a>` : ""; return `<blockquote class="evidence"><span class="evidence-loc">${esc(e.locator || "未标注位置")} · ${esc(e.method || "-")}</span>${fileLink}${esc(e.quote || "")}</blockquote>`; }).join("")}</div>` : `<p class="muted">这条规则没有可引用的原文证据。</p>`}
-      ${active.next_step ? `<div class="evidence-next"><b>${active.decision ? "原始检查建议" : "下一步"}</b><p>${esc(active.next_step)}</p></div>` : ""}
+      ${active.next_step ? `<div class="evidence-next"><b>${active.decision ? "提交者补正建议" : "提交者可执行动作"}</b><p>${esc(active.next_step)}</p></div>` : ""}
+      ${active.organizer_next_step ? `<div class="evidence-next organizer-next-step"><b>组织者处理建议</b><p>${esc(active.organizer_next_step)}</p></div>` : ""}
     </article>` : `<article class="evidence-detail" id="review-evidence" tabindex="-1"><p class="muted">${rules.length ? "点击左侧任意一条规则查看证据。" : "暂时没有可展示的规则证据。"}</p></article>`;
 
   const decision = `<section class="card decision-panel" id="review-decision" tabindex="-1" aria-label="人工决定">
@@ -4622,7 +4630,7 @@ async function loadMyResults() {
       html += `<h3>需要你补正（${todo.length}）</h3><p>组织者已确认这些项目需要修改。请补齐或更正材料后重新正式提交；当前版本不能验收。</p>` + todo.map(ruleCard).join("");
     }
     if (organizerItems.length) {
-      html += `<section class="notice-warn"><b>组织者待办（${organizerItems.length}）</b><p>这些项目需要组织者判断、核对或重新完成检查。你不需要为此重复提交材料；如上方列有需要补正的项目，请只处理那些项目。</p>${organizerItems.map(ruleCard).join("")}</section>`;
+      html += `<section class="notice-warn"><b>组织者待办（${organizerItems.length}）</b><p>这些项目需要组织者判断、核对或重新完成检查。你不需要为此重复提交材料；如上方列有需要补正的项目，请只处理那些项目。</p>${organizerItems.map(x => ruleCard(x, "organizer")).join("")}</section>`;
     }
     if (done.length) {
       html += `<p class="kv">已按要求核对完成 ${done.length} 项。</p>`;
