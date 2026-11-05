@@ -25,12 +25,26 @@ class ParseError(Exception):
 @dataclass
 class ParseResult:
     pages: list[str] = field(default_factory=list)
+    # Page numbers stay aligned with ``pages``.  Older callers may construct
+    # ParseResult with only text, so __post_init__ supplies a safe sequential
+    # fallback for those call sites.
+    page_numbers: list[int] = field(default_factory=list)
+    unread_page_numbers: list[int] = field(default_factory=list)
+    failed_page_numbers: list[int] = field(default_factory=list)
     method: str = "text"            # text / ocr / mixed / visual / none
     unread_pages: int = 0           # 需要 OCR 但失败/超限的页
     failed_pages: int = 0
     ocr_pages: int = 0              # 经 OCR 成功提取文字的页数
     detected: str = ""              # 按内容检测到的真实类型：pdf/docx/image/text
     error: str = ""
+
+    def __post_init__(self) -> None:
+        if self.pages and not self.page_numbers:
+            self.page_numbers = list(range(1, len(self.pages) + 1))
+        if self.unread_page_numbers:
+            self.unread_pages = max(self.unread_pages, len(self.unread_page_numbers))
+        if self.failed_page_numbers:
+            self.failed_pages = max(self.failed_pages, len(self.failed_page_numbers))
 
     @property
     def total_pages(self) -> int:
@@ -48,6 +62,45 @@ class ParseResult:
     def coverage_complete(self) -> bool:
         """关键范围是否完整覆盖。未读/失败页存在时语义结论必须 unknown。"""
         return self.unread_pages == 0 and self.failed_pages == 0
+
+
+def format_parse_text(result: ParseResult) -> str:
+    """Render parser output with stable, human-readable page markers.
+
+    The text layer is a fallback input, not proof that every page was read.
+    Keeping unread/failed page markers beside the readable pages lets the
+    Agents cite ``p.N`` without silently treating missing pages as empty.
+    """
+    sections: list[str] = []
+    numbers = result.page_numbers or list(range(1, len(result.pages) + 1))
+    for number, text in zip(numbers, result.pages):
+        if text and text.strip():
+            sections.append(f"【第 {number} 页】\n{text.strip()}")
+    unread_numbers = result.unread_page_numbers
+    if unread_numbers:
+        for number in unread_numbers:
+            sections.append(
+                f"【第 {number} 页：未读】\n"
+                "（当前页面未形成文字缓存；优先尝试模型直读，不能据此判断材料缺失）"
+            )
+    elif result.unread_pages:
+        sections.append(
+            f"【未读页面：{result.unread_pages} 页】\n"
+            "（当前页面未形成文字缓存；优先尝试模型直读，不能据此判断材料缺失）"
+        )
+    failed_numbers = result.failed_page_numbers
+    if failed_numbers:
+        for number in failed_numbers:
+            sections.append(
+                f"【第 {number} 页：解析失败】\n"
+                "（页面读取失败，不能据此判断材料缺失）"
+            )
+    elif result.failed_pages:
+        sections.append(
+            f"【解析失败页面：{result.failed_pages} 页】\n"
+            "（页面读取失败，不能据此判断材料缺失）"
+        )
+    return "\n\n".join(sections)
 
 
 # ---------------------------------------------------------------- OCR 引擎（懒加载单例）
@@ -125,6 +178,8 @@ def _parse_pdf(path: Path, *, allow_ocr: bool = True) -> ParseResult:
         if doc.needs_pass and not doc.authenticate(""):
             raise ParseError("PDF 已加密，无法读取")
         pages: list[str] = []
+        page_numbers: list[int] = []
+        unread_page_numbers: list[int] = []
         ocr_pages = 0
         unread = 0
         deadline = time.monotonic() + settings.ocr_time_budget_seconds
@@ -136,22 +191,27 @@ def _parse_pdf(path: Path, *, allow_ocr: bool = True) -> ParseResult:
                 text = ""
             if text.strip():
                 pages.append(text)
+                page_numbers.append(i + 1)
                 continue
             # 无文字层：扫描件或图片页，按需 OCR（受页数与时限预算约束）。
             # 直传模式先不启动 OCR，避免在模型已能读取原件时重复处理。
             if not allow_ocr:
                 unread += 1
+                unread_page_numbers.append(i + 1)
                 continue
             if ocr_budget <= 0 or time.monotonic() > deadline:
                 unread += 1
+                unread_page_numbers.append(i + 1)
                 continue
             ocr_budget -= 1
             text, _err = _ocr_rendered_page(page)
             if text:
                 pages.append(text)
+                page_numbers.append(i + 1)
                 ocr_pages += 1
             else:
                 unread += 1  # OCR 也没读出：未读页，语义结论必须 unknown
+                unread_page_numbers.append(i + 1)
         method = "text"
         if pages and ocr_pages == len(pages):
             method = "ocr"
@@ -159,8 +219,10 @@ def _parse_pdf(path: Path, *, allow_ocr: bool = True) -> ParseResult:
             method = "mixed"
         elif not pages:
             method = "none"
-        return ParseResult(pages=pages, method=method,
-                           unread_pages=unread, ocr_pages=ocr_pages)
+        return ParseResult(pages=pages, page_numbers=page_numbers,
+                           unread_page_numbers=unread_page_numbers,
+                           method=method, unread_pages=unread,
+                           ocr_pages=ocr_pages)
     finally:
         doc.close()
 
@@ -177,14 +239,16 @@ def _parse_docx(path: Path) -> ParseResult:
         for row in tbl.rows:
             parts.append(" | ".join(c.text for c in row.cells))
     if not parts:
-        return ParseResult(method="none", failed_pages=1, error="DOCX 无可用文本")
-    return ParseResult(pages=[chr(10).join(parts)], method="text")
+        return ParseResult(method="none", failed_pages=1,
+                           failed_page_numbers=[1], error="DOCX 无可用文本")
+    return ParseResult(pages=[chr(10).join(parts)], page_numbers=[1], method="text")
 
 
 def _parse_text(path: Path) -> ParseResult:
     for enc in ("utf-8", "gb18030"):
         try:
-            return ParseResult(pages=[path.read_text(encoding=enc)], method="text")
+            return ParseResult(pages=[path.read_text(encoding=enc)],
+                               page_numbers=[1], method="text")
         except UnicodeDecodeError:
             continue
     raise ParseError("文本编码无法识别")
@@ -194,11 +258,13 @@ def _parse_image(path: Path, *, allow_ocr: bool = True) -> ParseResult:
     """图片：整体作为一页 OCR。识别不了记未读（V07：不写成未填写）。"""
     if not allow_ocr:
         return ParseResult(method="visual", unread_pages=1,
+                           unread_page_numbers=[1],
                            error="等待模型直接读取原始图片")
     text, err = ocr_image(path)
     if text:
-        return ParseResult(pages=[text], method="ocr", ocr_pages=1)
+        return ParseResult(pages=[text], page_numbers=[1], method="ocr", ocr_pages=1)
     return ParseResult(method="visual", unread_pages=1,
+                       unread_page_numbers=[1],
                        error=err or "图片无法 OCR，标记未读")
 
 

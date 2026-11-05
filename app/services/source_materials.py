@@ -16,7 +16,7 @@ from ..models import (
     SOURCE_UNREAD,
     Task,
 )
-from ..parsing import ParseError, parse_file
+from ..parsing import ParseError, format_parse_text, parse_file
 
 SOURCE_KINDS = {"notice", "roster", "template", "attachment", "other"}
 MAX_SOURCE_COUNT = 8
@@ -87,7 +87,10 @@ def create(db: Session, task: Task, account: Account, *, kind: str,
         # 只建立文字缓存，不在上传阶段偷偷启动 OCR。无文字层的 PDF/图片
         # 保留 unread，需求 Agent 在直传失败时才按配置进入 OCR 降级。
         parsed = parse_file(path, allow_ocr=False)
-        row.extracted_text = "\n\n".join(p for p in parsed.pages if p.strip())
+        # Keep page boundaries in the fallback text.  The original file is
+        # still the source of truth, while these markers let the requirements
+        # Agent cite a stable page and expose unread coverage to the organizer.
+        row.extracted_text = format_parse_text(parsed)
         row.parse_method = parsed.method
         row.parse_error = parsed.error or ""
         row.status = SOURCE_UNREAD if parsed.unread_pages or parsed.failed_pages else SOURCE_READY

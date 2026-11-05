@@ -16,7 +16,7 @@ from zoneinfo import ZoneInfo
 from ..llm import (DocumentInput, LLMClient, LLMError, LLMInputUnsupported,
                    LLMUnavailable, get_client)
 from ..config import settings
-from ..parsing import ParseError, parse_file
+from ..parsing import ParseError, format_parse_text, parse_file
 from pydantic import ValidationError
 from ..schemas import (
     Blueprint,
@@ -40,7 +40,11 @@ MAX_CLARIFICATIONS = 3
 _UNVERIFIABLE_SOURCE_MARKERS = (
     "（原始文件尚未形成文字缓存",
     "【文件存在未读页面】",
+    "【未读页面：",
+    "：未读】",
+    "【覆盖提示】",
     "【文件解析失败：",
+    "【解析失败页面：",
 )
 
 
@@ -161,7 +165,7 @@ SYSTEM_PROMPT = """你是"收齐啦"平台的需求 Agent。把组织者的自�
 9. publish_summary 用简明中文写实际采纳的内容和待确认事项，不用模板化口号。
 10. 用平实、友好的中文写说明，像同事在一起把事情说清楚；不说教、不责备、不堆制度术语，也不使用“智能赋能、全面闭环”等宣传话。原要求不明确时坦诚说还不确定，并问一个组织者能直接回答的问题；不能为了显得周到而自作主张补要求。
 11. 每条 requirement_source 必须能在原始要求或已提供来源资料的正文中逐字定位；不要把来源资料的名称、名单内容或模型推断当作原文引用。
-12. 如果要求来自带 id 的来源资料，必须填写 source_material_id，并填写 source_locator（例如 p.2、表格第 3 行、field:deadline）；名单只能说明适用对象，不能作为收集要求来源。无法确定位置时不要猜，改为澄清或人工项。
+12. 如果要求来自带 id 的来源资料，必须填写 source_material_id，并填写 source_locator（例如 p.2、表格第 3 行、field:deadline）；名单只能说明适用对象，不能作为收集要求来源。无法确定位置时不要猜，改为澄清或人工项。文字缓存中的 `【第 N 页】` 是服务端保留的页码边界，应优先转换为 `p.N`；`未读` 或 `解析失败` 标记不能作为要求原文引用。
 
 只输出 JSON，格式：
 {
@@ -770,10 +774,10 @@ def draft_blueprint(
                                 document.path,
                                 allow_ocr=settings.llm_input_mode in {"auto", "ocr"},
                             )
-                            content = "\n\n".join(p for p in parsed.pages if p.strip())
+                            content = format_parse_text(parsed)
                             if parsed.unread_pages or parsed.failed_pages:
-                                content += ("\n【部分页面未读，不能据此判定材料缺失】"
-                                            if content else "【文件存在未读页面】")
+                                content += ("\n【覆盖提示】部分页面未读或解析失败，不能据此判定材料缺失"
+                                            if content else "【覆盖提示】文件存在未读或解析失败页面")
                         except (ParseError, OSError) as exc:
                             content = f"【文件解析失败：{str(exc)[:180]}】"
                     fallback_materials.append({**material, "content": content})

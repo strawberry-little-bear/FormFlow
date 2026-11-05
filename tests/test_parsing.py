@@ -16,7 +16,8 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import app.parsing as parsing  # noqa: E402
-from app.parsing import ParseError, ocr_available, parse_file  # noqa: E402
+from app.parsing import (ParseError, ParseResult, format_parse_text,
+                         ocr_available, parse_file)  # noqa: E402
 
 SAMPLES = Path(__file__).resolve().parent.parent / "data" / "samples"
 
@@ -30,6 +31,22 @@ def _ensure_samples():
 
 def _norm(s: str) -> str:
     return "".join((s or "").split())
+
+
+def test_format_parse_text_preserves_page_and_unread_locations():
+    result = ParseResult(
+        pages=["通知正文", "模板正文"],
+        page_numbers=[1, 3],
+        unread_pages=1,
+        unread_page_numbers=[2],
+    )
+
+    text = format_parse_text(result)
+
+    assert "【第 1 页】\n通知正文" in text
+    assert "【第 2 页：未读】" in text
+    assert "【第 3 页】\n模板正文" in text
+    assert "不能据此判断材料缺失" in text
 
 
 def test_normal_pdf_text_layer():

@@ -9,7 +9,7 @@ from typing import Any
 from .review_agent import CheckContext, FileInfo, _verify_quote, run_semantic_rule
 from ..llm import LLMClient
 from ..models import RESULT_FAILED, RESULT_ISSUE
-from ..parsing import ParseResult
+from ..parsing import ParseResult, format_parse_text
 from ..schemas import Blueprint, RuleDef
 
 ALLOWED_RESULTS = {"satisfied", "issue", "unknown"}
@@ -192,7 +192,7 @@ def evaluate_cases(cases: list[dict], client: LLMClient) -> dict:
         detected_issues += expected == RESULT_ISSUE and result.result == RESULT_ISSUE
         predicted_issues += result.result == RESULT_ISSUE
         evidence = result.evidence
-        file_texts = {f.file_id: "\n".join(f.parse.pages) for f in files}
+        file_texts = {f.file_id: format_parse_text(f.parse) for f in files}
         valid_count = sum(
             _verify_quote(item.quote, file_texts) == item.file_id
             for item in evidence
