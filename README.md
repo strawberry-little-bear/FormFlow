@@ -13,7 +13,7 @@
 
 FormFlow 不是一个替人填表的聊天机器人，而是一条从**需求设计、材料收集、逐条审核到版本化交付**的可追溯流水线。需求 Agent 把通知、名单和模板整理成可确认的收集规则；审核 Agent 按已发布规则比对表单与多份材料，并为每条结论留下证据位置、处理建议和人工接手边界。
 
-**项目标签**：`AI agents` · `agentic workflows` · `agent skills` · `agent harness` · `requirements engineering` · `document intelligence` · `document review` · `cross-document validation` · `evidence-based` · `traceability` · `human review` · `human-in-the-loop` · `form builder` · `form management` · `submission management` · `workflow automation` · `MCP` · `OpenAI-compatible` · `FastAPI` · `hackathon`
+**GitHub Topics**：`ai-agents` · `agentic-workflows` · `agent-skills` · `agent-harness` · `multi-agent` · `requirements-engineering` · `document-ai` · `document-intelligence` · `document-review` · `cross-document-validation` · `evidence-based` · `traceability` · `human-in-the-loop` · `form-management` · `submission-management` · `workflow-automation` · `mcp` · `openai-compatible` · `fastapi` · `pdf-processing`
 
 ![FormFlow Agent 展示视图：架构导览与当前收集任务（2026-10-30 实拍）](docs/ux-review-2026-10-30/showcase-home-current.png)
 
