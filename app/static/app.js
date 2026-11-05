@@ -1,7 +1,7 @@
 "use strict";
 /* 收齐啦 FormFlow 前端（P01–P05）。纯静态 SPA，直接调用 /api。 */
 const ORG_KEY = "ff_org_token", SUB_KEY = "ff_sub_token", PRESENTATION_KEY = "ff_tasks_presentation";
-const state = { taskId: null, chat: [], bpId: null, draft: null, requirement: "", answeredDone: false, files: {}, filesMeta: {}, draftVersion: null, me: null, lastJob: null, roster: {}, rosterEntries: [], rosterFilter: "all", rosterGrantBusy: false, designEpoch: 0, agentBusy: false, agentRequest: null, agentRequestPollTimer: 0, agentResumeStarted: false, agentRequestDisplayedId: null, draftStatus: "draft", draftVersionId: null, designTab: "preview", tasks: [], llmConfigured: null, agentRuntime: null, mcpSnapshot: null, mcpSnapshotLoading: false, mcpSnapshotRunning: false, mcpReplayIndex: null, mcpReplayTimer: 0, demoTaskId: null, designBlocking: [], designAdvisories: [], designVersions: [], designHistory: [], viewingVersion: null, viewingPublished: null, viewingImpact: null, wbRows: [], wbFilter: "all", reviewRule: null, reviewFilter: "all", reviewTraceFilter: "all", presentationMode: false, presentationStartAligned: false, timePolicySaving: false, submissionValidationAttempted: false };
+const state = { taskId: null, chat: [], bpId: null, draft: null, requirement: "", answeredDone: false, files: {}, filesMeta: {}, draftVersion: null, me: null, lastJob: null, roster: {}, rosterEntries: [], rosterFilter: "all", rosterGrantBusy: false, designEpoch: 0, agentBusy: false, agentRequest: null, agentRequestPollTimer: 0, agentResumeStarted: false, agentRequestDisplayedId: null, draftStatus: "draft", draftVersionId: null, designTab: "preview", tasks: [], llmConfigured: null, agentRuntime: null, mcpSnapshot: null, mcpSnapshotLoading: false, mcpSnapshotRunning: false, mcpReplayIndex: null, mcpReplayTimer: 0, demoTaskId: null, designBlocking: [], designAdvisories: [], designVersions: [], designHistory: [], viewingVersion: null, viewingPublished: null, viewingImpact: null, wbRows: [], wbFilter: "all", reviewRule: null, reviewFilter: "all", reviewTraceFilter: "all", presentationMode: false, presentationStartAligned: false, timePolicySaving: false, submissionValidationAttempted: false, sourceMaterials: [], sourceMaterialsLoading: false, sourceMaterialsBusy: false, sourceMaterialsError: "" };
 
 const orgToken = () => localStorage.getItem(ORG_KEY) || "";
 const subToken = () => localStorage.getItem(SUB_KEY) || "";
@@ -293,6 +293,8 @@ async function api(path, opts = {}) {
   } else if (opts.form !== undefined) {
     body = new URLSearchParams(opts.form);
     headers["Content-Type"] = "application/x-www-form-urlencoded";
+  } else if (opts.formData !== undefined) {
+    body = opts.formData;
   }
   const tok = opts.token !== undefined ? opts.token : (opts.sub ? subToken() : orgToken());
   if (tok) headers["Authorization"] = "Bearer " + tok;
@@ -831,7 +833,8 @@ const ICONS = {
   sparkle: '<path d="m12 3 1.7 5.3L19 10l-5.3 1.7L12 17l-1.7-5.3L5 10l5.3-1.7Z"/><path d="m19 16 .7 2.3L22 19l-2.3.7L19 22l-.7-2.3L16 19l2.3-.7Z"/>',
   close: '<path d="m6 6 12 12M18 6 6 18"/>',
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5m0-8h.01"/>',
-  warning: '<circle cx="12" cy="12" r="9"/><path d="M12 7v6m0 4h.01"/>'
+  warning: '<circle cx="12" cy="12" r="9"/><path d="M12 7v6m0 4h.01"/>',
+  trash: '<path d="M4 7h16M10 11v6m4-6v6M9 7V4h6v3m-9 0 1 14h10l1-14"/>'
 };
 function icon(name) { return `<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] || ICONS.tasks}</svg>`; }
 function renderNav() {
@@ -1932,6 +1935,13 @@ const SOURCE_MATERIAL_FIELDS = [
   {id:'source-template', key:'template', kind:'template', name:'报名模板'},
   {id:'source-extra', key:'attachment', kind:'attachment', name:'附件说明 / 其他资料'},
 ];
+const SOURCE_STATUS_LABEL = {
+  processing: '正在准备',
+  ready: '可作为资料',
+  unread: '等待模型直读',
+  failed: '解析失败，可重试',
+};
+const SOURCE_KIND_LABEL = {notice:'通知', roster:'名单', template:'模板', attachment:'附件', other:'其他'};
 function collectSourceMaterials() {
   return SOURCE_MATERIAL_FIELDS.map(f => ({...f, content:document.getElementById(f.id)?.value || ''}))
     .filter(f => String(f.content || '').trim())
@@ -1950,15 +1960,116 @@ function sourceMaterialsSummaryHtml(draft = state.draft) {
   }).join('');
   return `<details class="source-summary"><summary>本次使用的来源资料 <span>${materials.length} 份</span></summary><ul>${rows}</ul><p class="field-help">草案只保存资料摘要；完整正文保留在版本来源链中，规则引用必须能回到原文。</p></details>`;
 }
+function sourceMaterialStatusText(material) {
+  const status = material?.status || 'processing';
+  if (status === 'unread') return '没有文字缓存；发送给模型时会优先尝试原始文件直读。';
+  if (status === 'failed') return material.parse_error || '服务器解析失败；发送给模型时仍会尝试原始文件。';
+  if (status === 'ready') return material.parse_method ? `已建立${material.parse_method === 'text' ? '文字' : material.parse_method}摘要；原始文件仍保留。` : '原始文件已保存。';
+  return '文件已收到，正在建立可用状态。';
+}
+function sourceMaterialsForKind(kind) {
+  return (state.sourceMaterials || []).filter(item => item.kind === kind);
+}
+function sourceMaterialsListHtml(kind) {
+  const items = sourceMaterialsForKind(kind);
+  if (!items.length) return '<p class="source-material-empty">还没有上传文件；也可以直接粘贴文字。</p>';
+  return `<ul class="source-material-list">${items.map(item => {
+    const status = item.status || 'processing';
+    return `<li class="source-material-row"><div class="source-material-main"><b title="${esc(item.name || item.id)}">${esc(item.name || item.id || '未命名资料')}</b><span>${Number(item.size || 0).toLocaleString('zh-CN')} bytes · ${esc(SOURCE_STATUS_LABEL[status] || status)}</span><small>${esc(sourceMaterialStatusText(item))}</small></div><button class="icon-btn source-material-delete" type="button" data-source-delete="${esc(item.id)}" onclick="deleteSourceMaterial('${esc(item.id)}')" aria-label="删除 ${esc(item.name || '来源资料')}" title="删除来源资料">${icon('trash')}</button></li>`;
+  }).join('')}</ul>`;
+}
+function renderSourceMaterials() {
+  SOURCE_MATERIAL_FIELDS.forEach(field => {
+    const box = document.getElementById(`source-files-${field.kind}`);
+    if (box) box.innerHTML = sourceMaterialsListHtml(field.kind);
+  });
+  const stateBox = document.getElementById('source-materials-state');
+  if (stateBox) {
+    const count = (state.sourceMaterials || []).length;
+    stateBox.innerHTML = state.sourceMaterialsError
+      ? `<span class="source-material-error" role="alert">${esc(state.sourceMaterialsError)} <button class="link-button" type="button" onclick="loadSourceMaterials()">重试</button></span>`
+      : `<span>${count ? `服务器已保存 ${count} 份资料` : '服务器资料尚未上传'}</span><span>上传后会保留原文件，需求 Agent 请求会带上资料编号。</span>`;
+  }
+  document.querySelectorAll('#source-pack input[type="file"]').forEach(input => { input.disabled = !!(state.agentBusy || state.sourceMaterialsBusy || state.designLoadFailed); });
+  document.querySelectorAll('[data-source-delete]').forEach(button => { button.disabled = !!(state.agentBusy || state.sourceMaterialsBusy || state.designLoadFailed); });
+}
+async function loadSourceMaterials(taskId = state.taskId, epoch = state.designEpoch, token = orgToken()) {
+  if (!taskId) return;
+  state.sourceMaterialsLoading = true;
+  state.sourceMaterialsError = '';
+  renderSourceMaterials();
+  try {
+    const result = await api(`/api/tasks/${taskId}/source-materials`);
+    if (epoch !== state.designEpoch || token !== orgToken()) return;
+    state.sourceMaterials = Array.isArray(result.items) ? result.items : [];
+  } catch (error) {
+    if (epoch !== state.designEpoch || token !== orgToken()) return;
+    state.sourceMaterialsError = error.message || '来源资料暂时无法读取';
+  } finally {
+    if (epoch === state.designEpoch && token === orgToken()) {
+      state.sourceMaterialsLoading = false;
+      renderSourceMaterials();
+    }
+  }
+}
+async function uploadSourceFiles(kind, input) {
+  if (state.agentBusy || state.sourceMaterialsBusy || !input?.files?.length) return;
+  const files = Array.from(input.files);
+  state.sourceMaterialsBusy = true;
+  state.sourceMaterialsError = '';
+  renderSourceMaterials();
+  let uploaded = 0;
+  let failure = '';
+  try {
+    for (const file of files) {
+      const formData = new FormData();
+      formData.append('kind', kind);
+      formData.append('file', file);
+      try {
+        await api(`/api/tasks/${state.taskId}/source-materials`, {method:'POST', formData});
+        uploaded += 1;
+      } catch (error) {
+        failure = failure || `${file.name}：${error.message || '上传失败'}`;
+      }
+    }
+    input.value = '';
+    await loadSourceMaterials();
+    if (failure) setFlash(uploaded ? `已上传 ${uploaded} 份；${failure}` : failure);
+    else if (uploaded) setFlash(`已保存 ${uploaded} 份来源资料`, 'ok');
+  } finally {
+    state.sourceMaterialsBusy = false;
+    renderSourceMaterials();
+  }
+}
+async function deleteSourceMaterial(sourceId) {
+  const material = (state.sourceMaterials || []).find(item => item.id === sourceId);
+  if (!material || state.agentBusy || state.sourceMaterialsBusy) return;
+  if (typeof confirm === 'function' && !confirm(`删除「${material.name || '这份来源资料'}」？`)) return;
+  state.sourceMaterialsBusy = true;
+  renderSourceMaterials();
+  try {
+    await api(`/api/tasks/${state.taskId}/source-materials/${encodeURIComponent(sourceId)}`, {method:'DELETE'});
+    await loadSourceMaterials();
+    setFlash(`已删除「${material.name || '来源资料'}」`, 'ok');
+  } catch (error) {
+    setFlash(error.message || '来源资料暂时无法删除');
+  } finally {
+    state.sourceMaterialsBusy = false;
+    renderSourceMaterials();
+  }
+}
 function hasDesignInput(value) {
   return !!value && [value.composer, value.extra, ...Object.values(value.answers || {}),
-    ...(value.source_materials || []).map(m => m.content)].some(x => String(x || '').trim());
+    ...(value.source_materials || []).map(m => m.content), ...(value.source_material_ids || [])].some(x => String(x || '').trim());
 }
 function collectDesignInputs() {
   return {composer:document.getElementById('chat-in')?.value || '',
     answers:Object.fromEntries((state.designQuestions || []).map((q,i) => [q.question,document.getElementById(`clar-${i}`)?.value || ''])),
     extra:document.getElementById('clar-extra')?.value || '',
-    source_materials:collectSourceMaterials()};
+    source_materials:collectSourceMaterials(), source_material_ids:sourceMaterialIds()};
+}
+function sourceMaterialIds() {
+  return (state.sourceMaterials || []).map(item => String(item.id || '').trim()).filter(Boolean);
 }
 function canPublishDesign() {
   const bp=state.draft?.blueprint;
@@ -2025,7 +2136,7 @@ async function viewDesign(taskId) {
   cacheDesignInputs();
   const epoch = ++state.designEpoch, token = orgToken();
   state.timePolicySaving = false;
-  Object.assign(state,{designTaskId:taskId,designOwnerId:null,designToken:token,designBaseId:0,designQuestions:[],designRenderedBase:null,designDirty:false,designCacheFailed:false,designNeedsRevision:false});
+  Object.assign(state,{designTaskId:taskId,designOwnerId:null,designToken:token,designBaseId:0,designQuestions:[],designRenderedBase:null,designDirty:false,designCacheFailed:false,designNeedsRevision:false,sourceMaterials:[],sourceMaterialsLoading:false,sourceMaterialsBusy:false,sourceMaterialsError:''});
   Object.assign(state, {taskId, chat: [], bpId: null, draft: null, requirement: "", answeredDone: false, draftStatus: "draft", draftVersionId: null, designLoadFailed: false, designLoadError: "", retryRequest: null, agentRequest: null, agentRequestPollTimer: 0, agentResumeStarted: false, agentRequestDisplayedId: null, designTab: "preview", agentBusy: false, designBlocking: [], designAdvisories: [], designVersions: [], designHistory: [], viewingVersion: null, viewingPublished: null, viewingImpact: null});
   document.getElementById("app").innerHTML = `<div class="breadcrumb"><a href="#/tasks">我的任务</a><span>/</span><span id="design-name">收集任务 #${taskId}</span></div>
     ${showcaseReturnHtml("需求设计")}
@@ -2037,22 +2148,20 @@ async function viewDesign(taskId) {
     <nav class="design-jump-nav" aria-label="需求设计区域"><button type="button" onclick="jumpToDesignSection('design-chat')">${icon("sparkle")} 和小齐整理</button><button type="button" onclick="jumpToDesignSection('draft-panel')">${icon("review")} 核对收集表</button></nav>
     <div id="design-recovery"></div><div class="grid-chat"><section id="design-chat" class="card agent-panel"><div class="agent-heading"><span class="agent-mark">${icon("sparkle")}</span><div><h2>小齐 <span>需求设计助手</span></h2><p id="agent-status">正在准备…</p></div><span class="agent-live"></span></div>
        <div class="chat"><div class="chat-scroll" id="chat-scroll" role="log" aria-label="需求对话" aria-live="polite"></div><div class="composer"><div class="chips" id="chat-chips"></div>
-       <section class="source-pack" aria-labelledby="source-pack-title"><div class="source-pack-heading"><div><b id="source-pack-title">来源资料包</b><span>可选：通知、名单、模板和附件说明会作为证据交给需求 Agent</span></div><span class="source-pack-badge">本地暂存</span></div><div class="source-pack-grid">
-       <label>报名通知<textarea id="source-notice" oninput="cacheDesignInputs()" placeholder="粘贴通知正文、时间和要求"></textarea></label>
-       <label>适用名单<textarea id="source-roster" oninput="cacheDesignInputs()" placeholder="粘贴姓名、学号或名单范围"></textarea></label>
-       <label>报名模板<textarea id="source-template" oninput="cacheDesignInputs()" placeholder="粘贴表单字段、材料槽位或模板说明"></textarea></label>
-       <label>附件说明 / 其他资料<textarea id="source-extra" oninput="cacheDesignInputs()" placeholder="补充格式、命名或验收说明"></textarea></label></div><p class="field-help">资料会按来源分段送给模型；名单用于确定对象，冲突和不确定内容会列为待确认，不会自动发布。</p></section>
+       <section class="source-pack" id="source-pack" aria-labelledby="source-pack-title"><div class="source-pack-heading"><div><b id="source-pack-title">来源资料包</b><span>上传原文件或粘贴文字；需求 Agent 会保留资料编号，规则可以回到来源。</span></div><span class="source-pack-badge">私有资料</span></div><div class="source-pack-grid">
+       ${SOURCE_MATERIAL_FIELDS.map(f => `<label class="source-pack-entry"><span class="source-pack-label">${esc(f.name)}</span><input class="source-file-picker" type="file" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.txt,.md" onchange="uploadSourceFiles('${esc(f.kind)}', this)" aria-label="上传${esc(f.name)}"><textarea id="${f.id}" oninput="cacheDesignInputs()" placeholder="也可以粘贴${esc(f.name)}正文"></textarea><div id="source-files-${f.kind}" class="source-files" aria-live="polite"></div></label>`).join('')}</div><div id="source-materials-state" class="source-materials-state" role="status"></div><p class="field-help">上传不会在服务器端偷偷启动 OCR。模型支持原始文件时优先直读；不支持或读取失败时，才按配置进入文字解析或 OCR 降级。名单、冲突和不确定内容会列为待确认，不会自动发布。</p></section>
        <label class="sr-only" for="chat-in">告诉小齐你的收集要求</label><textarea id="chat-in" oninput="cacheDesignInputs()" placeholder="再用一句话补充：这次要收什么、有什么特别要求…" onkeydown="if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing){event.preventDefault();chatSend()}"></textarea>
       <div class="composer-foot"><span>Enter 发送 · Shift + Enter 换行</span><button id="chat-send" onclick="chatSend()" aria-label="发送需求">发送 ${icon('arrow')}</button></div><p class="field-help" id="design-input-hint" role="status"></p></div></div>${designRuntimeHtml()}${designProgressHtml()}
     </section><section id="draft-panel" aria-label="实时收集表预览"></section></div>
     <dialog id="publish-dialog" aria-labelledby="publish-title"><form onsubmit="event.preventDefault();confirmPublish()"><div class="eyebrow">REVIEW & PUBLISH</div><h2 id="publish-title" tabindex="-1">确认这份收集要求</h2><p>发布后，这个版本的字段、材料和规则会被冻结。后续修改将产生新版本。</p><div id="publish-summary"></div><label class="check-label"><input type="checkbox" id="publish-consent" required>我已核对上方要求与数据处理说明，并按实际约定确认未填写项</label><div class="dialog-actions"><button type="button" class="ghost" onclick="this.closest('dialog').close()">返回核对</button><button type="submit" id="publish-confirm">确认并发布</button></div><div id="publish-error" role="alert" class="inline-error"></div></form></dialog>`;
-  setAgentBusy(true, "正在加载"); renderDraftPanel();
+  setAgentBusy(true, "正在加载"); renderSourceMaterials(); renderDraftPanel();
   try {
     const r = await api(`/api/tasks/${taskId}/design`);
     if (epoch !== state.designEpoch || token !== orgToken()) return;
     state.task = r.task; state.designOwnerId=r.task.owner_id;
     state.designPublished=r.published;state.designPublishImpact=r.publish_impact;
     document.getElementById("design-name").textContent = r.task.name;
+    await loadSourceMaterials(taskId, epoch, token);
     const pendingAgentRequest = readDesignInputs().pendingAgentRequest;
     if (pendingAgentRequest?.requestId && !state.agentRequest) state.agentRequest = pendingAgentRequest;
     if (r.blueprint_version_id) {
@@ -2137,7 +2246,7 @@ function setAgentBusy(on, label = "正在整理") {
   const status = document.getElementById('agent-status');
   if (status) status.textContent = on ? `${label} · ${agentWaitCopy()}` : '有什么想收的，先告诉我吧';
   const box = document.getElementById('chat-scroll'); if (box) box.setAttribute('aria-busy', String(on));
-  chatTyping(on);paintDesignInputState(); paintAgentRuntime();
+  chatTyping(on);paintDesignInputState(); paintAgentRuntime(); renderSourceMaterials();
 }
 function paintAgentRuntime() {
   const mode = document.getElementById('agent-runtime-mode');
@@ -2265,6 +2374,7 @@ function agentRequestForm(request) {
     base_blueprint_id: String(p.base_blueprint_id ?? 0),
     answered: JSON.stringify(p.answered || {}), instruction: p.instruction || "",
     source_materials: JSON.stringify(p.source_materials || []),
+    source_material_ids: JSON.stringify(p.source_material_ids || []),
     execution_mode: p.execution_mode || "live"};
 }
 function agentRequestProgressHtml(request) {
@@ -2409,7 +2519,8 @@ async function submitAgentRequest(request, epoch, token) {
     template: p.template || "", blueprint_version_id: p.blueprint_version_id || "",
     base_blueprint_id: String(p.base_blueprint_id ?? 0),
     answered: JSON.stringify(p.answered || {}), instruction: p.instruction || "",
-     source_materials: JSON.stringify(p.source_materials || []),
+    source_materials: JSON.stringify(p.source_materials || []),
+    source_material_ids: JSON.stringify(p.source_material_ids || []),
     execution_mode: p.execution_mode || "live",
   }});
 }
@@ -2509,9 +2620,11 @@ async function runAgent(text, answered = {}, instruction = '', source = 'compose
     ? {kind: "revise", blueprint_version_id: previous, base_blueprint_id: previous,
        requirement: state.requirement || "", answered: {...answered}, instruction,
        source_materials: sent.source_materials || [],
+       source_material_ids: sent.source_material_ids || sourceMaterialIds(),
        execution_mode: "live"}
     : {kind: "agent", base_blueprint_id: state.bpId || 0, requirement: text,
        source_materials: sent.source_materials || [],
+       source_material_ids: sent.source_material_ids || sourceMaterialIds(),
        execution_mode: "live"};
   const request = resumeRequest || {requestId: newAgentRequestId(), payload,
     text, answered: {...answered}, instruction, source, previousBlueprintId: previous,
@@ -2541,7 +2654,7 @@ function retryAgent() {
 function chatSend() {
   const text = (document.getElementById('chat-in')?.value || '').trim();
   const materials = collectSourceMaterials();
-  if (text || materials.length) return runAgent(text || '请根据来源资料包整理这次收集要求。', {}, state.bpId ? text : '');
+  if (text || materials.length || sourceMaterialIds().length) return runAgent(text || '请根据来源资料包整理这次收集要求。', {}, state.bpId ? text : '');
 }
 function submitClarAnswers() {
   const answered = {}; (state.draft?.clarifications || []).forEach((c,i) => { const v = document.getElementById(`clar-${i}`)?.value.trim(); if(v) answered[c.question] = v; });

@@ -2175,8 +2175,27 @@ dialog p {
 .source-pack-badge { display:inline-flex; align-items:center; flex:0 0 auto; min-height:20px; padding:2px 7px; border:1px solid #ddd6ef; border-radius:999px; background:#f0ecfb; color:#68558f; font-size:9px; line-height:1.2; white-space:nowrap; }
 .source-pack-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
 .source-pack-grid label { min-width:0; color:#5e596a; font-size:10px; }
+.source-pack-entry { display:block; min-width:0; }
+.source-pack-label { display:block; color:#4f495d; font-weight:600; }
+.source-file-picker { display:block; width:100%; min-height:30px; margin-top:5px; padding:5px 6px; border:1px dashed #d8d1e7; border-radius:6px; background:#fff; color:#6c6678; font-size:9px; }
+.source-file-picker:focus-visible { outline:2px solid #9a84ce; outline-offset:1px; }
 .source-pack-grid textarea { display:block; width:100%; min-height:58px; max-height:88px; margin-top:4px; padding:7px 8px; border-color:#e4dfed; background:#fff; font-size:10px; line-height:1.55; }
 .source-pack > .field-help { margin:8px 0 0; font-size:9px; }
+.source-files { min-width:0; margin-top:5px; }
+.source-material-list { display:grid; gap:5px; margin:0; padding:0; list-style:none; }
+.source-material-row { display:flex; align-items:flex-start; gap:7px; min-width:0; padding:6px 7px; border:1px solid #ebe6f2; border-radius:6px; background:#fff; }
+.source-material-main { min-width:0; flex:1 1 auto; }
+.source-material-main b, .source-material-main span, .source-material-main small { display:block; min-width:0; overflow:hidden; text-overflow:ellipsis; }
+.source-material-main b { color:#4b4658; font-size:10px; white-space:nowrap; }
+.source-material-main span { margin-top:2px; color:#8a8494; font-size:9px; }
+.source-material-main small { margin-top:3px; color:#777181; font-size:9px; line-height:1.45; white-space:normal; overflow-wrap:anywhere; }
+.source-material-delete { flex:0 0 auto; width:26px; min-height:26px; padding:4px; }
+.source-material-delete svg { width:14px; height:14px; }
+.source-material-empty, .source-materials-state { margin:5px 0 0; color:#96909f; font-size:9px; line-height:1.55; }
+.source-materials-state { display:flex; flex-wrap:wrap; gap:2px 9px; }
+.source-material-error { color:#9a4f57; }
+.link-button { padding:0; border:0; background:none; color:#65518b; font:inherit; text-decoration:underline; cursor:pointer; }
+.link-button:hover { color:#4f3e73; }
 .source-summary { margin:14px 0; border-top:1px solid #ece8f3; border-bottom:1px solid #ece8f3; padding:10px 0; }
 .source-summary summary { color:#5e5378; font-size:11px; cursor:pointer; }
 .source-summary summary span { color:#9a91aa; font-size:10px; }
