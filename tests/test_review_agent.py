@@ -23,6 +23,7 @@ from app.models import (
 )
 from app.parsing import ParseResult
 from app.schemas import Blueprint, FieldDef, RuleDef, SlotDef
+from app.services.checks import run_coverage
 
 
 def _bp():
@@ -281,6 +282,48 @@ def test_semantic_prefers_direct_document_input_without_ocr(tmp_path, stub_llm, 
     assert result.evidence[0].method == "direct_model"
     assert len(client.document_calls) == 1
     assert f.input_method == "direct_model"
+    assert f.direct_model_used is True
+
+    outcome = run_checks(_ctx(files=[f]), client=client)
+    coverage = outcome.coverage["f1"]
+    assert coverage["method"] == "direct_model"
+    assert coverage["model_direct"] is True
+    assert coverage["unread"] == 0 and coverage["failed"] == 0
+    assert coverage["parser_unread"] == 1
+    assert coverage["read"] == coverage["total"] == 1
+
+
+def test_run_coverage_explains_direct_model_provenance():
+    """直传成功不把本地解析器的无文字探测算成覆盖缺口。"""
+    from types import SimpleNamespace
+
+    run = SimpleNamespace(coverage_json=json.dumps({
+        "f1": {"total": 2, "text": 0, "read": 2, "unread": 0,
+               "failed": 0, "parser_unread": 2, "method": "direct_model",
+               "model_direct": True, "name": "scan.pdf"},
+    }, ensure_ascii=False))
+    coverage = run_coverage(run)
+    assert coverage["complete"] is True
+    assert coverage["unread_pages"] == 0
+    assert coverage["model_direct"] is True
+    assert coverage["direct_model_files"] == 1
+    assert coverage["files"][0]["parser_unread"] == 2
+
+
+def test_run_checks_keeps_direct_model_success_when_parser_has_no_result():
+    """直传成功但解析器没有结果时，不把模型已读材料标成失败。"""
+    ctx = CheckContext(blueprint=Blueprint(fields=[], slots=[], rules=[]), fields={}, files=[
+        FileInfo(file_id="f1", slot="report", original_name="scan.pdf", size=12,
+                 direct_model_used=True, input_method="direct_model")
+    ])
+
+    outcome = run_checks(ctx)
+
+    coverage = outcome.coverage["f1"]
+    assert coverage["model_direct"] is True
+    assert coverage["method"] == "direct_model"
+    assert coverage["unread"] == 0 and coverage["failed"] == 0
+    assert coverage["parser_failed"] == 1
 
 
 def test_semantic_falls_back_to_parser_when_provider_rejects_documents(tmp_path, stub_llm, monkeypatch):

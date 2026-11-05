@@ -443,21 +443,27 @@ const RESULT_BADGE = {
 const resultBadge = (r) => RESULT_BADGE[r] || esc(r);
 const METHOD_LABEL = {
   text: "文字层提取", ocr: "OCR 识别", mixed: "文字层+OCR",
-  visual: "无可提取文字（图像）", none: "未提取到文字",
+  direct_model: "模型直读原件", visual: "无可提取文字（图像）", none: "未提取到文字",
 };
 const coverageCard = (run) => {
   if (!run || !run.coverage) return "";
   const cov = run.coverage;
   const gap = (cov.unread_pages || 0) + (cov.failed_pages || 0);
+  const direct = !!cov.model_direct || (cov.files || []).some(f => f.model_direct || f.method === "direct_model");
+  const provenance = direct
+    ? `<p class="kv" style="margin-top:8px">原始文件已交给模型直读；文件和页码是模型提供的定位线索，仍需组织者核对。</p>`
+    : gap
+      ? `<p class="kv" style="margin-top:8px">未读页不等于材料缺失；相关结论会停在待确认，补充清晰材料或转人工核对即可。</p>`
+      : "";
   return `<div class="card"><h3>材料读取明细</h3>
     <p class="kv">已读 ${run.pages_read ?? 0} 页${gap ? ` · ${gap} 页未能读取` : " · 页面覆盖完整"}
       ｜ <span class="badge${gap ? " warn" : " ok"}">${cov.complete === false ? "覆盖不完整" : "覆盖完整"}</span></p>
     <table><tr><th>文件</th><th>读取方式</th><th>总页</th><th>已读</th><th>未读</th><th>失败</th></tr>
     ${(cov.files || []).map(f => `<tr><td>${esc(f.name || f.file_id)}</td>
       <td>${esc(METHOD_LABEL[f.method] || f.method || "-")}</td>
-      <td>${f.total ?? 0}</td><td>${f.text ?? 0}</td><td>${f.unread ?? 0}</td><td>${f.failed ?? 0}</td></tr>`).join("")}
+      <td>${f.total ?? 0}</td><td>${f.read ?? f.text ?? 0}</td><td>${f.unread ?? 0}</td><td>${f.failed ?? 0}</td></tr>`).join("")}
     </table>
-    ${gap ? `<p class="kv" style="margin-top:8px">未读页不等于材料缺失；相关结论会停在待确认，补充清晰材料或转人工核对即可。</p>` : ""}
+    ${provenance}
   </div>`;
 };
 const agentRunCard = (run, rules, toolTrace = [], taskId = null, subjectId = null) => {
@@ -3818,6 +3824,7 @@ function paintReview(taskId, sid) {
     ${run?.execution_mode === "offline_replay" ? `<div class="notice-info review-replay-note"><b>这是离线演示回放</b><p>结果由演示脚本桩沿同一 Skill、工具白名单、Harness 预算和审计链生成，不代表真实模型质量；unknown / failed 仍需组织者人工处理。</p></div>` : ""}
     ${nextAction}
     ${gap ? `<div class="notice-warn">材料共 ${gap} 页未能读取。这些页不构成「确认缺失」，相关规则按待确认处理；请让提交者补充清晰材料，或人工核对。</div>` : ""}
+     ${cov?.model_direct ? `<div class="notice-info">原始文件已交给模型直读；文件和页码是模型提供的定位线索，仍需组织者核对，不能仅凭定位线索证明原文存在。</div>` : ""}
   </section>`;
 
   const visibleRules = state.reviewFilter === "pending" ? pending : rules;
@@ -4735,6 +4742,9 @@ async function loadMyResults() {
     const gap = (cov.unread_pages || 0) + (cov.failed_pages || 0);
     if (gap) {
       html += `<div class="notice-warn"><b>有 ${gap} 页暂时没读清</b><p>这不代表材料缺失。你可以换一份更清晰的文件再提交，或请组织者一起核对。</p></div>`;
+    }
+    if (cov.model_direct) {
+      html += `<div class="notice-info"><b>材料已由模型直读原件</b><p>文件和页码是模型提供的定位线索，仍需组织者核对；这不等同于程序已经验证原文存在。</p></div>`;
     }
     // 规则明细：哪里有问题、怎么改、引用证据、剩余待办
     const done = details.filter(x => x.decision?.resolves

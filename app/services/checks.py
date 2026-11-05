@@ -278,9 +278,11 @@ def run_coverage(run: Optional[CheckRun]) -> dict:
     """V08 覆盖缺口视图：按文件给出总页/已读/未读/失败与提取方式。
 
     未读/失败页存在时 complete=False：语义结论只能 unknown，
-    不得把“没读到”写成“确认缺失”。
+    不得把“没读到”写成“确认缺失”。原始文件直传成功时，解析器的
+    无文字探测不算语义缺口；model_direct/parser_unread 会保留这层来源信息。
     """
-    empty = {"files": [], "unread_pages": 0, "failed_pages": 0, "complete": True}
+    empty = {"files": [], "unread_pages": 0, "failed_pages": 0,
+             "complete": True, "model_direct": False, "direct_model_files": 0}
     if run is None or not run.coverage_json:
         return empty
     try:
@@ -292,8 +294,12 @@ def run_coverage(run: Optional[CheckRun]) -> dict:
     files = [{"file_id": fid, **cov} for fid, cov in sorted(raw.items())]
     unread = sum(int(c.get("unread", 0) or 0) for c in files)
     failed = sum(int(c.get("failed", 0) or 0) for c in files)
+    direct_model_files = sum(1 for c in files if c.get("model_direct") is True
+                             or c.get("method") == "direct_model")
     return {"files": files, "unread_pages": unread, "failed_pages": failed,
-            "complete": unread == 0 and failed == 0}
+            "complete": unread == 0 and failed == 0,
+            "model_direct": direct_model_files > 0,
+            "direct_model_files": direct_model_files}
 
 
 def _latest_run(db: Session, submission: Optional[Submission]) -> Optional[CheckRun]:

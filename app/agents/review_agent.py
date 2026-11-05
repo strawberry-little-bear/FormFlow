@@ -65,6 +65,10 @@ class FileInfo:
     path: Optional[Path] = None
     mime_type: str = ""
     input_method: str = ""
+    # The parser may probe a document before direct model input.  A successful
+    # direct read means parser gaps are not semantic coverage gaps, but they
+    # remain useful provenance for the reviewer.
+    direct_model_used: bool = False
 
 
 @dataclass
@@ -84,7 +88,7 @@ class CheckOutcome:
     pages_read: int = 0
     llm_calls_used: int = 0
     budget_exhausted: bool = False
-    coverage: dict = field(default_factory=dict)   # file_id -> {total,text,unread,failed}
+    coverage: dict = field(default_factory=dict)   # file_id -> coverage/provenance summary
     notes: list[str] = field(default_factory=list)
 
 
@@ -396,6 +400,7 @@ def _parse_fallback_files(ctx: CheckContext, *, allow_ocr: bool) -> None:
     for file in ctx.files:
         if file.path is None:
             continue
+        file.direct_model_used = False
         try:
             file.parse = parse_file(file.path, allow_ocr=allow_ocr)
             file.parse_error = ""
@@ -453,6 +458,7 @@ def run_semantic_rule(
             direct_used = True
             for file in ctx.files:
                 file.input_method = "direct_model"
+                file.direct_model_used = True
         else:
             _parse_fallback_files(ctx, allow_ocr=settings.llm_input_mode != "text")
             file_texts = {
@@ -542,6 +548,7 @@ def run_semantic_rule(
         direct_attempted = False
         for file in ctx.files:
             file.input_method = "ocr" if file.parse and file.parse.method in {"ocr", "mixed"} else "text"
+            file.direct_model_used = False
         for f in ctx.files:
             if f.parse and not f.parse.coverage_complete:
                 p = f.parse
@@ -627,14 +634,68 @@ def run_checks(ctx: CheckContext, client: Optional[LLMClient] = None,
                 explanation=f"预算耗尽，未执行：{e}", next_step="转人工复核"))
 
     for f in ctx.files:
-        if f.parse is not None:
-            outcome.pages_read += f.parse.text_pages
+        p = f.parse
+        if p is None:
+            # A provider may still accept an original file even when the local
+            # parser cannot index it.  A successful direct read therefore has
+            # complete semantic coverage, while the parser failure remains
+            # provenance for the organizer.  Without a direct read, expose the
+            # parser failure as an actual coverage gap instead of omitting it.
+            if f.direct_model_used:
+                outcome.coverage[f.file_id] = {
+                    "total": 0,
+                    "text": 0,
+                    "read": 0,
+                    "unread": 0,
+                    "failed": 0,
+                    "parser_failed": 1,
+                    "method": "direct_model",
+                    "name": f.original_name,
+                    "model_direct": True,
+                }
+                continue
             outcome.coverage[f.file_id] = {
-                "total": f.parse.total_pages,
-                "text": f.parse.text_pages,
-                "unread": f.parse.unread_pages,
-                "failed": f.parse.failed_pages,
-                "method": f.input_method or f.parse.method,
+                "total": 0,
+                "text": 0,
+                "read": 0,
+                "unread": 0,
+                "failed": 1,
+                "method": f.input_method or "unread",
+                "name": f.original_name,
+                "model_direct": bool(f.direct_model_used),
+            }
+            continue
+
+        parser_unread = p.unread_pages
+        parser_failed = p.failed_pages
+        if f.direct_model_used:
+            # The model received every original file byte.  Do not surface a
+            # parser's no-text probe as an unread page, while retaining it as
+            # provenance so the organizer can understand the input path.
+            outcome.pages_read += p.total_pages
+            outcome.coverage[f.file_id] = {
+                "total": p.total_pages,
+                "text": p.text_pages,
+                "read": p.total_pages,
+                "unread": 0,
+                "failed": 0,
+                "parser_unread": parser_unread,
+                "parser_failed": parser_failed,
+                "method": "direct_model",
+                "model_direct": True,
                 "name": f.original_name,
             }
+            continue
+
+        outcome.pages_read += p.text_pages
+        outcome.coverage[f.file_id] = {
+            "total": p.total_pages,
+            "text": p.text_pages,
+            "read": p.text_pages,
+            "unread": parser_unread,
+            "failed": parser_failed,
+            "method": f.input_method or p.method,
+            "model_direct": False,
+            "name": f.original_name,
+        }
     return outcome
