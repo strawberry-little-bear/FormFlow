@@ -9,6 +9,7 @@
 | 关注点 | 入口 |
 | --- | --- |
 | 完整收集与审核路径 | [2026-10-23 收集与审核闭环](ux-review-2026-10-23/verification.md) |
+| 来源资料与需求 Agent | [2026-11-06 来源资料到需求 Agent](ux-review-2026-11-06-requirements-agent/verification.md) |
 | 启动器与失败状态 | [2026-10-26 启动参数与失败状态](ux-review-2026-10-26b/feedback.md) |
 | 组织者、提交者与复核体验 | [2026-10-26 启动、收件与复核体验](ux-review-2026-10-26/feedback.md) |
 | 展示与提交者闭环 | [2026-11-04 展示与提交者闭环](ux-review-2026-11-04/verification.md) |
