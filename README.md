@@ -12,7 +12,7 @@ FormFlow 面向需要收集、核验并交付一批材料的组织者。它把�
 
 ![FormFlow 展示视图](docs/ux-review-2026-10-30/showcase-home-current.png)
 
-FormFlow 把组织者、提交者和审核者放进同一条证据链。组织者确认要求，提交者按清单准备材料，审核 Agent 对照规则取证，组织者最后决定是否验收并导出交付快照。这里的 README 以产品使用者为对象；实现过程和历史验证分别放在文档导航与验证档案中。
+FormFlow 把组织者、提交者和审核者放进同一条证据链：组织者确认要求，提交者按清单准备材料，审核 Agent 对照规则取证，组织者最后决定是否验收并导出交付快照。
 
 ## 三步看懂 FormFlow
 
@@ -105,6 +105,13 @@ python scripts/start_demo.py --check
 ```
 
 想按产品路径体验，请阅读[演示指南](docs/demo-guide.md)。
+
+## 继续阅读
+
+- 想快速看完完整路径：阅读[体验指南](docs/demo-guide.md)。
+- 想在自己的机器上部署：阅读[部署与模型接入](docs/deployment.md)。
+- 想了解 Agent、Skill、Harness 和 MCP 的职责：阅读[产品状态与方向](docs/product-roadmap.md)。
+- 想查看某个版本在什么环境下验证过：阅读[验证档案索引](docs/ux-review-index.md)。
 
 ## 接入模型
 
