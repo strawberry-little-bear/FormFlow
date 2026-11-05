@@ -1,15 +1,15 @@
-# CI 与首次任务闭环复核
+# 跨平台运行与首次任务闭环
 
 
 > 这是一份历史验证存档：记录指定版本、数据和环境下的用户可见结果。它不是产品介绍、开发日报或未来承诺。
 
 日期：2026-10-30
 
-## 目标
+## 读者可见范围
 
-确认近期 CI 失败不是偶发重跑，并用干净 SQLite、虚构种子、空 `FORMFLOW_LLM_API_KEY` 和真实 Worker 重跑第一次创建任务到归档的完整路径。
+这份档案展示 FormFlow 在 Ubuntu 与 Windows 运行环境中的验证范围，并用干净 SQLite、虚构种子、空 `FORMFLOW_LLM_API_KEY` 和真实 Worker 走完第一次创建任务到归档的路径。
 
-## CI 根因与处理
+## 跨平台兼容性
 
 | 根因 | 处理 |
 | --- | --- |
@@ -18,7 +18,7 @@
 | 前端契约异步测试结构误包住后续用例，Windows runner 取消了后续 6 项 | 拆开异步测试主体，保证每个 `test()` 独立完成 |
 | checkout/setup action 使用旧 Node 20 runtime | 升级 `actions/checkout`、`actions/setup-python`、`actions/setup-node` 到 v7，保留 Python 3.12 / Node.js 22 |
 
-## 远端结果
+## 自动化结果
 
 - GitHub Actions：运行 [41042093193](https://github.com/strawberry-little-bear/FormFlow/actions/runs/41042093193)。
 - `ubuntu-latest`：成功；生成样本、Python 450 项、前端契约 238 项、JS 语法检查全部通过。
@@ -30,6 +30,6 @@
 
 结果：所有关键接口返回 200，正式提交只发起 1 次；提交者看到“材料检查已完成，等待组织者验收”，并明确“暂时没有需要你处理的事项”；1440/390/320px 均无横向溢出，无控制台错误、失败 HTTP 请求或意外 Agent 请求。原始 JSON 结果位于 `%TEMP%\formflow-next-round-20261030-190350\first-task-with-worker`。
 
-## 结论
+## 体验边界
 
-CI 的环境差异和测试结构问题已经修复并在 Ubuntu/Windows 双平台连续运行通过；本轮首次使用者闭环也在 Worker 真实运行条件下完成。后续若再次失败，优先检查 runner 是否执行了样本生成步骤，以及失败发生在哪个平台矩阵，而不是先重跑同一提交。
+自动化结果覆盖样本生成、跨平台编码、异步测试边界和 Action runtime；组织者与提交者的首次任务闭环也在 Worker 真实运行条件下完成。这里的结果只说明指定版本和环境可以复现该路径，不代表真实模型质量或公网部署已经验收。
