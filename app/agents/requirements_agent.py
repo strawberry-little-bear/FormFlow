@@ -156,6 +156,7 @@ SYSTEM_PROMPT = """你是"收齐啦"平台的需求 Agent。把组织者的自�
 9. publish_summary 用简明中文写实际采纳的内容和待确认事项，不用模板化口号。
 10. 用平实、友好的中文写说明，像同事在一起把事情说清楚；不说教、不责备、不堆制度术语，也不使用“智能赋能、全面闭环”等宣传话。原要求不明确时坦诚说还不确定，并问一个组织者能直接回答的问题；不能为了显得周到而自作主张补要求。
 11. 每条 requirement_source 必须能在原始要求或已提供来源资料的正文中逐字定位；不要把来源资料的名称、名单内容或模型推断当作原文引用。
+12. 如果要求来自带 id 的来源资料，必须填写 source_material_id，并填写 source_locator（例如 p.2、表格第 3 行、field:deadline）；名单只能说明适用对象，不能作为收集要求来源。无法确定位置时不要猜，改为澄清或人工项。
 
 只输出 JSON，格式：
 {
@@ -163,7 +164,7 @@ SYSTEM_PROMPT = """你是"收齐啦"平台的需求 Agent。把组织者的自�
     "task_scope": {"name": "...", "description": "...", "template": "...", "mode": "roster|open", "subject_kind": "individual|team"},
     "fields": [{"id":"...","label":"...","type":"text|enum|date|number","options":[],"required":true,"required_condition":null,"purpose":"...","visibility":"organizer|submitter"}],
     "slots": [{"id":"...","label":"...","formats":["pdf"],"max_count":1,"max_size_mib":10,"max_pages":20,"required_condition":null}],
-    "rules": [{"id":"...","statement":"...","requirement_source":"原文引用","executor":"deterministic|semantic|cross_material|human_only","capability":"supported|needs_human|needs_clarification","severity":"blocking|advisory","depends_on":[],"clarification_question":null,"check":null}],
+    "rules": [{"id":"...","statement":"...","requirement_source":"原文引用","source_material_id":"notice或null","source_locator":"p.2或field:deadline","executor":"deterministic|semantic|cross_material|human_only","capability":"supported|needs_human|needs_clarification","severity":"blocking|advisory","depends_on":[],"clarification_question":null,"check":null}],
     "time_policy": {"timezone":"Asia/Shanghai","open_at":null,"first_deadline":null,"correction_deadline":null},
     "auto_scope": ["规则ID"],
     "manual_acceptance": true,
@@ -188,13 +189,14 @@ REVISION_SYSTEM_PROMPT = """你是"收齐啦"平台的需求 Agent。组织者�
 4. executor 只能取 deterministic|semantic|cross_material|human_only；
    capability 只能取 supported|needs_human|needs_clarification。
 5. 面向组织者解释修改与澄清时保持简洁、自然、合作的语气，不用空泛口号；只说这次改动实际影响，不暗示已经发布或已取得组织者同意。
+6. 规则若来自来源资料，保留原规则的 source_material_id 与 source_locator；修改意见没有改变来源时不得清空这两个字段。
 只输出 JSON，格式（必须带 blueprint 外壳，与首次起草相同）：
 {
   "blueprint": {
     "task_scope": {"name": "...", "description": "...", "template": "...", "mode": "roster|open", "subject_kind": "individual|team"},
     "fields": [{"id":"...","label":"...","type":"text|enum|date|number","options":[],"required":true,"required_condition":null,"purpose":"...","visibility":"organizer|submitter"}],
     "slots": [{"id":"...","label":"...","formats":["pdf"],"max_count":1,"max_size_mib":10,"max_pages":20,"required_condition":null}],
-    "rules": [{"id":"...","statement":"...","requirement_source":"原文引用","executor":"deterministic|semantic|cross_material|human_only","capability":"supported|needs_human|needs_clarification","severity":"blocking|advisory","depends_on":[],"clarification_question":null,"check":null}],
+    "rules": [{"id":"...","statement":"...","requirement_source":"原文引用","source_material_id":"notice或null","source_locator":"p.2或field:deadline","executor":"deterministic|semantic|cross_material|human_only","capability":"supported|needs_human|needs_clarification","severity":"blocking|advisory","depends_on":[],"clarification_question":null,"check":null}],
     "time_policy": {"timezone":"Asia/Shanghai","open_at":null,"first_deadline":null,"correction_deadline":null},
     "auto_scope": ["规则ID"],
     "manual_acceptance": true,
@@ -361,7 +363,8 @@ def _parse_rule(r: dict, warnings: list) -> RuleDef:
         r["severity"] = _norm_choice(r.get("severity"), {"blocking", "advisory"},
                                      _SEVERITY_ALIASES, "blocking", warnings,
                                      f"规则 {rid} 的 severity")
-    for key in ("statement", "requirement_source", "clarification_question"):
+    for key in ("statement", "requirement_source", "clarification_question",
+                "source_material_id", "source_locator"):
         if key in r and r[key] is not None and not isinstance(r[key], str):
             r[key] = str(r[key])
     return RuleDef(**r)
@@ -617,15 +620,47 @@ def validate_blueprint(blueprint: Blueprint, source_text: str = "") -> list[str]
         elif r.capability is not Capability.SUPPORTED:
             errors.append(f"自动处理范围不能包含能力为 {r.capability.value} 的规则 {rid}")
 
-    # 规则来源必须能在原文定位（防暗加要求的程序校验）
+    # 规则来源必须能在原文定位（防暗加要求的程序校验）。当规则绑定了
+    # 上传资料时，再校验稳定 source_id 和位置，避免“看起来有引用”但
+    # 实际指向了名单或另一份资料。
     if source_text.strip():
+        source_sections = _source_sections(source_text)
         for r in blueprint.rules:
             src = (r.requirement_source or "").strip()
             if not src:
                 errors.append(f"规则 {r.id} 缺少要求来源")
+            elif r.source_material_id:
+                section = source_sections.get(r.source_material_id)
+                if section is None:
+                    errors.append(
+                        f"规则 {r.id} 引用了不存在的来源资料 {r.source_material_id}"
+                    )
+                else:
+                    if len(src) >= 8 and src not in section:
+                        errors.append(
+                            f"规则 {r.id} 的来源引用无法在资料 {r.source_material_id} 中定位，疑似暗加要求"
+                        )
+                    if not r.source_locator.strip():
+                        errors.append(
+                            f"规则 {r.id} 已绑定来源资料 {r.source_material_id}，但缺少 source_locator"
+                        )
             elif src not in source_text and len(src) >= 8:
                 errors.append(f"规则 {r.id} 的来源引用无法在原始要求中定位，疑似暗加要求")
     return errors
+
+
+def _source_sections(source_text: str) -> dict[str, str]:
+    """从持久化的来源文本中切出带稳定 id 的资料正文。"""
+    marker = re.compile(
+        r"【来源资料\s+\d+\s+·\s+.*?\s+·\s+.*?\s+·\s+id=([^】]+)】"
+    )
+    matches = list(marker.finditer(source_text))
+    sections: dict[str, str] = {}
+    for index, match in enumerate(matches):
+        start = match.end()
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(source_text)
+        sections[match.group(1).strip()] = source_text[start:end].strip()
+    return sections
 
 
 def _condition_refs(expr: str) -> list[str]:

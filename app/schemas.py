@@ -68,11 +68,22 @@ class SlotDef(BaseModel):
 
 
 class RuleDef(BaseModel):
-    """检查规则：来源、确认状态、执行者、阻塞级别。"""
+    """检查规则：来源、确认状态、执行者、阻塞级别。
+
+    ``source_material_id`` 和 ``source_locator`` 是需求 Agent 的可追溯
+    引用。它们保持可选，以便读取历史草案；新草案一旦引用上传资料，
+    发布校验会要求同时给出来源编号和位置。
+    """
 
     id: str
     statement: str = Field(description="规则表述")
     requirement_source: str = Field(description="原始要求出处（引用原文，不得暗加）")
+    source_material_id: Optional[str] = Field(
+        default=None, description="来源资料稳定 ID；直接来自组织者上传资料时填写"
+    )
+    source_locator: str = Field(
+        default="", description="来源资料中的位置，如 p.2、表格第 3 行或 field:deadline"
+    )
     executor: Executor
     capability: Capability = Capability.SUPPORTED
     severity: str = "blocking"  # blocking / advisory

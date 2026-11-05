@@ -138,6 +138,81 @@ def test_validate_catches_unlocatable_source():
     assert any("无法在原始要求中定位" in e for e in errors)
 
 
+def test_validate_source_material_citation_requires_existing_id_and_locator():
+    source_text = build_source_text(
+        "请按通知收集材料。",
+        source_materials=[{
+            "id": "notice-2026",
+            "name": "报名通知",
+            "kind": "notice",
+            "content": "提交 PDF 报告，截止 11 月 8 日。",
+        }],
+    )
+    valid = Blueprint(
+        fields=[FieldDef(id="name", label="姓名")],
+        slots=[SlotDef(id="report", label="报告")],
+        rules=[RuleDef(
+            id="R1",
+            statement="提交 PDF 报告",
+            requirement_source="提交 PDF 报告",
+            source_material_id="notice-2026",
+            source_locator="p.2",
+            executor="deterministic",
+            check={"kind": "slot_constraints", "slot": "report"},
+        )],
+    )
+    assert validate_blueprint(valid, source_text) == []
+
+    missing_id = valid.model_copy(deep=True)
+    missing_id.rules[0].source_material_id = "missing"
+    assert any("不存在的来源资料" in e for e in validate_blueprint(missing_id, source_text))
+
+    missing_locator = valid.model_copy(deep=True)
+    missing_locator.rules[0].source_locator = ""
+    assert any("缺少 source_locator" in e for e in validate_blueprint(missing_locator, source_text))
+
+
+def test_validate_source_material_citation_must_match_material_text():
+    source_text = build_source_text(
+        "请按通知收集材料。",
+        source_materials=[{
+            "id": "notice-2026",
+            "name": "报名通知",
+            "kind": "notice",
+            "content": "提交 PDF 报告。",
+        }],
+    )
+    bp = Blueprint(
+        fields=[FieldDef(id="name", label="姓名")],
+        slots=[SlotDef(id="report", label="报告")],
+        rules=[RuleDef(
+            id="R1",
+            statement="通知要求提交签名页",
+            requirement_source="通知要求提交签名页",
+            source_material_id="notice-2026",
+            source_locator="p.3",
+            executor="semantic",
+        )],
+    )
+    errors = validate_blueprint(bp, source_text)
+    assert any("来源引用无法在资料 notice-2026 中定位" in e for e in errors)
+
+
+def test_legacy_rule_without_source_material_fields_remains_compatible():
+    bp = Blueprint(
+        fields=[FieldDef(id="name", label="姓名")],
+        slots=[SlotDef(id="report", label="报告")],
+        rules=[RuleDef(
+            id="R1",
+            statement="提交 PDF 报告",
+            requirement_source="提交 PDF 报告",
+            executor="deterministic",
+            check={"kind": "slot_constraints", "slot": "report"},
+        )],
+    )
+    assert validate_blueprint(bp, "提交 PDF 报告") == []
+
+
 def test_validate_catches_dependency_cycle():
     bp = Blueprint(rules=[
         RuleDef(id="A", statement="a", requirement_source="a", executor="semantic", depends_on=["B"]),
