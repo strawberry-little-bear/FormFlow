@@ -27,9 +27,11 @@ class StubLLM(LLMClient):
         self.responses = list(responses or [])
         self.error = error
         self.calls = 0
+        self.prompts = []
 
     def chat(self, messages, temperature=0.2, deadline_monotonic=None):
         self.calls += 1
+        self.prompts.append(messages)
         if self.error is not None:
             raise self.error
         if self.responses:

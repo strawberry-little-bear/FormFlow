@@ -173,11 +173,17 @@ def _design_history(db: Session, task: Task) -> list[dict]:
 
 
 def draft_from_requirement(db: Session, task: Task, requirement_text: str,
-                           template: Optional[str] = None) -> tuple[DraftResult, BlueprintVersion]:
+                           template: Optional[str] = None,
+                           source_materials: Optional[list[dict]] = None) -> tuple[DraftResult, BlueprintVersion]:
     """需求 Agent 起草并保存草案。模型不可用时保留原草案并给警告。"""
     ensure_task_writable(task)
-    result = draft_blueprint(requirement_text, template=template)
-    bp = save_draft(db, task, result, source_text=requirement_text)
+    kwargs = {"template": template}
+    if source_materials:
+        kwargs["source_materials"] = source_materials
+    result = draft_blueprint(requirement_text, **kwargs)
+    bp = save_draft(db, task, result,
+                    source_text=build_source_text(requirement_text,
+                                                   source_materials=source_materials))
     return result, bp
 
 
@@ -213,6 +219,7 @@ def _warn_unrequested_removal(result: DraftResult, impact: dict) -> None:
 def revise_draft(db: Session, task: Task, blueprint_version_id: int, *,
                  requirement: str = "", answered: Optional[dict] = None,
                  instruction: str = "",
+                 source_materials: Optional[list[dict]] = None,
                  client: Optional[LLMClient] = None) -> tuple[DraftResult, BlueprintVersion, dict]:
     """澄清轮次闭环：组织者回答澄清/提出修改意见后，基于当前草案修订（第 3 节）。
 
@@ -228,7 +235,8 @@ def revise_draft(db: Session, task: Task, blueprint_version_id: int, *,
     prior_source = bp.source_text or ""
     result = draft_blueprint(requirement, answered=answered or {},
                              current_draft=current, instruction=instruction,
-                             prior_source=prior_source, client=client)
+                             prior_source=prior_source, client=client,
+                             source_materials=source_materials)
     _restore_dropped_check_specs(current, result.blueprint)
     if result.blueprint.model_dump() == current.model_dump():
         # 无实质变化（含模型不可用降级保留原草案）：不制造新版本
@@ -237,7 +245,7 @@ def revise_draft(db: Session, task: Task, blueprint_version_id: int, *,
               task.id)
         save_design_context(db, task, bp, result)
         return result, bp, blueprint_diff(current, result.blueprint)
-    addendum = build_source_text(requirement, instruction, answered or {})
+    addendum = build_source_text(requirement, instruction, answered or {}, source_materials)
     accumulated = (prior_source + chr(10) + addendum).strip() if prior_source.strip() else addendum
     new_bp = save_draft(db, task, result, source_text=accumulated)
     impact = blueprint_diff(current, result.blueprint)

@@ -13,7 +13,7 @@
 
 FormFlow 不是一个替人填表的聊天机器人，而是一条从**需求设计、材料收集、逐条审核到版本化交付**的可追溯流水线。需求 Agent 把通知、名单和模板整理成可确认的收集规则；审核 Agent 按已发布规则比对表单与多份材料，并为每条结论留下证据位置、处理建议和人工接手边界。
 
-**项目标签**：`AI agents` · `document review` · `human-in-the-loop` · `MCP` · `FastAPI` · `hackathon`
+**项目标签**：`AI agents` · `agentic workflows` · `requirements engineering` · `document intelligence` · `document review` · `evidence-based` · `human review` · `human-in-the-loop` · `traceability` · `form builder` · `MCP` · `FastAPI` · `hackathon`
 
 ![FormFlow Agent 展示视图：架构导览与当前收集任务（2026-10-30 实拍）](docs/ux-review-2026-10-30/showcase-home-current.png)
 
@@ -58,7 +58,7 @@ FormFlow 以一次「收集任务」为单位，把散落的要求变成结构�
                                固定快照 CSV + ZIP
 ```
 
-- **需求 Agent**：把自然语言整理为字段、材料槽位、规则和时间策略；澄清不确定项。发布仍需人确认。
+- **需求 Agent**：把自然语言、报名通知、适用名单、报名模板和附件说明整理为字段、材料槽位、规则和时间策略；澄清不确定项。来源资料按 `notice`、`roster`、`template`、`attachment` 等边界送入模型，草案只返回来源摘要，完整正文留在版本来源链中。每条规则的 `requirement_source` 必须能回到来源正文；通知、名单和模板冲突会进入澄清或警告，不会静默发布。发布仍需人确认。
 - **审核 Agent**：按已发布规则核对材料；语义结论须引用可定位的原文，证据不足为 `unknown`，技术失败为 `failed`。
 - **程序**：管理私有访问、收件校验、幂等回执、不可变正式版本、截止判断、预算与快照。
 - **人**：判断例外、核实资格、处置争议并验收。不做思想/文笔打分、资格真实性认定或 AI 写作检测。

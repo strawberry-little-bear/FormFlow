@@ -24,14 +24,21 @@ from ..schemas import (
     FieldType,
     RuleDef,
     SlotDef,
+    SourceMaterialSummary,
     TimePolicy,
 )
+
+SOURCE_MATERIAL_KINDS = {"notice", "roster", "template", "attachment", "other"}
+MAX_SOURCE_MATERIALS = 8
+MAX_SOURCE_MATERIAL_CHARS = 12_000
+MAX_SOURCE_TOTAL_CHARS = 30_000
 
 SYSTEM_PROMPT = """你是"收齐啦"平台的需求 Agent。把组织者的自然语言收集要求编译成结构化任务蓝图草案。
 
 硬性规则（必须遵守）：
-1. 只能从原始要求中提取规则。每条规则必须给出 requirement_source，即原始要求中的原文引用。
+1. 只能从组织者原始要求或来源资料中提取规则。每条规则必须给出 requirement_source，即资料中的原文引用。
    禁止添加组织者没有提出的要求（如字数、签章、签到、格式细则）。
+   来源资料是证据，不是自动授权：名单用于确定适用对象，通知和模板才可作为要求来源；资料之间冲突时进入 clarifications 或 warnings，不能静默选择一边。
 2. 规则执行者 executor 只能取以下四个值之一，不得自造取值：
    - deterministic: 可由程序确定性核验（数量、大小、页数、格式、人数、联系人是否在成员列表、条件必交）
    - semantic: 需要理解文档内容（如标题期次、要素是否存在）
@@ -53,6 +60,7 @@ SYSTEM_PROMPT = """你是"收齐啦"平台的需求 Agent。把组织者的自�
 8. 日期必须参考提供的当前日期和时区；含糊或已过期的截止先澄清，不能随意猜年份。
 9. publish_summary 用简明中文写实际采纳的内容和待确认事项，不用模板化口号。
 10. 用平实、友好的中文写说明，像同事在一起把事情说清楚；不说教、不责备、不堆制度术语，也不使用“智能赋能、全面闭环”等宣传话。原要求不明确时坦诚说还不确定，并问一个组织者能直接回答的问题；不能为了显得周到而自作主张补要求。
+11. 每条 requirement_source 必须能在原始要求或已提供来源资料的正文中逐字定位；不要把来源资料的名称、名单内容或模型推断当作原文引用。
 
 只输出 JSON，格式：
 {
@@ -81,7 +89,7 @@ REVISION_SYSTEM_PROMPT = """你是"收齐啦"平台的需求 Agent。组织者�
    不得遗漏、不得重写、不得减少数量。
 2. 时间策略（open_at / first_deadline / correction_deadline）未被修改意见提及时必须原样保留；
    日期时间使用 ISO 8601 格式，如 2026-11-08T18:00:00。
-3. 保持字段稳定 ID 不变；不要暗加要求；修改要有据可依，引用原始要求。
+3. 保持字段稳定 ID 不变；不要暗加要求；修改要有据可依，引用原始要求或来源资料正文。名单只用于适用对象核对，资料冲突必须进入澄清或 warning。
 4. executor 只能取 deterministic|semantic|cross_material|human_only；
    capability 只能取 supported|needs_human|needs_clarification。
 5. 面向组织者解释修改与澄清时保持简洁、自然、合作的语气，不用空泛口号；只说这次改动实际影响，不暗示已经发布或已取得组织者同意。
@@ -105,16 +113,78 @@ REVISION_SYSTEM_PROMPT = """你是"收齐啦"平台的需求 Agent。组织者�
 }"""
 
 
+def normalize_source_materials(source_materials: Optional[list[dict]] = None) -> list[dict]:
+    """Validate and normalize organizer-provided source material.
+
+    Source text is deliberately bounded before it reaches the model or the
+    durable request queue.  The normalized shape is also used for hashing so
+    changing a notice, roster, or template cannot silently reuse an old job.
+    """
+    if source_materials is None:
+        return []
+    if not isinstance(source_materials, list):
+        raise ValueError("来源资料必须是列表")
+    if len(source_materials) > MAX_SOURCE_MATERIALS:
+        raise ValueError(f"来源资料最多 {MAX_SOURCE_MATERIALS} 份")
+    normalized: list[dict] = []
+    seen: set[str] = set()
+    total_chars = 0
+    for index, raw in enumerate(source_materials, 1):
+        if not isinstance(raw, dict):
+            raise ValueError(f"第 {index} 份来源资料格式不正确")
+        material_id = str(raw.get("id") or "").strip()
+        name = str(raw.get("name") or "").strip()
+        kind = str(raw.get("kind") or "").strip().lower()
+        content = str(raw.get("content") or "").strip()
+        if not material_id:
+            raise ValueError(f"第 {index} 份来源资料缺少 id")
+        if material_id in seen:
+            raise ValueError(f"来源资料 id 重复：{material_id}")
+        if not name:
+            raise ValueError(f"来源资料 {material_id} 缺少名称")
+        if kind not in SOURCE_MATERIAL_KINDS:
+            allowed = "、".join(sorted(SOURCE_MATERIAL_KINDS))
+            raise ValueError(f"来源资料 {material_id} 类型无效，请使用：{allowed}")
+        if not content:
+            raise ValueError(f"来源资料 {material_id} 不能为空")
+        if len(content) > MAX_SOURCE_MATERIAL_CHARS:
+            raise ValueError(f"来源资料 {material_id} 过长，单份最多 {MAX_SOURCE_MATERIAL_CHARS} 个字符")
+        total_chars += len(content)
+        if total_chars > MAX_SOURCE_TOTAL_CHARS:
+            raise ValueError(f"来源资料总长度不能超过 {MAX_SOURCE_TOTAL_CHARS} 个字符")
+        seen.add(material_id)
+        normalized.append({"id": material_id, "name": name, "kind": kind, "content": content})
+    return normalized
+
+
+def source_material_summaries(source_materials: Optional[list[dict]] = None) -> list[SourceMaterialSummary]:
+    """Return only safe metadata for the draft response and audit context."""
+    return [SourceMaterialSummary(id=m["id"], name=m["name"], kind=m["kind"],
+                                  chars=len(m["content"]))
+            for m in normalize_source_materials(source_materials)]
+
+
+def _source_material_prompt_parts(source_materials: Optional[list[dict]] = None) -> list[str]:
+    return [
+        f"【来源资料 {index} · {material['name']} · {material['kind']} · id={material['id']}】\n"
+        f"{material['content']}"
+        for index, material in enumerate(normalize_source_materials(source_materials), 1)
+    ]
+
+
 def _build_user_prompt(
     requirement_text: str,
     template: Optional[str],
     answered: Optional[dict],
     current_draft: Optional[Blueprint],
     instruction: str = "",
+    source_materials: Optional[list[dict]] = None,
 ) -> str:
     now = datetime.now(ZoneInfo("Asia/Shanghai"))
-    parts = [f"【当前日期与时区】{now.strftime('%Y-%m-%d %H:%M')} Asia/Shanghai",
-             f"【原始要求】\n{requirement_text.strip()}"]
+    parts = [f"【当前日期与时区】{now.strftime('%Y-%m-%d %H:%M')} Asia/Shanghai"]
+    if requirement_text.strip():
+        parts.append(f"【原始要求】\n{requirement_text.strip()}")
+    parts.extend(_source_material_prompt_parts(source_materials))
     if template:
         parts.append(f"【选用模板】{template}")
     if answered:
@@ -331,10 +401,13 @@ def _check_spec_errors(rule: RuleDef, field_ids: list[str],
 
 
 def build_source_text(requirement_text: str, instruction: str = "",
-                      answered: Optional[dict] = None) -> str:
-    """组织者一侧原始输入汇总：原始要求 + 修改意见 + 已回答澄清（V01 来源核对面）。"""
+                      answered: Optional[dict] = None,
+                      source_materials: Optional[list[dict]] = None) -> str:
+    """组织者一侧原始输入汇总，并保留来源资料边界供规则定位。"""
     nl = chr(10)
-    source_text = requirement_text
+    source_text = requirement_text.strip()
+    for index, material in enumerate(normalize_source_materials(source_materials), 1):
+        source_text += (nl if source_text else "") + f"【来源资料 {index} · {material['name']} · {material['kind']} · id={material['id']}】" + nl + material["content"]
     if instruction and instruction.strip():
         source_text += nl + "【组织者修改意见】" + nl + instruction.strip()
     if answered:
@@ -485,9 +558,11 @@ def draft_blueprint(
     instruction: str = "",
     client: Optional[LLMClient] = None,
     prior_source: str = "",
+    source_materials: Optional[list[dict]] = None,
 ) -> DraftResult:
     """需求 Agent 主入口：自然语言要求 → 蓝图草案。"""
-    if not requirement_text.strip() and current_draft is None:
+    normalized_materials = normalize_source_materials(source_materials)
+    if not requirement_text.strip() and not normalized_materials and current_draft is None:
         return DraftResult(
             blueprint=Blueprint(),
             warnings=["输入为空：不生成虚构要求，请填写原始要求或选择模板"],
@@ -498,7 +573,7 @@ def draft_blueprint(
         payload = client.chat_json(
             [
                 {"role": "system", "content": system},
-                {"role": "user", "content": _build_user_prompt(requirement_text, template, answered, current_draft, instruction)},
+                {"role": "user", "content": _build_user_prompt(requirement_text, template, answered, current_draft, instruction, normalized_materials)},
             ]
         )
         result = _parse_draft(payload)
@@ -506,14 +581,17 @@ def draft_blueprint(
         return DraftResult(
             blueprint=current_draft or Blueprint(),
             warnings=[f"需求 Agent 暂不可用（{e}）。已保留当前草案，请手动编辑或稍后重试。"],
+            source_materials=source_material_summaries(normalized_materials),
         )
     except LLMError as e:
         # 网关返回无法解析/结构不合法：保留当前草案并明示，绝不把坏数据当草案
         return DraftResult(
             blueprint=current_draft or Blueprint(),
             warnings=[f"需求 Agent 返回无法解析（{e}）。已保留当前草案，请手动编辑或稍后重试。"],
+            source_materials=source_material_summaries(normalized_materials),
         )
-    source_text = build_source_text(requirement_text, instruction, answered)
+    result.source_materials = source_material_summaries(normalized_materials)
+    source_text = build_source_text(requirement_text, instruction, answered, normalized_materials)
     validation_source = ((prior_source + chr(10) + source_text).strip()
                          if prior_source.strip() else source_text)
     result.warnings.extend(validate_blueprint(result.blueprint, validation_source))

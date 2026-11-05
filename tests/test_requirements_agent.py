@@ -4,7 +4,9 @@ from __future__ import annotations
 import json
 
 from app.agents.requirements_agent import (
+    build_source_text,
     draft_blueprint,
+    normalize_source_materials,
     template_blueprint,
     validate_blueprint,
 )
@@ -63,6 +65,35 @@ def test_empty_input_no_fabrication(stub_llm):
     assert result.blueprint.rules == [] and result.blueprint.fields == []
     assert any("不生成虚构要求" in w for w in result.warnings)
     assert stub_llm.calls == 0  # 不发模型调用
+
+
+def test_source_materials_are_segmented_and_summarized(stub_llm):
+    stub_llm.responses = [_draft_payload()]
+    materials = [{"id": "notice", "name": "报名通知", "kind": "notice", "content": "提交 PDF，截止 11 月 8 日"},
+                 {"id": "roster", "name": "适用名单", "kind": "roster", "content": "张三、李四"}]
+    result = draft_blueprint("请按资料整理", source_materials=materials, client=stub_llm)
+    prompt = stub_llm.prompts[0][1]["content"]
+    assert "【来源资料 1 · 报名通知 · notice · id=notice】" in prompt
+    assert "【来源资料 2 · 适用名单 · roster · id=roster】" in prompt
+    assert [item.id for item in result.source_materials] == ["notice", "roster"]
+    assert result.source_materials[0].chars == len("提交 PDF，截止 11 月 8 日")
+    assert "【来源资料 1 · 报名通知 · notice · id=notice】" in build_source_text("请按资料整理", source_materials=materials)
+
+
+def test_source_materials_validate_shape_and_limits():
+    base = {"id": "notice", "name": "报名通知", "kind": "notice", "content": "正文"}
+    assert normalize_source_materials([base])[0]["id"] == "notice"
+    for bad, message in [
+        ([base, {**base, "id": "notice"}], "id 重复"),
+        ([{**base, "content": ""}], "不能为空"),
+        ([{**base, "kind": "pdf"}], "类型无效"),
+    ]:
+        try:
+            normalize_source_materials(bad)
+        except ValueError as exc:
+            assert message in str(exc)
+        else:
+            raise AssertionError("invalid source material was accepted")
 
 
 def test_validate_catches_duplicate_ids_and_bad_dates():

@@ -2168,6 +2168,25 @@ dialog p {
   margin:0;
   font-size:12px
 }
+.source-pack { margin:0 0 10px; padding:12px; border:1px solid #e8e3f2; border-radius:8px; background:#faf9fd; }
+.source-pack-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; margin-bottom:9px; }
+.source-pack-heading b { display:block; color:#3f3a50; font-size:11px; }
+.source-pack-heading span:not(.source-pack-badge) { display:block; margin-top:3px; color:#777384; font-size:9px; line-height:1.6; }
+.source-pack-badge { display:inline-flex; align-items:center; flex:0 0 auto; min-height:20px; padding:2px 7px; border:1px solid #ddd6ef; border-radius:999px; background:#f0ecfb; color:#68558f; font-size:9px; line-height:1.2; white-space:nowrap; }
+.source-pack-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+.source-pack-grid label { min-width:0; color:#5e596a; font-size:10px; }
+.source-pack-grid textarea { display:block; width:100%; min-height:58px; max-height:88px; margin-top:4px; padding:7px 8px; border-color:#e4dfed; background:#fff; font-size:10px; line-height:1.55; }
+.source-pack > .field-help { margin:8px 0 0; font-size:9px; }
+.source-summary { margin:14px 0; border-top:1px solid #ece8f3; border-bottom:1px solid #ece8f3; padding:10px 0; }
+.source-summary summary { color:#5e5378; font-size:11px; cursor:pointer; }
+.source-summary summary span { color:#9a91aa; font-size:10px; }
+.source-summary ul { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:7px; margin:10px 0 0; padding:0; list-style:none; }
+.source-summary li { display:flex; align-items:center; gap:7px; min-width:0; }
+.source-summary li > span:last-child { min-width:0; }
+.source-summary li b, .source-summary li small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.source-summary li b { color:#4b4658; font-size:10px; }
+.source-summary li small { margin-top:2px; color:#9993a3; font-size:9px; }
+.source-summary .field-help { margin:9px 0 0; }
 .composer-foot {
   display:flex;
   align-items:center;
@@ -3185,6 +3204,12 @@ dialog p {
   dialog {
     padding:25px
   }
+  .source-pack-grid,
+  .source-summary ul { grid-template-columns:1fr; }
+  .source-pack { padding:10px; }
+  .source-pack-heading { gap:7px; }
+  .source-pack-heading span:not(.source-pack-badge) { max-width:28ch; }
+  .source-pack-grid textarea { min-height:52px; max-height:76px; }
   .dialog-actions button {
     font-size:12px
   }
@@ -3200,6 +3225,8 @@ dialog p {
   .hero-flow-steps strong { white-space:normal; }
   .tabs { flex-direction:column; }
   .tabs button { width:100%; }
+  .source-pack-heading { display:block; }
+  .source-pack-badge { margin-top:6px; }
 }
 @media(min-width:300px) and (max-width:340px) {
   .auth-page main { padding:10px; }

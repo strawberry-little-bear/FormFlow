@@ -265,13 +265,21 @@ def get_blueprint_version(task_id: int, bp_id: int, db: Session = Depends(get_db
 
 
 @router.post("/tasks/{task_id}/draft/agent")
-def draft_by_agent(task_id: int, requirement: str = Form(...), template: str = Form(None),
+def draft_by_agent(task_id: int, requirement: str = Form(""), template: str = Form(None),
+                   source_materials: str = Form(""),
                    db: Session = Depends(get_db), acct: Account = Depends(current_account)):
     task = _owned_task(db, acct, task_id)
     try:
-        result, bp = task_service.draft_from_requirement(db, task, requirement, template)
+        source_materials_map = json.loads(source_materials) if source_materials.strip() else []
+    except json.JSONDecodeError as e:
+        raise HTTPException(422, f"来源资料格式不正确：{e}")
+    try:
+        result, bp = task_service.draft_from_requirement(
+            db, task, requirement, template, source_materials=source_materials_map)
     except task_service.TaskNotWritable as e:
         raise HTTPException(409, str(e))
+    except ValueError as e:
+        raise HTTPException(422, str(e))
     db.commit()
     blocking, advisories = task_service.split_publish_checks(result.blueprint, bp, result)
     return {"blueprint_version_id": bp.id, "version": bp.version, "status": bp.status,
@@ -318,7 +326,7 @@ def update_draft_time_policy(task_id: int, blueprint_version_id: int = Form(...)
 @router.post("/tasks/{task_id}/draft/revise")
 def revise_draft_view(task_id: int, blueprint_version_id: int = Form(...),
                       requirement: str = Form(""), answered: str = Form(""),
-                      instruction: str = Form(""),
+                      instruction: str = Form(""), source_materials: str = Form(""),
                       db: Session = Depends(get_db), acct: Account = Depends(current_account)):
     """澄清轮次闭环：回答澄清/提出修改意见，基于当前草案修订，返回新草案与修改影响。"""
     task = _owned_task(db, acct, task_id)
@@ -329,9 +337,14 @@ def revise_draft_view(task_id: int, blueprint_version_id: int = Form(...),
     if not isinstance(answered_map, dict):
         raise HTTPException(422, "answered 必须是 JSON 对象（问题 -> 回答）")
     try:
+        source_materials_map = json.loads(source_materials) if source_materials.strip() else []
+    except json.JSONDecodeError as e:
+        raise HTTPException(422, f"来源资料格式不正确：{e}")
+    try:
         result, bp, impact = task_service.revise_draft(
             db, task, blueprint_version_id, requirement=requirement,
-            answered=answered_map, instruction=instruction)
+            answered=answered_map, instruction=instruction,
+            source_materials=source_materials_map)
     except task_service.TaskNotWritable as e:
         raise HTTPException(409, str(e))
     except ValueError as e:
@@ -350,6 +363,7 @@ def enqueue_agent_draft(task_id: int, background_tasks: BackgroundTasks,
                         blueprint_version_id: Optional[int] = Form(None),
                         base_blueprint_id: int = Form(0),
                         answered: str = Form(""), instruction: str = Form(""),
+                        source_materials: str = Form(""),
                         execution_mode: str = Form("live"),
                         db: Session = Depends(get_db), acct: Account = Depends(current_account)):
     """Queue a long design-Agent request so the editor can recover after disconnects."""
@@ -368,10 +382,15 @@ def enqueue_agent_draft(task_id: int, background_tasks: BackgroundTasks,
         raise HTTPException(422, "澄清回答格式不正确，请刷新后重试")
     if not isinstance(answered_map, dict):
         raise HTTPException(422, "澄清回答格式不正确，请刷新后重试")
+    try:
+        source_materials_map = json.loads(source_materials) if source_materials.strip() else []
+    except json.JSONDecodeError:
+        raise HTTPException(422, "来源资料格式不正确，请刷新后重试")
     payload = {"kind": kind, "requirement": requirement, "template": template,
                "blueprint_version_id": blueprint_version_id,
                "base_blueprint_id": base_blueprint_id,
                "answered": answered_map, "instruction": instruction,
+               "source_materials": source_materials_map,
                "execution_mode": execution_mode}
     from ..services import agent_requests
     try:

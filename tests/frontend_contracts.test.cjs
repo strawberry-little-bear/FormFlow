@@ -48,7 +48,7 @@ function setup(sharedStorage = storage()) {
     requestAnimationFrame: fn => fn(),
     setTimeout, clearTimeout, confirm: () => true, console,
     fetch: async () => {throw new Error('Unexpected request');}});
-vm.runInContext(source + '\nthis.app = {state, route, pageTitleForRoute, useVersionAsBase, loadDesignVersion, cacheDesignInputs, restoreDesignInputs, recoverDesignInput, recoverDesignInput, paintChat, renderDraftPanel, runAgent, runExport, deliveryHistoryHtml, deliverySnapshotStatusHtml, loadDeliveryHistory, inspectSnapshot, paintSnapshot, agentEvidenceSummaryHtml, canPublishDesign, publishDiffHtml, designVersionImpactHtml, publishGovernanceHtml, publishBp, confirmPublish, saveTimePolicy, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, fmtTimeShort, designReadinessHtml, designProgressHtml, applyDraft, quickTemplate, draftFingerprint, collectDraftFields, paintSubmitterNextStep, submitterNextStepHtml, setSubMode, moveSubmitModeTab, setDesignTab, moveDesignTab, refreshSlotConditions, wbMatches, api, apiError, submitDecision, saveDraft, doSubmit, doSubLogin, uploadSlot, deleteSlotFile, cacheReviewDraft, discardReviewDraft, logout, nextPendingReview, setReviewFilter, setReviewTraceFilter, selectReviewRule, viewReview, reviewRevisionHistoryHtml, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, chooseWorkbenchNextStep, workbenchNextStepHtml, agentRunCard, agentTourHtml, agentTourRuntimeHtml, runtimeSelfTestHtml, submitterGuidance, ruleCard, receiptFilesHtml, submissionIssues, checkAgentRequestNow, resumePendingAgentRequest, savePendingAgentRequest, agentRequestProgressHtml, retryAgent, pollAgentRequest, showSubmissionIssues, refreshSubmissionValidation, initSubChat, demoRouteTask, demoRouteHtml, demoRouteCueHtml, copyDemoRouteCue, agentArchitectureRailHtml, agentQuickReadHtml, agentShowcaseHtml, runStageReplayHtml, paintAgentShowcase, jumpToRunStage, mcpSnapshotHtml, renderDemoRoute, paintWorkspaceAgentStatus, paintAgentRuntime, paintAgentRuntimeContractIssue, viewLogin, viewSubmit, switchLoginTab, moveLoginTab, setFlash, openDialog, readPresentationMode, showcaseReturnHtml, applyPresentationMode, setPresentationMode, togglePresentationMode, fillDemoCred, doLogin, issueGrant, issueAllGrants, viewRoster, loadRoster, setRosterFilter, renderRosterTable, showCredential, showCredentialList, setEmptyTaskHome, jumpToSubmitResults, filterTasks, clearTaskFilters, paintTasks, createTask};', context);
+vm.runInContext(source + '\nthis.app = {state, route, pageTitleForRoute, useVersionAsBase, loadDesignVersion, cacheDesignInputs, restoreDesignInputs, recoverDesignInput, recoverDesignInput, collectSourceMaterials, restoreSourceMaterials, collectDesignInputs, sourceMaterialsSummaryHtml, paintChat, renderDraftPanel, runAgent, runExport, deliveryHistoryHtml, deliverySnapshotStatusHtml, loadDeliveryHistory, inspectSnapshot, paintSnapshot, agentEvidenceSummaryHtml, canPublishDesign, publishDiffHtml, designVersionImpactHtml, publishGovernanceHtml, publishBp, confirmPublish, saveTimePolicy, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, fmtTimeShort, designReadinessHtml, designProgressHtml, applyDraft, quickTemplate, draftFingerprint, collectDraftFields, paintSubmitterNextStep, submitterNextStepHtml, setSubMode, moveSubmitModeTab, setDesignTab, moveDesignTab, refreshSlotConditions, wbMatches, api, apiError, submitDecision, saveDraft, doSubmit, doSubLogin, uploadSlot, deleteSlotFile, cacheReviewDraft, discardReviewDraft, logout, nextPendingReview, setReviewFilter, setReviewTraceFilter, selectReviewRule, viewReview, reviewRevisionHistoryHtml, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, chooseWorkbenchNextStep, workbenchNextStepHtml, agentRunCard, agentTourHtml, agentTourRuntimeHtml, runtimeSelfTestHtml, submitterGuidance, ruleCard, receiptFilesHtml, submissionIssues, checkAgentRequestNow, resumePendingAgentRequest, savePendingAgentRequest, agentRequestProgressHtml, retryAgent, pollAgentRequest, showSubmissionIssues, refreshSubmissionValidation, initSubChat, demoRouteTask, demoRouteHtml, demoRouteCueHtml, copyDemoRouteCue, agentArchitectureRailHtml, agentQuickReadHtml, agentShowcaseHtml, runStageReplayHtml, paintAgentShowcase, jumpToRunStage, mcpSnapshotHtml, renderDemoRoute, paintWorkspaceAgentStatus, paintAgentRuntime, paintAgentRuntimeContractIssue, viewLogin, viewSubmit, switchLoginTab, moveLoginTab, setFlash, openDialog, readPresentationMode, showcaseReturnHtml, applyPresentationMode, setPresentationMode, togglePresentationMode, fillDemoCred, doLogin, issueGrant, issueAllGrants, viewRoster, loadRoster, setRosterFilter, renderRosterTable, showCredential, showCredentialList, setEmptyTaskHome, jumpToSubmitResults, filterTasks, clearTaskFilters, paintTasks, createTask};', context);
   context.app.copyText = vm.runInContext('copyText', context);
   context.app.copyCredential = vm.runInContext('copyCredential', context);
   context.app.submissionMatchesReceipt = context.submissionMatchesReceipt;
@@ -300,6 +300,32 @@ test('design load failures replace the preview with recovery actions', () => {
   assert.match(els['draft-panel'].innerHTML, /回到我的任务/);
   assert.doesNotMatch(els['draft-panel'].innerHTML, /LIVE PREVIEW/);
   assert.equal(els['draft-state'].textContent, '无法读取');
+});
+test('design source materials are collected and summarized without exposing full text', () => {
+  const {app, els} = setup();
+  els['source-notice'] = element('报名通知正文');
+  els['source-roster'] = element('张三\n李四');
+  els['source-template'] = element('姓名、学号、报告');
+  els['source-extra'] = element('PDF，20 页以内');
+  const materials = app.collectSourceMaterials();
+  assert.equal(Array.from(materials, m => m.id).join(','), 'notice,roster,template,attachment');
+  assert.equal(materials[0].name, '报名通知');
+  assert.equal(materials[0].content, '报名通知正文');
+  app.restoreSourceMaterials([{id:'notice', content:'恢复后的通知'}]);
+  assert.equal(els['source-notice'].value, '恢复后的通知');
+  assert.equal(els['source-roster'].value, '');
+  app.state.taskId = 1;
+  app.state.bpId = 1;
+  app.state.designTab = 'rules';
+  app.state.draft = {blueprint:{rules:[], fields:[], slots:[], time_policy:{}}, clarifications:[], source_materials:[
+    {id:'notice', name:'报名通知', kind:'notice', chars:6},
+    {id:'roster', name:'适用名单', kind:'roster', chars:3},
+  ]};
+  app.renderDraftPanel();
+  assert.match(els['draft-panel'].innerHTML, /本次使用的来源资料/);
+  assert.match(els['draft-panel'].innerHTML, /报名通知/);
+  assert.match(els['draft-panel'].innerHTML, /6 字/);
+  assert.doesNotMatch(els['draft-panel'].innerHTML, /报名通知正文/);
 });
 test('submitter credential errors show the server guidance once', async () => {
   const {app, context, els} = setup();

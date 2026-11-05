@@ -125,6 +125,15 @@ class Clarification(BaseModel):
     affects_rule_ids: list[str] = Field(default_factory=list)
 
 
+class SourceMaterialSummary(BaseModel):
+    """脱敏的来源资料摘要；完整正文只保留在草案来源文本中。"""
+
+    id: str
+    name: str
+    kind: str
+    chars: int = 0
+
+
 class DraftResult(BaseModel):
     """需求 Agent 输出：结构化草案 + 待澄清 + 发布摘要。"""
 
@@ -132,6 +141,7 @@ class DraftResult(BaseModel):
     clarifications: list[Clarification] = Field(default_factory=list)
     publish_summary: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    source_materials: list[SourceMaterialSummary] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------- 审核结果
