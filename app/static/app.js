@@ -1357,7 +1357,12 @@ function setEmptyTaskHome(isEmpty) {
   document.getElementById("app")?.classList.toggle("task-home-empty", isEmpty);
 }
 function demoRouteTask(tasks = []) {
-  return tasks.find(t => t.status === "collecting")
+  const crossMaterial = tasks.find(t =>
+    /跨文件|报名材料核验/.test(String(t.name || ""))
+    && !["archived", "cancelled", "closed"].includes(t.status)
+  );
+  return crossMaterial
+    || tasks.find(t => t.status === "collecting")
     || tasks.find(t => t.status === "draft")
     || tasks.find(t => !["archived", "cancelled", "closed"].includes(t.status))
     || tasks[0]

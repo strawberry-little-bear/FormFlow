@@ -511,6 +511,13 @@ test('demo route explains the full workflow and points to the selected task', ()
   assert.match(styleSource, /\.demo-route-owner\.system/);
   assert.match(styleSource, /\.demo-route-owner\.human/);
 });
+test('demo route prioritizes the cross-material showcase task', () => {
+  const {app} = setup();
+  const legacy = {id: 1, name: '团课报告收集', status: 'collecting'};
+  const crossMaterial = {id: 2, name: '2026 秋季第 1 期报名材料核验（演示）', status: 'draft'};
+  assert.equal(app.demoRouteTask([legacy, crossMaterial]).id, 2);
+  assert.equal(app.demoRouteTask([{...crossMaterial, status: 'archived'}, legacy]).id, 1);
+});
 test('demo route focus turns the evidence entry into a stage-specific action', () => {
   const {app} = setup();
   const base = {id: 7, name: '演示任务', status: 'collecting'};
