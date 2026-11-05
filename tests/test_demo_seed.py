@@ -86,7 +86,10 @@ def test_seed_demo_includes_cross_material_showcase(db_session):
     assert zhang_details["x_name_consistency"]["result"] == "satisfied"
     assert len(zhang_details["x_name_consistency"]["evidence"]) == 2
     assert len({item["file_id"] for item in zhang_details["x_name_consistency"]["evidence"]}) == 2
+    assert zhang_details["x_student_id_consistency"]["result"] == "satisfied"
+    assert len(zhang_details["x_student_id_consistency"]["evidence"]) == 2
     assert li_details["x_name_consistency"]["result"] == "issue"
+    assert li_details["x_student_id_consistency"]["result"] == "satisfied"
     assert wang_details["x_student_id_consistency"]["result"] == "unknown"
 
 

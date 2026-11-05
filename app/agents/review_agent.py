@@ -125,6 +125,29 @@ def _slot_files(ctx: CheckContext, slot_id: str) -> list[FileInfo]:
     return [f for f in ctx.files if f.slot == slot_id]
 
 
+def _program_evidence(locator: str, quote: str, file_id: Optional[str] = None) -> EvidenceOut:
+    """Return deterministic evidence without pretending it is a document quote."""
+    return EvidenceOut(file_id=file_id, locator=locator, quote=quote, method="program")
+
+
+def _field_evidence(field_id: str, value) -> EvidenceOut:
+    value_text = str(value).strip() if value is not None else ""
+    return _program_evidence(f"field:{field_id}", value_text or "（未填写）")
+
+
+def _roster_evidence(members: list[str]) -> EvidenceOut:
+    return _program_evidence("roster.members", "、".join(members) if members else "（名单为空）")
+
+
+def _slot_evidence(slot_id: str, files: list[FileInfo]) -> list[EvidenceOut]:
+    if not files:
+        return [_program_evidence(f"slot:{slot_id}", "收到 0 个文件")]
+    return [
+        _program_evidence("file", f.original_name or f.file_id, file_id=f.file_id)
+        for f in files
+    ]
+
+
 # 检测到的真实类型 → 可能对应的扩展名（第 16 节：核验真实类型，不只信任扩展名）
 _DETECTED_FORMATS = {
     "pdf": {"pdf"},
@@ -181,7 +204,8 @@ def _check_slot_constraints(rule: RuleDef, ctx: CheckContext, check: dict) -> Ru
     slot_def = next((s for s in ctx.blueprint.slots if s.id == check.get("slot")), None)
     if slot_def is None:
         return RuleResultOut(rule_id=rule.id, result=RESULT_FAILED,
-                             explanation=f"规则引用了不存在的槽位 {check.get('slot')}")
+                             explanation=f"规则引用了不存在的槽位 {check.get('slot')}",
+                             evidence=[_program_evidence(f"slot:{check.get('slot')}", "槽位不存在")])
     files = _slot_files(ctx, slot_def.id)
     problems, evidence = [], []
     if len(files) > slot_def.max_count:
@@ -202,40 +226,47 @@ def _check_slot_constraints(rule: RuleDef, ctx: CheckContext, check: dict) -> Ru
             problems.append(f"{f.original_name} 大小超过 {slot_def.max_size_mib} MiB 上限")
         if f.parse_error:
             problems.append(f"{f.original_name} 解析失败：{f.parse_error}（技术原因，非资格拒绝）")
-            evidence.append(EvidenceOut(file_id=f.file_id, quote=f.parse_error, method="parse"))
+            evidence.append(EvidenceOut(file_id=f.file_id, locator="file.parse",
+                                        quote=f.parse_error, method="parse"))
         elif f.parse is not None:
             if slot_def.max_pages and f.parse.total_pages > slot_def.max_pages:
                 problems.append(f"{f.original_name} 页数 {f.parse.total_pages} 超过上限 {slot_def.max_pages}")
     if problems:
+        if not evidence:
+            evidence = _slot_evidence(slot_def.id, files)
         return RuleResultOut(rule_id=rule.id, result=RESULT_ISSUE,
                              explanation="；".join(problems),
                              next_step="按槽位要求替换文件后重新正式提交", evidence=evidence)
     return RuleResultOut(rule_id=rule.id, result=RESULT_SATISFIED,
                          explanation=f"槽位 {slot_def.id} 的数量/格式/大小/页数均符合要求",
-                         evidence=[EvidenceOut(file_id=f.file_id, locator="file", method="program")
-                                   for f in files])
+                         evidence=_slot_evidence(slot_def.id, files))
 
 
 def _check_slot_presence(rule: RuleDef, ctx: CheckContext, check: dict) -> RuleResultOut:
     slot_def = next((s for s in ctx.blueprint.slots if s.id == check.get("slot")), None)
     if slot_def is None:
         return RuleResultOut(rule_id=rule.id, result=RESULT_FAILED,
-                             explanation=f"规则引用了不存在的槽位 {check.get('slot')}")
+                             explanation=f"规则引用了不存在的槽位 {check.get('slot')}",
+                             evidence=[_program_evidence(f"slot:{check.get('slot')}", "槽位不存在")])
     applicable = _eval_condition(slot_def.required_condition, ctx.fields)
     if applicable is None:
         return RuleResultOut(rule_id=rule.id, result=RESULT_FAILED,
                              explanation=f"槽位 {slot_def.id} 的必交条件「{slot_def.required_condition}」使用了不受支持的形式，未做判定（不静默通过）",
-                             next_step="将条件改写为 字段==值 的简单形式，或将该材料改为人工核验")
+                             next_step="将条件改写为 字段==值 的简单形式，或将该材料改为人工核验",
+                             evidence=[_program_evidence(f"condition:{slot_def.id}", slot_def.required_condition or "（无条件）")])
     if not applicable:
         return RuleResultOut(rule_id=rule.id, result=RESULT_NOT_APPLICABLE,
-                             explanation=f"条件 {slot_def.required_condition} 不满足，槽位 {slot_def.id} 不适用")
+                             explanation=f"条件 {slot_def.required_condition} 不满足，槽位 {slot_def.id} 不适用",
+                             evidence=[_program_evidence(f"condition:{slot_def.id}", slot_def.required_condition or "（无条件）")])
     files = _slot_files(ctx, slot_def.id)
     if not files:
         return RuleResultOut(rule_id=rule.id, result=RESULT_ISSUE,
                              explanation=f"必交槽位 {slot_def.id} 缺少文件（按快照槽位判定，无需模型证明）",
-                             next_step=f"上传{slot_def.label}后重新正式提交")
+                             next_step=f"上传{slot_def.label}后重新正式提交",
+                             evidence=_slot_evidence(slot_def.id, files))
     return RuleResultOut(rule_id=rule.id, result=RESULT_SATISFIED,
-                         explanation=f"必交槽位 {slot_def.id} 已有 {len(files)} 个文件")
+                         explanation=f"必交槽位 {slot_def.id} 已有 {len(files)} 个文件",
+                         evidence=_slot_evidence(slot_def.id, files))
 
 
 def _check_team_size(rule: RuleDef, ctx: CheckContext, check: dict) -> RuleResultOut:
@@ -244,9 +275,11 @@ def _check_team_size(rule: RuleDef, ctx: CheckContext, check: dict) -> RuleResul
     if n < lo or n > hi:
         return RuleResultOut(rule_id=rule.id, result=RESULT_ISSUE,
                              explanation=f"团队 {n} 人，不在 {lo}-{hi} 人范围",
-                             next_step="调整成员名单后重新正式提交")
+                             next_step="调整成员名单后重新正式提交",
+                             evidence=[_roster_evidence(_split_names(ctx.members))])
     return RuleResultOut(rule_id=rule.id, result=RESULT_SATISFIED,
-                         explanation=f"团队 {n} 人，符合 {lo}-{hi} 人要求")
+                         explanation=f"团队 {n} 人，符合 {lo}-{hi} 人要求",
+                         evidence=[_roster_evidence(_split_names(ctx.members))])
 
 
 def _check_contact(rule: RuleDef, ctx: CheckContext, check: dict) -> RuleResultOut:
@@ -254,13 +287,16 @@ def _check_contact(rule: RuleDef, ctx: CheckContext, check: dict) -> RuleResultO
     contact = str(ctx.fields.get(fid, "")).strip()
     if not contact:
         return RuleResultOut(rule_id=rule.id, result=RESULT_ISSUE,
-                             explanation=f"未填写联系人字段 {fid}", next_step="补充联系人信息")
+                             explanation=f"未填写联系人字段 {fid}", next_step="补充联系人信息",
+                             evidence=[_field_evidence(fid, contact), _roster_evidence(_split_names(ctx.members))])
     if ctx.members and contact not in ctx.members:
         return RuleResultOut(rule_id=rule.id, result=RESULT_ISSUE,
                              explanation=f"联系人「{contact}」不在当前成员列表中",
-                             next_step="将联系人改为团队成员，或先修正成员名单")
+                             next_step="将联系人改为团队成员，或先修正成员名单",
+                             evidence=[_field_evidence(fid, contact), _roster_evidence(_split_names(ctx.members))])
     return RuleResultOut(rule_id=rule.id, result=RESULT_SATISFIED,
-                         explanation=f"联系人「{contact}」在成员列表中")
+                         explanation=f"联系人「{contact}」在成员列表中",
+                         evidence=[_field_evidence(fid, contact), _roster_evidence(_split_names(ctx.members))])
 
 
 def _check_field_required(rule: RuleDef, ctx: CheckContext, check: dict) -> RuleResultOut:
@@ -271,15 +307,19 @@ def _check_field_required(rule: RuleDef, ctx: CheckContext, check: dict) -> Rule
         if applicable is None:
             return RuleResultOut(rule_id=rule.id, result=RESULT_FAILED,
                                  explanation=f"字段 {fid} 的必填条件「{field_def.required_condition}」使用了不受支持的形式，未做判定（不静默通过）",
-                                 next_step="将条件改写为 字段==值 的简单形式，或将该字段改为人工核验")
+                                 next_step="将条件改写为 字段==值 的简单形式，或将该字段改为人工核验",
+                                 evidence=[_program_evidence(f"condition:{fid}", field_def.required_condition)])
         if not applicable:
             return RuleResultOut(rule_id=rule.id, result=RESULT_NOT_APPLICABLE,
-                                 explanation=f"条件 {field_def.required_condition} 不满足，字段 {fid} 当前不适用")
+                                 explanation=f"条件 {field_def.required_condition} 不满足，字段 {fid} 当前不适用",
+                                 evidence=[_program_evidence(f"condition:{fid}", field_def.required_condition)])
     if str(ctx.fields.get(fid, "")).strip():
         return RuleResultOut(rule_id=rule.id, result=RESULT_SATISFIED,
-                             explanation=f"字段 {fid} 已填写")
+                             explanation=f"字段 {fid} 已填写",
+                             evidence=[_field_evidence(fid, ctx.fields.get(fid))])
     return RuleResultOut(rule_id=rule.id, result=RESULT_ISSUE,
-                         explanation=f"必填字段 {fid} 为空", next_step=f"填写{ctx.blueprint.task_scope.get('name','')}要求的 {fid}")
+                         explanation=f"必填字段 {fid} 为空", next_step=f"填写{ctx.blueprint.task_scope.get('name','')}要求的 {fid}",
+                         evidence=[_field_evidence(fid, ctx.fields.get(fid))])
 
 
 def _split_names(raw) -> list[str]:
@@ -304,16 +344,19 @@ def _check_members_match(rule: RuleDef, ctx: CheckContext, check: dict) -> RuleR
     if not registered:
         return RuleResultOut(rule_id=rule.id, result=RESULT_UNKNOWN,
                              explanation="该主体没有登记成员名单，无法逐项核对（不猜测一致）",
-                             next_step="请组织者登记团队成员名单后重试，或转为人工核对")
+                             next_step="请组织者登记团队成员名单后重试，或转为人工核对",
+                             evidence=[_field_evidence(fid, ctx.fields.get(fid)), _roster_evidence(registered)])
     if not declared:
         return RuleResultOut(rule_id=rule.id, result=RESULT_ISSUE,
                              explanation="未申报团队成员，无法与登记名单核对",
-                             next_step="在提交字段中填写团队成员名单后重新正式提交")
+                             next_step="在提交字段中填写团队成员名单后重新正式提交",
+                             evidence=[_field_evidence(fid, ctx.fields.get(fid)), _roster_evidence(registered)])
     only_declared = sorted(set(declared) - set(registered))
     only_registered = sorted(set(registered) - set(declared))
     if not only_declared and not only_registered:
         return RuleResultOut(rule_id=rule.id, result=RESULT_SATISFIED,
-                             explanation=f"申报成员与登记名单一致（{len(registered)} 人）")
+                             explanation=f"申报成员与登记名单一致（{len(registered)} 人）",
+                             evidence=[_field_evidence(fid, ctx.fields.get(fid)), _roster_evidence(registered)])
     parts = []
     if only_declared:
         parts.append("仅申报未登记：" + "、".join(only_declared))
@@ -321,7 +364,8 @@ def _check_members_match(rule: RuleDef, ctx: CheckContext, check: dict) -> RuleR
         parts.append("仅登记未申报：" + "、".join(only_registered))
     return RuleResultOut(rule_id=rule.id, result=RESULT_ISSUE,
                          explanation="申报成员与登记名单不一致——" + "；".join(parts),
-                         next_step="核对成员名单：修正申报内容或更新登记名单后重新正式提交")
+                         next_step="核对成员名单：修正申报内容或更新登记名单后重新正式提交",
+                         evidence=[_field_evidence(fid, ctx.fields.get(fid)), _roster_evidence(registered)])
 
 
 # ---------------------------------------------------------------- 语义检查

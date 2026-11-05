@@ -93,16 +93,16 @@ _CROSS_SCRIPTS = {
             "result": "satisfied",
             "explanation": "表单和两份报名材料均写作“FF2026001”，学号一致。",
             "evidence": [
-                {"locator": "p.1", "quote": "材料 A\n学号：FF2026001"},
-                {"locator": "p.1", "quote": "材料 B\n学号：FF2026001"},
+                {"locator": "p.1", "quote": "材料 A\n姓名：张三\n学号：FF2026001"},
+                {"locator": "p.1", "quote": "材料 B\n姓名：张三\n学号：FF2026001"},
             ],
         },
         "李四": {
             "result": "satisfied",
             "explanation": "表单和两份报名材料均写作“FF2026002”，学号一致。",
             "evidence": [
-                {"locator": "p.1", "quote": "材料 A\n学号：FF2026002"},
-                {"locator": "p.1", "quote": "材料 B\n学号：FF2026002"},
+                {"locator": "p.1", "quote": "材料 A\n姓名：李四\n学号：FF2026002"},
+                {"locator": "p.1", "quote": "材料 B\n姓名：李四\n学号：FF2026002"},
             ],
         },
         "王五": {

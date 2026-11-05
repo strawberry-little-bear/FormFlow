@@ -76,6 +76,9 @@ def test_condition_eval():
 def test_slot_constraints_pass():
     r = run_deterministic(_bp().rules[0], _ctx())
     assert r.result == RESULT_SATISFIED
+    assert r.evidence
+    assert all(e.method == "program" for e in r.evidence)
+    assert r.evidence[0].file_id == "f1"
 
 
 def test_slot_constraints_wrong_format():
@@ -114,19 +117,46 @@ def test_slot_presence_missing_when_applicable():
     ctx = _ctx(fields={"name": "张三", "track": "实物"}, files=[_file()])
     r = run_deterministic(_bp().rules[3], ctx)
     assert r.result == RESULT_ISSUE and "缺少文件" in r.explanation
+    assert r.evidence[0].locator == "slot:photo"
+    assert r.evidence[0].quote == "收到 0 个文件"
+    assert r.evidence[0].method == "program"
 
 
 def test_slot_presence_not_applicable():
     ctx = _ctx(fields={"name": "张三", "track": "数字"}, files=[_file()])
     r = run_deterministic(_bp().rules[3], ctx)
     assert r.result == RESULT_NOT_APPLICABLE
+    assert r.evidence[0].locator == "condition:photo"
 
 
 def test_team_size_and_contact():
     ctx = _ctx(members=["张三"])
-    assert run_deterministic(_bp().rules[1], ctx).result == RESULT_ISSUE
+    team = run_deterministic(_bp().rules[1], ctx)
+    assert team.result == RESULT_ISSUE
+    assert team.evidence[0].locator == "roster.members"
     ctx2 = _ctx(members=["张三", "李四"], fields={"name": "王五", "track": "实物"})
-    assert run_deterministic(_bp().rules[2], ctx2).result == RESULT_ISSUE
+    contact = run_deterministic(_bp().rules[2], ctx2)
+    assert contact.result == RESULT_ISSUE
+    assert {e.locator for e in contact.evidence} == {"field:name", "roster.members"}
+
+
+def test_field_and_member_checks_keep_program_evidence_for_all_results():
+    required = RuleDef(id="F-R01", statement="填写姓名", requirement_source="s",
+                       executor="deterministic", check={"kind": "field_required", "field": "name"})
+    missing = run_deterministic(required, _ctx(fields={"track": "数字"}))
+    assert missing.result == RESULT_ISSUE
+    assert missing.evidence[0].locator == "field:name"
+    assert missing.evidence[0].quote == "（未填写）"
+
+    members = RuleDef(id="M-R01", statement="成员一致", requirement_source="s",
+                      executor="deterministic", check={"kind": "members_match", "field": "members"})
+    unknown = run_deterministic(members, _ctx(fields={"members": "张三"}, members=[]))
+    assert unknown.result == RESULT_UNKNOWN
+    assert {e.locator for e in unknown.evidence} == {"field:members", "roster.members"}
+
+    satisfied = run_deterministic(members, _ctx(fields={"members": "张三、李四"}))
+    assert satisfied.result == RESULT_SATISFIED
+    assert all(e.method == "program" for e in satisfied.evidence)
 
 
 # ---------------- 语义检查
