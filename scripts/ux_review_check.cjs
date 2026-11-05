@@ -8,6 +8,9 @@ const OUT = process.env.FORMFLOW_WALKTHROUGH_OUT
   ? path.resolve(process.env.FORMFLOW_WALKTHROUGH_OUT)
   : path.resolve(__dirname, '../docs/ux-review-2026-10-23');
 const BASE = process.env.FORMFLOW_WALKTHROUGH_BASE || 'http://127.0.0.1:8000';
+const TASK_ID = Number.parseInt(process.env.FORMFLOW_WALKTHROUGH_TASK_ID || '1', 10);
+const SUBJECT_IDS = (process.env.FORMFLOW_WALKTHROUGH_SUBJECT_IDS || '1,2,3')
+  .split(',').map(value => Number.parseInt(value.trim(), 10)).filter(Number.isInteger);
 fs.mkdirSync(OUT, { recursive: true });
 
 (async () => {
@@ -23,21 +26,21 @@ fs.mkdirSync(OUT, { recursive: true });
   await page.waitForTimeout(2500);
 
   // 正确的复核路由
-  for (const sid of [1, 2, 3]) {
-    console.log(`[review/${sid}]`);
-    await page.goto(`${BASE}/#/review/1/${sid}`, { waitUntil: 'networkidle' });
+  for (const sid of SUBJECT_IDS) {
+    console.log(`[review/${TASK_ID}/${sid}]`);
+    await page.goto(`${BASE}/#/review/${TASK_ID}/${sid}`, { waitUntil: 'networkidle' });
     await page.waitForTimeout(1500);
-    await page.screenshot({ path: `${OUT}/review-s${sid}.png`, fullPage: true });
+    await page.screenshot({ path: `${OUT}/review-${TASK_ID}-s${sid}.png`, fullPage: true });
     const t = (await page.innerText('body')).replace(/\s+/g, ' ');
     const hasError = /Input should be|unable to parse|Not Found/i.test(t);
     console.log('  ', hasError ? '❌ 有原始报错' : '✓ 正常', '|', t.substring(140, 340));
   }
 
   // 缺失 subject 的路由（预期问题）
-  console.log('[review/1 缺少 subject]');
-  await page.goto(`${BASE}/#/review/1`, { waitUntil: 'networkidle' });
+  console.log(`[review/${TASK_ID} 缺少 subject]`);
+  await page.goto(`${BASE}/#/review/${TASK_ID}`, { waitUntil: 'networkidle' });
   await page.waitForTimeout(1500);
-  await page.screenshot({ path: `${OUT}/review-missing-subject.png`, fullPage: true });
+  await page.screenshot({ path: `${OUT}/review-${TASK_ID}-missing-subject.png`, fullPage: true });
   const t = (await page.innerText('body')).replace(/\s+/g, ' ');
   console.log('   文本:', t.substring(0, 300));
 

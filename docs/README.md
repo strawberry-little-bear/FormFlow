@@ -18,4 +18,6 @@
 - [验证档案索引](ux-review-index.md)：按场景查找截图、脚本、自动化结果和限制条件。
 - `ux-review-*` 目录：保存指定版本、演示数据、浏览器视口和运行配置下的历史验证档案。
 
+需要快速复现主要展示路径时，可运行 `scripts/showcase_check.cjs` 验证首屏与响应式布局，运行 `scripts/ux_review_check.cjs` 验证复核页失败态，运行 `scripts/ux_cross_material_walkthrough.cjs` 验证任务 2 的跨材料证据和提交者责任边界。
+
 体验档案用于回答“在什么条件下看到了什么结果”。它们展示产品边界和可复现证据，不要求读者阅读开发过程，也不替代真实模型评估或生产验收。

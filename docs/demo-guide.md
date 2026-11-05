@@ -102,6 +102,23 @@ python scripts/demo_mcp.py --non-interactive --task-id 1
 FORMFLOW_SHOWCASE_BASE=http://127.0.0.1:8000 node scripts/showcase_check.cjs
 ```
 
+任务 2 的跨材料展示路径可以单独复跑。脚本会从工作台发现真实主体编号，检查材料 A/B 的证据位置、组织者处理建议，以及提交者端“组织者待办”和“暂时没有需要你处理的事项”的责任边界：
+
+```bash
+FORMFLOW_WALKTHROUGH_BASE=http://127.0.0.1:8000 \
+FORMFLOW_CROSS_CREDENTIAL='<seeded-submitter-credential>' \
+node scripts/ux_cross_material_walkthrough.cjs
+```
+
+复核页脚本支持通过 `FORMFLOW_WALKTHROUGH_TASK_ID` 和 `FORMFLOW_WALKTHROUGH_SUBJECT_IDS` 指定任务与主体，避免把数据库全局编号写死在验证脚本中：
+
+```bash
+FORMFLOW_WALKTHROUGH_BASE=http://127.0.0.1:8000 \
+FORMFLOW_WALKTHROUGH_TASK_ID=2 \
+FORMFLOW_WALKTHROUGH_SUBJECT_IDS=6,7,8 \
+node scripts/ux_review_check.cjs
+```
+
 需要复跑完整浏览器路径时，在隔离演示库安装 Playwright 与 Chromium 后运行对应的 `scripts/ux_*.cjs`。这些脚本可能创建任务或改变演示状态，不要连接真实业务库。
 
 ## 故障与恢复
