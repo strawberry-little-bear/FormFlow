@@ -185,8 +185,9 @@ def draft_from_requirement(db: Session, task: Task, requirement_text: str,
         kwargs["source_documents"] = source_documents
     result = draft_blueprint(requirement_text, **kwargs)
     bp = save_draft(db, task, result,
-                    source_text=build_source_text(requirement_text,
-                                                   source_materials=source_materials))
+                    source_text=(getattr(result, "_effective_source_text", "")
+                                 or build_source_text(requirement_text,
+                                                       source_materials=source_materials)))
     return result, bp
 
 
@@ -250,7 +251,8 @@ def revise_draft(db: Session, task: Task, blueprint_version_id: int, *,
               task.id)
         save_design_context(db, task, bp, result)
         return result, bp, blueprint_diff(current, result.blueprint)
-    addendum = build_source_text(requirement, instruction, answered or {}, source_materials)
+    addendum = (getattr(result, "_effective_source_text", "")
+                or build_source_text(requirement, instruction, answered or {}, source_materials))
     accumulated = (prior_source + chr(10) + addendum).strip() if prior_source.strip() else addendum
     new_bp = save_draft(db, task, result, source_text=accumulated)
     impact = blueprint_diff(current, result.blueprint)

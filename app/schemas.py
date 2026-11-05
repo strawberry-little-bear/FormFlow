@@ -9,7 +9,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, PrivateAttr, model_validator
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from .timeutils import as_utc
 
@@ -153,6 +153,10 @@ class DraftResult(BaseModel):
     publish_summary: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     source_materials: list[SourceMaterialSummary] = Field(default_factory=list)
+    # The effective source text may include parser/OCR fallback content. Keep it
+    # internal so API responses expose metadata only while the task service can
+    # persist the exact text that was used to validate the draft.
+    _effective_source_text: str = PrivateAttr(default="")
 
 
 # ---------------------------------------------------------------- 审核结果

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from app.agents.requirements_agent import (
     build_source_text,
@@ -13,6 +14,8 @@ from app.agents.requirements_agent import (
     validate_blueprint,
 )
 from app.schemas import Blueprint, FieldDef, RuleDef, SlotDef, TimePolicy
+from app.llm import DocumentInput, LLMInputUnsupported
+from app.parsing import ParseResult
 
 REQUIREMENT = "请名册内同学提交 2026 秋季第 1 期团课报告，包含姓名和期次，PDF 或 DOCX，最大 10 MiB、20 页，11 月 8 日 18:00 前提交。"
 
@@ -111,6 +114,87 @@ def test_source_materials_validate_shape_and_limits():
             assert message in str(exc)
         else:
             raise AssertionError("invalid source material was accepted")
+
+
+def test_document_fallback_persists_effective_parsed_source(monkeypatch, tmp_path, stub_llm):
+    """直传失败后，草案引用应校验并保存实际解析/OCR 文本，而不是占位符。"""
+    monkeypatch.setattr("app.config.settings.llm_input_mode", "auto")
+    path = Path(tmp_path) / "notice.pdf"
+    path.write_bytes(b"%PDF-1.4 scan")
+
+    class RejectingDirectStub(type(stub_llm)):
+        @property
+        def direct_documents_enabled(self):
+            return True
+
+        def chat_json_documents(self, messages, documents, temperature=0.1,
+                                deadline_monotonic=None):
+            raise LLMInputUnsupported("provider does not accept file")
+
+    client = RejectingDirectStub()
+    payload = _draft_payload()
+    payload["blueprint"]["rules"][0].update({
+        "requirement_source": "提交 PDF 报告，截止 11 月 8 日。",
+        "source_material_id": "notice",
+        "source_locator": "p.1",
+    })
+    client.responses = [payload]
+
+    def fake_parse_file(_path, *, allow_ocr=True):
+        assert allow_ocr is True
+        return ParseResult(pages=["提交 PDF 报告，截止 11 月 8 日。"], method="ocr")
+
+    monkeypatch.setattr("app.agents.requirements_agent.parse_file", fake_parse_file)
+    result = draft_blueprint(
+        "请按扫描通知整理",
+        source_materials=[{
+            "id": "notice", "name": "扫描通知", "kind": "notice",
+            "content": "（原始文件尚未形成文字缓存，优先尝试模型直读）",
+        }],
+        source_documents=[DocumentInput("notice", "notice.pdf", path, "application/pdf")],
+        client=client,
+    )
+
+    assert not any("来源引用无法在资料 notice" in warning for warning in result.warnings)
+    assert "提交 PDF 报告，截止 11 月 8 日。" in result._effective_source_text
+    assert "_effective_source_text" not in result.model_dump()
+
+
+def test_direct_document_source_keeps_locator_and_warns_human_review(monkeypatch, tmp_path, stub_llm):
+    """直传成功但没有文字层时，不把模型定位线索误判为程序已验证。"""
+    monkeypatch.setattr("app.config.settings.llm_input_mode", "auto")
+    path = Path(tmp_path) / "scan.pdf"
+    path.write_bytes(b"%PDF-1.4 scan")
+
+    class DirectStub(type(stub_llm)):
+        @property
+        def direct_documents_enabled(self):
+            return True
+
+        def chat_json_documents(self, messages, documents, temperature=0.1,
+                                deadline_monotonic=None):
+            return self.responses.pop(0)
+
+    client = DirectStub()
+    payload = _draft_payload()
+    payload["blueprint"]["rules"][0].update({
+        "requirement_source": "扫描件第 1 页的提交要求",
+        "source_material_id": "notice",
+        "source_locator": "p.1",
+    })
+    client.responses = [payload]
+    result = draft_blueprint(
+        "请按扫描通知整理",
+        source_materials=[{
+            "id": "notice", "name": "扫描通知", "kind": "notice",
+            "content": "（原始文件尚未形成文字缓存，优先尝试模型直读）",
+        }],
+        source_documents=[DocumentInput("notice", "scan.pdf", path, "application/pdf")],
+        client=client,
+    )
+
+    assert not any("来源引用无法在资料 notice" in warning for warning in result.warnings)
+    assert any("发布前请打开原文件人工核对" in warning for warning in result.warnings)
 
 
 def test_validate_catches_duplicate_ids_and_bad_dates():

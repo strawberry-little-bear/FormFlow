@@ -238,8 +238,9 @@ def _execute_request(db: Session, job: AgentDraftRequest, task: Task, payload: d
             raise AgentRequestError("小齐这次没有收到完整回复，原草案没有更改。你的原文仍保留，可以重试或先选模板继续。")
         blueprint = task_service.save_draft(
             db, task, result,
-            source_text=build_source_text(payload["requirement"],
-                                           source_materials=source_materials))
+            source_text=(getattr(result, "_effective_source_text", "")
+                         or build_source_text(payload["requirement"],
+                                               source_materials=source_materials)))
         blocking, advisories = task_service.split_publish_checks(result.blueprint, blueprint, result)
         return {"blueprint_version_id": blueprint.id, "version": blueprint.version,
                 "status": blueprint.status, "draft": result.model_dump(mode="json"),

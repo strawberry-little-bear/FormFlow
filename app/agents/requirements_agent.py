@@ -37,6 +37,11 @@ MAX_SOURCE_MATERIALS = 8
 MAX_SOURCE_MATERIAL_CHARS = 12_000
 MAX_SOURCE_TOTAL_CHARS = 30_000
 MAX_CLARIFICATIONS = 3
+_UNVERIFIABLE_SOURCE_MARKERS = (
+    "（原始文件尚未形成文字缓存",
+    "【文件存在未读页面】",
+    "【文件解析失败：",
+)
 
 
 @dataclass(frozen=True)
@@ -534,6 +539,37 @@ def blueprint_advisories(blueprint: Blueprint, source_text: str = "") -> list[st
     return []
 
 
+def _source_text_unverifiable(section: str) -> bool:
+    """Return whether a source section is only a direct-read/fallback marker.
+
+    A model may have received the original file even when the server has no
+    complete text layer.  In that case the citation is a locator hint for the
+    organizer, not something the server can prove by substring matching.
+    """
+    return any(marker in section for marker in _UNVERIFIABLE_SOURCE_MARKERS)
+
+
+def source_material_advisories(blueprint: Blueprint, source_text: str = "") -> list[str]:
+    """Return non-blocking reminders for source material needing human review."""
+    if not source_text.strip():
+        return []
+    sections = _source_sections(source_text)
+    ids = {
+        r.source_material_id.strip()
+        for r in blueprint.rules
+        if r.source_material_id and _source_text_unverifiable(
+            sections.get(r.source_material_id.strip(), "")
+        )
+    }
+    if not ids:
+        return []
+    names = "、".join(sorted(ids))
+    return [
+        f"来源资料 {names} 尚无可供程序复核的完整文字层；规则保留了模型定位线索，"
+        "发布前请打开原文件人工核对。"
+    ]
+
+
 def validate_blueprint(blueprint: Blueprint, source_text: str = "") -> list[str]:
     """程序侧发布校验（第 3 节）：
     引用存在、日期顺序、重复 ID、依赖环、规则来源可定位。
@@ -636,7 +672,8 @@ def validate_blueprint(blueprint: Blueprint, source_text: str = "") -> list[str]
                         f"规则 {r.id} 引用了不存在的来源资料 {r.source_material_id}"
                     )
                 else:
-                    if len(src) >= 8 and src not in section:
+                    if (not _source_text_unverifiable(section)
+                            and len(src) >= 8 and src not in section):
                         errors.append(
                             f"规则 {r.id} 的来源引用无法在资料 {r.source_material_id} 中定位，疑似暗加要求"
                         )
@@ -700,6 +737,7 @@ def draft_blueprint(
         )
     client = client or get_client()
     source_documents = list(source_documents or [])
+    effective_materials = normalized_materials
     system = REVISION_SYSTEM_PROMPT if current_draft is not None else SYSTEM_PROMPT
     messages = [
         {"role": "system", "content": system},
@@ -740,6 +778,10 @@ def draft_blueprint(
                             content = f"【文件解析失败：{str(exc)[:180]}】"
                     fallback_materials.append({**material, "content": content})
                 fallback_materials = normalize_source_materials(fallback_materials)
+                # Preserve the text actually used by the fallback model call so
+                # source validation and the immutable blueprint snapshot do not
+                # fall back to an unread placeholder.
+                effective_materials = fallback_materials
                 fallback_messages = [
                     {"role": "system", "content": system},
                     {"role": "user", "content": _build_user_prompt(requirement_text, template, answered, current_draft, instruction, fallback_materials)},
@@ -762,11 +804,13 @@ def draft_blueprint(
             source_materials=source_material_summaries(normalized_materials),
         )
     result.source_materials = source_material_summaries(normalized_materials)
-    source_text = build_source_text(requirement_text, instruction, answered, normalized_materials)
+    source_text = build_source_text(requirement_text, instruction, answered, effective_materials)
+    result._effective_source_text = source_text
     validation_source = ((prior_source + chr(10) + source_text).strip()
                          if prior_source.strip() else source_text)
     result.warnings.extend(validate_blueprint(result.blueprint, validation_source))
     result.warnings.extend(blueprint_advisories(result.blueprint, validation_source))
+    result.warnings.extend(source_material_advisories(result.blueprint, validation_source))
     return result
 
 
