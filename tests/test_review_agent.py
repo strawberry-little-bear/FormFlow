@@ -173,6 +173,78 @@ def test_semantic_satisfied_with_verified_quote(stub_llm):
     assert r.evidence and r.evidence[0].file_id == "f1"
 
 
+def test_cross_material_result_exposes_form_and_roster_context(stub_llm):
+    """跨材料结果同时展示表单字段、名单和两份材料证据。"""
+    rule = RuleDef(
+        id="X-NAME", statement="姓名在表单、报名材料 A 和报名材料 B 中一致",
+        requirement_source="通知要求：所有材料中的姓名必须与表单一致",
+        executor="cross_material", check={"field": "name"},
+    )
+    stub_llm.responses = [{
+        "result": "satisfied", "explanation": "姓名一致",
+        "evidence": [
+            {"file_id": "a", "locator": "p.1", "quote": "姓名：张三"},
+            {"file_id": "b", "locator": "p.1", "quote": "姓名：张三"},
+        ],
+    }]
+    ctx = _ctx(fields={"name": "张三"}, files=[
+        _file("a", text="报名材料 A\n姓名：张三"),
+        _file("b", text="报名材料 B\n姓名：张三"),
+    ])
+    result = run_semantic_rule(rule, ctx, client=stub_llm, cross_material=True)
+
+    assert result.result == RESULT_SATISFIED
+    assert {item.locator for item in result.evidence} == {
+        "p.1", "field:name", "roster.members",
+    }
+    assert {item.method for item in result.evidence} == {"llm", "program"}
+    prompt = json.dumps(stub_llm.prompts, ensure_ascii=False)
+    assert "组织者名册" in prompt and "李四" in prompt
+
+
+def test_cross_material_unknown_keeps_submitted_field_evidence(stub_llm):
+    """材料证据不足时保持 unknown，但仍显示已知的表单字段。"""
+    rule = RuleDef(
+        id="X-ID", statement="学号在表单、报名材料 A 和报名材料 B 中一致",
+        requirement_source="通知要求：所有材料中的学号必须与表单一致",
+        executor="cross_material", check={"field": "student_id"},
+    )
+    stub_llm.responses = [{
+        "result": "unknown", "explanation": "材料 B 的学号无法确认",
+        "evidence": [{"file_id": "a", "locator": "p.1", "quote": "学号：20260001"}],
+    }]
+    ctx = _ctx(fields={"student_id": "20260001"}, files=[
+        _file("a", text="报名材料 A\n学号：20260001"),
+        _file("b", text="报名材料 B\n学号：无法读取"),
+    ])
+    result = run_semantic_rule(rule, ctx, client=stub_llm, cross_material=True)
+
+    assert result.result == RESULT_UNKNOWN
+    assert "field:student_id" in {item.locator for item in result.evidence}
+    assert all(item.method in {"llm", "program"} for item in result.evidence)
+
+
+def test_cross_material_cannot_promote_one_document_to_satisfied(stub_llm):
+    """跨材料结论必须有两份上传材料的证据，不能由表单字段补足。"""
+    rule = RuleDef(
+        id="X-NAME-ONE", statement="姓名在两份报名材料中一致",
+        requirement_source="通知要求：两份材料中的姓名必须一致",
+        executor="cross_material", check={"field": "name"},
+    )
+    stub_llm.responses = [{
+        "result": "satisfied", "explanation": "只找到一份材料",
+        "evidence": [{"file_id": "a", "locator": "p.1", "quote": "姓名：张三"}],
+    }]
+    ctx = _ctx(fields={"name": "张三"}, files=[
+        _file("a", text="姓名：张三"),
+        _file("b", text="报名材料 B"),
+    ])
+    result = run_semantic_rule(rule, ctx, client=stub_llm, cross_material=True)
+
+    assert result.result == RESULT_UNKNOWN
+    assert "两份不同材料" in result.explanation
+
+
 def test_semantic_rule_passes_harness_deadline_to_llm(stub_llm):
     observed = []
     original_chat = stub_llm.chat

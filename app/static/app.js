@@ -3832,6 +3832,15 @@ function reviewEvidenceBboxLabel(bbox) {
 
 function reviewEvidenceMeta(evidence) {
   const parts = [];
+  const programLabels = {
+    'roster.members': '组织者名册',
+    'field:name': '提交表单 · 姓名',
+    'field:student_id': '提交表单 · 学号',
+    'field:members': '提交表单 · 成员',
+  };
+  if (evidence?.method === 'program' && programLabels[evidence?.locator]) {
+    parts.push(programLabels[evidence.locator]);
+  }
   if (evidence?.locator) parts.push(esc(evidence.locator));
   if (evidence?.region) parts.push(`区域：${esc(evidence.region)}`);
   const bbox = reviewEvidenceBboxLabel(evidence?.bbox);

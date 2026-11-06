@@ -84,10 +84,15 @@ def test_seed_demo_includes_cross_material_showcase(db_session):
     li_details = {row["rule_id"]: row for row in current_details(db_session, task, by_name["李四"].id)}
     wang_details = {row["rule_id"]: row for row in current_details(db_session, task, by_name["王五"].id)}
     assert zhang_details["x_name_consistency"]["result"] == "satisfied"
-    assert len(zhang_details["x_name_consistency"]["evidence"]) == 2
-    assert len({item["file_id"] for item in zhang_details["x_name_consistency"]["evidence"]}) == 2
+    zhang_name_evidence = zhang_details["x_name_consistency"]["evidence"]
+    assert len([item for item in zhang_name_evidence if item["method"] == "llm"]) == 2
+    assert len({item["file_id"] for item in zhang_name_evidence if item["method"] == "llm"}) == 2
+    assert any(item["method"] == "program" and item["locator"] == "field:name" for item in zhang_name_evidence)
     assert zhang_details["x_student_id_consistency"]["result"] == "satisfied"
-    assert len(zhang_details["x_student_id_consistency"]["evidence"]) == 2
+    zhang_student_id_evidence = zhang_details["x_student_id_consistency"]["evidence"]
+    assert len([item for item in zhang_student_id_evidence if item["method"] == "llm"]) == 2
+    assert len({item["file_id"] for item in zhang_student_id_evidence if item["method"] == "llm"}) == 2
+    assert any(item["method"] == "program" and item["locator"] == "field:student_id" for item in zhang_student_id_evidence)
     assert li_details["x_name_consistency"]["result"] == "issue"
     assert li_details["x_student_id_consistency"]["result"] == "satisfied"
     assert wang_details["x_student_id_consistency"]["result"] == "unknown"
