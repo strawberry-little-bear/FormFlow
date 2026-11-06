@@ -22,6 +22,7 @@ function writeFixture(dir, name, content) {
 }
 
 async function main() {
+  let stage = 'initializing';
   fs.mkdirSync(OUT, { recursive: true });
   const fixtures = path.join(OUT, 'fixtures');
   fs.mkdirSync(fixtures, { recursive: true });
@@ -79,12 +80,15 @@ async function main() {
     sourceMaterials: [],
     agentRequests,
     noModelKey: {},
+    templateFallback: {},
+    publishedDesign: {},
     mobile: [],
     errors,
     badResponses,
   };
 
   try {
+    stage = 'login';
     await page.goto(`${BASE}/#/login`, { waitUntil: 'networkidle' });
     await page.locator('button.demo-btn').click();
     await page.waitForURL('**/#/tasks');
@@ -146,6 +150,78 @@ async function main() {
       pageText: bodyText,
     };
 
+    // The no-key path must still let an organizer turn a deterministic
+    // template into a publishable draft. This also proves that the original
+    // failed Agent request does not leave stale composer text blocking publish.
+    stage = 'template fallback';
+    await page.getByRole('button', { name: /团课报告/ }).click();
+    await page.waitForFunction(() => {
+      const text = document.querySelector('#draft-panel')?.innerText || '';
+      return text.includes('登记信息') && text.includes('提交材料');
+    });
+    report.templateFallback = await page.evaluate(() => ({
+      hasFields: (document.querySelector('#draft-panel')?.innerText || '').includes('姓名'),
+      hasMaterials: (document.querySelector('#draft-panel')?.innerText || '').includes('团课报告'),
+      composerValue: document.querySelector('#chat-in')?.value || '',
+      publishDisabled: !!document.querySelector('[data-publish]')?.disabled,
+      draftState: document.querySelector('#draft-state')?.innerText || '',
+    }));
+
+    const policyValues = {
+      openAt: '2026-11-10T09:00',
+      firstDeadline: '2026-11-20T18:00',
+      correctionDeadline: '2026-11-25T18:00',
+    };
+    stage = 'time policy';
+    await page.locator('#policy-open-at').fill(policyValues.openAt);
+    await page.locator('#policy-first-deadline').fill(policyValues.firstDeadline);
+    await page.locator('#policy-correction-deadline').fill(policyValues.correctionDeadline);
+    await page.locator('.time-policy-editor button[type="submit"]').click();
+    await page.waitForFunction(() => document.body.innerText.includes('时间策略已保存为草案'));
+
+    const designBeforePublish = await page.evaluate(async id => {
+      const token = localStorage.getItem('ff_org_token') || '';
+      const response = await fetch(`/api/tasks/${id}/design`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      return response.json();
+    }, taskId);
+    report.templateFallback.afterPolicyVersion = designBeforePublish.version;
+    report.templateFallback.policy = designBeforePublish.draft?.blueprint?.time_policy || null;
+
+    const publishButton = page.locator('[data-publish]');
+    report.templateFallback.publishDisabledAfterPolicy = await publishButton.isDisabled();
+    if (!report.templateFallback.publishDisabledAfterPolicy) {
+      stage = 'publish';
+      await publishButton.click();
+      await page.locator('#publish-consent').check();
+      await page.locator('#publish-confirm').click();
+      await page.waitForFunction(() => document.body.innerText.includes('已发布'));
+    }
+
+    const publishedDesign = await page.evaluate(async id => {
+      const token = localStorage.getItem('ff_org_token') || '';
+      const response = await fetch(`/api/tasks/${id}/design`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      return response.json();
+    }, taskId);
+    report.publishedDesign = {
+      taskStatus: publishedDesign.task?.status || '',
+      publishedVersion: publishedDesign.published?.version || null,
+      publishedBlueprintId: publishedDesign.published?.id || null,
+      currentBlueprintId: publishedDesign.blueprint_version_id || null,
+      sourceMaterialCount: (await page.evaluate(async id => {
+        const token = localStorage.getItem('ff_org_token') || '';
+        const response = await fetch(`/api/tasks/${id}/source-materials`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        const data = await response.json();
+        return (data.items || []).length;
+      }, taskId)),
+      policy: publishedDesign.published?.blueprint?.time_policy || null,
+    };
+
     await page.screenshot({ path: path.join(OUT, 'design-no-model-key.png'), fullPage: true });
     const desktop = await page.evaluate(() => ({
       width: window.innerWidth,
@@ -178,12 +254,20 @@ async function main() {
     if (agentRequests.length === 1 && agentRequests[0].sourceIds.some(id => !ids.has(id))) failures.push('Agent request contained an unknown source material id');
     if (!report.noModelKey.saysModelMissing || !report.noModelKey.explainsFallback) failures.push('no-model-key fallback copy is missing');
     if (report.noModelKey.hasRetryButton) failures.push('no-model-key state exposes an invalid retry button');
+    if (!report.templateFallback.hasFields || !report.templateFallback.hasMaterials) failures.push('template fallback did not render a usable draft');
+    if (report.templateFallback.publishDisabledAfterPolicy) failures.push('stale composer input blocks publishing the template fallback');
+    if (report.publishedDesign.taskStatus !== 'collecting') failures.push('published design did not move task into collecting');
+    if (!report.publishedDesign.publishedVersion || report.publishedDesign.currentBlueprintId !== report.publishedDesign.publishedBlueprintId) failures.push('published design state is not consistent');
+    if (report.publishedDesign.sourceMaterialCount !== 3) failures.push('source materials were lost after publishing');
     if (desktop.scrollWidth > desktop.width) failures.push('desktop page overflows horizontally');
     if (report.mobile.some(item => item.scrollWidth > item.width || !item.sourcePackVisible || !item.fallbackVisible)) failures.push('mobile design route is clipped or loses the fallback state');
     if (errors.length) failures.push('browser errors were reported');
     if (badResponses.length) failures.push('failed HTTP responses were reported');
     if (failures.length) throw new Error(failures.join('; '));
     console.log(JSON.stringify(report, null, 2));
+  } catch (error) {
+    await page.screenshot({ path: path.join(OUT, `failure-${stage.replace(/\W+/g, '-')}.png`), fullPage: true }).catch(() => {});
+    throw new Error(`${stage}: ${error.message}`);
   } finally {
     await context.close();
     await browser.close();

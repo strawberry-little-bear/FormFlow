@@ -2096,7 +2096,7 @@ async function deleteSourceMaterial(sourceId) {
 }
 function hasDesignInput(value) {
   return !!value && [value.composer, value.extra, ...Object.values(value.answers || {}),
-    ...(value.source_materials || []).map(m => m.content), ...(value.source_material_ids || [])].some(x => String(x || '').trim());
+    ...(value.source_materials || []).map(m => m.content)].some(x => String(x || '').trim());
 }
 function collectDesignInputs() {
   return {composer:document.getElementById('chat-in')?.value || '',
@@ -2360,6 +2360,14 @@ async function quickTemplate(tpl) {
     try { fresh = await api(`/api/tasks/${state.taskId}/design`); } catch (e) { fresh = null; }
     if (epoch !== state.designEpoch) return;
     applyDraft(fresh || {...r, draft: r.draft || {blueprint: r.blueprint, clarifications: [], publish_summary: [], warnings: []}});
+    // A template is the explicit fallback for an unsent model request. Keep
+    // that request recoverable under its old base version, but do not let its
+    // composer text make the newly created template look dirty or block the
+    // organizer's publish gate.
+    const composer = document.getElementById('chat-in');
+    if (composer) composer.value = '';
+    state.designDirty = false;
+    paintDesignInputState();
     userSay(`以「${tpl === 'class_report' ? '团课报告' : '比赛报名'}」模板开始`);
     agentSay('模板已准备好，这只是个起点，不是最终要求。', '请核对材料、时间、审核方式和数据用途，有什么要改的继续告诉我就行。');
   } catch(e) { if (epoch === state.designEpoch) agentSay('模板暂时没载入，请稍后再试。', esc(e.message)); }
