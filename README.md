@@ -6,6 +6,8 @@
 
 FormFlow 面向报名、征集和评审场景。组织者把通知、名单、模板和补充说明交给系统，需求 Agent 将它们整理成可确认的收集任务；提交者在线填写并提交材料；审核 Agent 再按规则逐项核对多份文件，给出结论、证据位置和下一步动作。
 
+这是一件可以直接打开体验的作品：页面先展示任务和下一步，证据页再展开 Agent、Skill、Harness 与 MCP 的协作边界。访客不需要先阅读实现细节，就能沿着组织者和提交者两条路径看懂 FormFlow 解决的问题。
+
 [开始体验](#开始体验) · [产品文档](docs/README.md) · [部署与模型接入](docs/deployment.md) · [验证档案](docs/ux-review-index.md)
 
 </div>
@@ -78,6 +80,8 @@ python scripts/start_demo.py --reset
 - [部署与模型接入](docs/deployment.md)：配置本地环境、provider 和生产边界。
 - [审核 Agent 评估集](docs/review-agent-evaluation.md)：用获准脱敏数据评估结论和证据覆盖。
 - [验证档案索引](docs/ux-review-index.md)：查看可复现的页面结果、脚本和限制。
+
+文档按“先体验、再理解、最后部署”的顺序组织。`docs/ux-review-*` 是可复查的产品档案，不是开发日志；每份档案都说明场景、结果、复现入口和边界。
 
 演示验证不等于真实模型或生产环境验收。真实材料、provider 文件输入、敏感数据处理、屏幕阅读器、移动设备和公网安全，需要在获得授权的环境中单独验证。
 

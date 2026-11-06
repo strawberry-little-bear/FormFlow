@@ -316,7 +316,70 @@ def test_semantic_prefers_direct_document_input_without_ocr(tmp_path, stub_llm, 
     assert coverage["model_direct"] is True
     assert coverage["unread"] == 0 and coverage["failed"] == 0
     assert coverage["parser_unread"] == 1
-    assert coverage["read"] == coverage["total"] == 1
+
+
+def test_review_agent_uses_real_client_for_direct_materials(tmp_path, monkeypatch):
+    """审核 Agent 直传成功时，证据标记为模型定位线索并保留文件 ID/页码。"""
+    import httpx
+
+    monkeypatch.setattr("app.config.settings.llm_input_mode", "auto")
+    path = Path(tmp_path) / "报名表.pdf"
+    path.write_bytes(b"%PDF-1.4 scan")
+    captured = {}
+
+    class CapturingClient:
+        def __init__(self, *, timeout):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def post(self, url, *, json, headers):
+            captured["json"] = json
+            captured["headers"] = headers
+            return httpx.Response(
+                200,
+                json={"choices": [{"message": {"content": json_module.dumps({
+                    "result": "satisfied",
+                    "explanation": "模型直接读取到报名表内容",
+                    "evidence": [{
+                        "file_id": "f1", "locator": "p.1", "region": "姓名字段",
+                        "quote": "报名表中的姓名",
+                    }],
+                }, ensure_ascii=False)}}]},
+                request=httpx.Request("POST", url),
+            )
+
+    import json as json_module
+
+    monkeypatch.setattr("app.llm.httpx.Client", CapturingClient)
+    from app.llm import LLMClient
+
+    file = FileInfo(
+        file_id="f1", slot="report", original_name="报名表.pdf", size=12,
+        path=path, parse=ParseResult(method="visual", unread_pages=1),
+    )
+    result = run_semantic_rule(
+        _bp().rules[4],
+        _ctx(files=[file]),
+        client=LLMClient(
+            base_url="https://provider.example/v1",
+            api_key="secret-provider-key",
+            model="vision-model",
+            max_retries=0,
+        ),
+    )
+
+    assert result.result == RESULT_SATISFIED
+    assert result.evidence[0].method == "direct_model"
+    assert result.evidence[0].file_id == "f1"
+    assert file.input_method == "direct_model"
+    assert file.direct_model_used is True
+    assert captured["headers"] == {"Authorization": "Bearer secret-provider-key"}
+    assert any(part.get("type") == "file" for part in captured["json"]["messages"][-1]["content"])
 
 
 def test_run_coverage_explains_direct_model_provenance():

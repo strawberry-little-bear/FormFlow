@@ -203,6 +203,74 @@ def test_direct_document_source_keeps_locator_and_warns_human_review(monkeypatch
     assert "原始文件" in result.input_provenance[0].detail
 
 
+def test_requirements_agent_uses_real_client_document_payload_before_parser(
+    monkeypatch, tmp_path
+):
+    """需求 Agent 的直传分支必须经过真实 LLMClient，且不先启动本地解析/OCR。"""
+    import httpx
+
+    monkeypatch.setattr("app.config.settings.llm_input_mode", "auto")
+    path = Path(tmp_path) / "通知.pdf"
+    path.write_bytes(b"%PDF-1.4 scan")
+    captured = {}
+
+    class CapturingClient:
+        def __init__(self, *, timeout):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def post(self, url, *, json, headers):
+            import json as json_module
+
+            captured["json"] = json
+            captured["headers"] = headers
+            return httpx.Response(
+                200,
+                json={"choices": [{"message": {
+                    "content": json_module.dumps(_draft_payload(), ensure_ascii=False),
+                }}]},
+                request=httpx.Request("POST", url),
+            )
+
+    def parser_must_not_run(*_args, **_kwargs):
+        raise AssertionError("直传成功时不应先调用本地文字解析或 OCR")
+
+    monkeypatch.setattr("app.llm.httpx.Client", CapturingClient)
+    monkeypatch.setattr("app.agents.requirements_agent.parse_file", parser_must_not_run)
+
+    from app.llm import LLMClient
+
+    result = draft_blueprint(
+        "请按通知整理收集要求",
+        source_materials=[{
+            "id": "src_notice", "name": "通知.pdf", "kind": "notice",
+            "content": "（原始文件尚未形成文字缓存，优先尝试模型直读）",
+        }],
+        source_documents=[DocumentInput(
+            "src_notice", "通知.pdf", path, "application/pdf",
+        )],
+        client=LLMClient(
+            base_url="https://provider.example/v1",
+            api_key="secret-provider-key",
+            model="document-model",
+            max_retries=0,
+        ),
+    )
+
+    assert result.blueprint.slots[0].id == "report"
+    assert result.input_provenance[0].method == "direct_model"
+    assert result.input_provenance[0].status == "used"
+    assert captured["headers"] == {"Authorization": "Bearer secret-provider-key"}
+    content = captured["json"]["messages"][-1]["content"]
+    assert any(part.get("type") == "file" for part in content)
+    assert any("src_notice" in str(part) for part in content)
+
+
 def test_missing_model_key_is_explicitly_not_sent(stub_llm):
     from app.llm import LLMUnavailable
 

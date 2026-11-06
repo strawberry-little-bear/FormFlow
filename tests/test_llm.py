@@ -267,3 +267,94 @@ def test_document_size_limit_fails_before_request(monkeypatch, tmp_path):
             [{"role": "user", "content": "review"}],
             [DocumentInput("pdf", "report.pdf", path, "application/pdf")],
         )
+
+
+def test_real_http_document_payload_keeps_key_in_header_only(monkeypatch, tmp_path):
+    """验证真实 LLMClient 的 provider 请求契约，而不是只测注入式 chat 桩。"""
+    import json
+    import httpx
+
+    image = Path(tmp_path) / "scan.png"
+    image.write_bytes(b"png-bytes")
+    pdf = Path(tmp_path) / "报名表.pdf"
+    pdf.write_bytes(b"pdf-bytes")
+    captured = {}
+
+    class CapturingClient:
+        def __init__(self, *, timeout):
+            captured["timeout"] = timeout
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def post(self, url, *, json, headers):
+            captured["url"] = url
+            captured["json"] = json
+            captured["headers"] = headers
+            return httpx.Response(
+                200,
+                json={"choices": [{"message": {"content": '{"result":"unknown"}'}}]},
+                request=httpx.Request("POST", url),
+            )
+
+    monkeypatch.setattr("app.llm.httpx.Client", CapturingClient)
+    client = LLMClient(
+        base_url="https://provider.example/v1",
+        api_key="secret-provider-key",
+        model="vision-model",
+        max_retries=0,
+    )
+    payload = client.chat_json_documents(
+        [{"role": "user", "content": "逐项核验材料"}],
+        [
+            DocumentInput("img-1", "scan.png", image, "image/png"),
+            DocumentInput("pdf-1", "报名表.pdf", pdf, "application/pdf"),
+        ],
+    )
+
+    assert payload == {"result": "unknown"}
+    assert captured["url"] == "https://provider.example/v1/chat/completions"
+    assert captured["headers"] == {"Authorization": "Bearer secret-provider-key"}
+    request_json = captured["json"]
+    assert request_json["model"] == "vision-model"
+    content = request_json["messages"][-1]["content"]
+    assert [part["type"] for part in content] == [
+        "text", "text", "image_url", "text", "file",
+    ]
+    assert content[2]["image_url"]["url"].startswith("data:image/png;base64,")
+    assert content[4]["file"]["filename"] == "报名表.pdf"
+    assert content[4]["file"]["file_data"].startswith("data:application/pdf;base64,")
+    assert "secret-provider-key" not in json.dumps(request_json, ensure_ascii=False)
+
+
+def test_provider_error_summary_redacts_api_key_and_authorization(monkeypatch):
+    import httpx
+
+    class ErrorClient:
+        def __init__(self, *, timeout):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def post(self, url, *, json, headers):
+            return httpx.Response(
+                500,
+                text="authorization=secret-provider-key api_key:secret-provider-key",
+                request=httpx.Request("POST", url),
+            )
+
+    monkeypatch.setattr("app.llm.httpx.Client", ErrorClient)
+    client = LLMClient(api_key="secret-provider-key", max_retries=0)
+
+    with pytest.raises(LLMUnavailable) as exc_info:
+        client.chat([{"role": "user", "content": "review"}])
+    message = str(exc_info.value)
+    assert "secret-provider-key" not in message
+    assert "[redacted]" in message
