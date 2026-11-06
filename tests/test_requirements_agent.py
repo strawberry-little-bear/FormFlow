@@ -158,6 +158,9 @@ def test_document_fallback_persists_effective_parsed_source(monkeypatch, tmp_pat
     assert not any("来源引用无法在资料 notice" in warning for warning in result.warnings)
     assert "提交 PDF 报告，截止 11 月 8 日。" in result._effective_source_text
     assert "_effective_source_text" not in result.model_dump()
+    assert result.input_provenance[0].method == "ocr"
+    assert result.input_provenance[0].status == "fallback"
+    assert "直传" in result.input_provenance[0].detail
 
 
 def test_direct_document_source_keeps_locator_and_warns_human_review(monkeypatch, tmp_path, stub_llm):
@@ -195,6 +198,53 @@ def test_direct_document_source_keeps_locator_and_warns_human_review(monkeypatch
 
     assert not any("来源引用无法在资料 notice" in warning for warning in result.warnings)
     assert any("发布前请打开原文件人工核对" in warning for warning in result.warnings)
+    assert result.input_provenance[0].method == "direct_model"
+    assert result.input_provenance[0].status == "used"
+    assert "原始文件" in result.input_provenance[0].detail
+
+
+def test_missing_model_key_is_explicitly_not_sent(stub_llm):
+    from app.llm import LLMUnavailable
+
+    stub_llm.api_key = ""
+    stub_llm.error = LLMUnavailable("未配置 FORMFLOW_LLM_API_KEY")
+    result = draft_blueprint(
+        "请按通知整理",
+        source_materials=[{
+            "id": "notice", "name": "报名通知", "kind": "notice", "content": "提交 PDF。",
+        }],
+        client=stub_llm,
+    )
+
+    assert result.input_provenance[0].method == "none"
+    assert result.input_provenance[0].status == "not_configured"
+    assert "未发送" in result.input_provenance[0].detail
+
+
+def test_explicit_text_mode_prepares_parser_input(monkeypatch, tmp_path, stub_llm):
+    monkeypatch.setattr("app.config.settings.llm_input_mode", "text")
+    path = Path(tmp_path) / "notice.pdf"
+    path.write_bytes(b"%PDF-1.4 text")
+
+    def fake_parse_file(_path, *, allow_ocr=True):
+        assert allow_ocr is False
+        return ParseResult(pages=["提交 PDF 报告。"], method="text")
+
+    monkeypatch.setattr("app.agents.requirements_agent.parse_file", fake_parse_file)
+    stub_llm.responses = [_draft_payload()]
+    result = draft_blueprint(
+        "请按通知整理",
+        source_materials=[{
+            "id": "notice", "name": "报名通知", "kind": "notice",
+            "content": "（原始文件尚未形成文字缓存，优先尝试模型直读）",
+        }],
+        source_documents=[DocumentInput("notice", "notice.pdf", path, "application/pdf")],
+        client=stub_llm,
+    )
+
+    assert result.input_provenance[0].method == "text"
+    assert result.input_provenance[0].status == "used"
+    assert "提交 PDF 报告。" in stub_llm.prompts[-1][1]["content"]
 
 
 def test_validate_catches_duplicate_ids_and_bad_dates():

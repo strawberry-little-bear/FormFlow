@@ -145,6 +145,15 @@ class SourceMaterialSummary(BaseModel):
     chars: int = 0
 
 
+class SourceMaterialProvenance(BaseModel):
+    """本次草案实际使用的资料输入路径；不包含正文、请求或密钥。"""
+
+    id: str
+    method: str = "none"  # direct_model / text / ocr / mixed / unread / none
+    status: str = "not_sent"  # used / fallback / not_configured / failed / not_sent
+    detail: str = ""
+
+
 class DraftResult(BaseModel):
     """需求 Agent 输出：结构化草案 + 待澄清 + 发布摘要。"""
 
@@ -153,6 +162,7 @@ class DraftResult(BaseModel):
     publish_summary: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     source_materials: list[SourceMaterialSummary] = Field(default_factory=list)
+    input_provenance: list[SourceMaterialProvenance] = Field(default_factory=list)
     # The effective source text may include parser/OCR fallback content. Keep it
     # internal so API responses expose metadata only while the task service can
     # persist the exact text that was used to validate the draft.

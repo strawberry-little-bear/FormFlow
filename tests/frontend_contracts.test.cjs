@@ -321,11 +321,16 @@ test('design source materials are collected and summarized without exposing full
   app.state.draft = {blueprint:{rules:[], fields:[], slots:[], time_policy:{}}, clarifications:[], source_materials:[
     {id:'notice', name:'报名通知', kind:'notice', chars:6},
     {id:'roster', name:'适用名单', kind:'roster', chars:3},
+  ], input_provenance:[
+    {id:'notice', method:'direct_model', status:'used', detail:'已将原始文件交给配置的模型'},
+    {id:'roster', method:'ocr', status:'fallback', detail:'provider 不支持原始文件输入'},
   ]};
   app.renderDraftPanel();
   assert.match(els['draft-panel'].innerHTML, /本次使用的来源资料/);
   assert.match(els['draft-panel'].innerHTML, /报名通知/);
   assert.match(els['draft-panel'].innerHTML, /6 字/);
+  assert.match(els['draft-panel'].innerHTML, /模型直读原件/);
+  assert.match(els['draft-panel'].innerHTML, /OCR 降级/);
   assert.doesNotMatch(els['draft-panel'].innerHTML, /报名通知正文/);
 });
 test('uploaded source materials stay addressable and expose a readable status', () => {

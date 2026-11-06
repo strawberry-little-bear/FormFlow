@@ -1954,6 +1954,25 @@ const SOURCE_STATUS_LABEL = {
   failed: '解析失败，可重试',
 };
 const SOURCE_KIND_LABEL = {notice:'通知', roster:'名单', template:'模板', attachment:'附件', other:'其他'};
+function sourceInputProvenanceLabel(provenance) {
+  const method = provenance?.method || 'none';
+  const status = provenance?.status || 'not_sent';
+  if (status === 'not_configured') return '尚未发送：未配置模型';
+  if (status === 'failed') return '输入失败：等待人工处理';
+  if (status === 'not_sent') return '尚未发送';
+  if (status === 'fallback') {
+    if (method === 'ocr') return 'OCR 降级';
+    if (method === 'mixed') return '文字 + OCR 降级';
+    if (method === 'unread') return '降级后仍有未读页';
+    return '文字解析降级';
+  }
+  if (method === 'direct_model') return '模型直读原件';
+  if (method === 'ocr') return '本机 OCR';
+  if (method === 'mixed') return '文字 + OCR';
+  if (method === 'unread') return '未形成完整文字输入';
+  if (method === 'text') return '文字解析';
+  return '输入路径未记录';
+}
 function collectSourceMaterials() {
   return SOURCE_MATERIAL_FIELDS.map(f => ({...f, content:document.getElementById(f.id)?.value || ''}))
     .filter(f => String(f.content || '').trim())
@@ -1966,11 +1985,16 @@ function restoreSourceMaterials(materials = []) {
 function sourceMaterialsSummaryHtml(draft = state.draft) {
   const materials = Array.isArray(draft?.source_materials) ? draft.source_materials : [];
   if (!materials.length) return '';
+  const provenance = Object.fromEntries((Array.isArray(draft?.input_provenance) ? draft.input_provenance : [])
+    .map(item => [item.id, item]));
   const rows = materials.map(material => {
     const kind = {notice:'通知', roster:'名单', template:'模板', attachment:'附件', other:'其他'}[material.kind] || material.kind || '资料';
-    return `<li><span class="source-pack-badge">${esc(kind)}</span><span><b>${esc(material.name || material.id || '来源资料')}</b><small>${Number(material.chars || 0).toLocaleString('zh-CN')} 字</small></span></li>`;
+    const path = provenance[material.id];
+    const pathLabel = sourceInputProvenanceLabel(path);
+    const detail = path?.detail ? ` · ${esc(path.detail)}` : '';
+    return `<li><span class="source-pack-badge">${esc(kind)}</span><span><b>${esc(material.name || material.id || '来源资料')}</b><small>${Number(material.chars || 0).toLocaleString('zh-CN')} 字 · ${esc(pathLabel)}</small>${detail ? `<small class="source-input-detail">${detail}</small>` : ''}</span></li>`;
   }).join('');
-  return `<details class="source-summary"><summary>本次使用的来源资料 <span>${materials.length} 份</span></summary><ul>${rows}</ul><p class="field-help">草案只保存资料摘要；完整正文保留在版本来源链中，规则引用必须能回到原文。</p></details>`;
+  return `<details class="source-summary"><summary>本次使用的来源资料 <span>${materials.length} 份</span></summary><ul>${rows}</ul><p class="field-help">路径只记录本次输入方式，不保存文件正文、请求内容或 API Key；原始文件和页码仍是人工核对依据。</p></details>`;
 }
 function sourceMaterialStatusText(material) {
   const status = material?.status || 'processing';

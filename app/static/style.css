@@ -2205,6 +2205,7 @@ dialog p {
 .source-summary li b, .source-summary li small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .source-summary li b { color:#4b4658; font-size:10px; }
 .source-summary li small { margin-top:2px; color:#9993a3; font-size:9px; }
+  .source-summary li small.source-input-detail { white-space:normal; overflow:visible; text-overflow:clip; line-height:1.35; }
 .source-summary .field-help { margin:9px 0 0; }
 .composer-foot {
   display:flex;

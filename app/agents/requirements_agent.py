@@ -28,6 +28,7 @@ from ..schemas import (
     FieldType,
     RuleDef,
     SlotDef,
+    SourceMaterialProvenance,
     SourceMaterialSummary,
     TimePolicy,
 )
@@ -268,6 +269,67 @@ def source_material_summaries(source_materials: Optional[list[dict]] = None) -> 
     return [SourceMaterialSummary(id=m["id"], name=m["name"], kind=m["kind"],
                                   chars=len(m["content"]))
             for m in normalize_source_materials(source_materials)]
+
+
+def _source_provenance(
+    source_materials: Optional[list[dict]], *, method: str = "none",
+    status: str = "not_sent", detail: str = "",
+) -> list[SourceMaterialProvenance]:
+    """Build safe per-source input metadata without retaining material content."""
+    return [SourceMaterialProvenance(id=material["id"], method=method,
+                                     status=status, detail=detail)
+            for material in normalize_source_materials(source_materials)]
+
+
+def _fallback_method_from_text(content: str) -> str:
+    """Infer only the safe display method from parser markers already in text."""
+    text = str(content or "")
+    if not text.strip() or text.startswith("（原始文件尚未"):
+        return "unread"
+    has_unread = any(marker in text for marker in ("：未读】", "【未读页面：", "【覆盖提示】"))
+    has_failed = any(marker in text for marker in ("【解析失败页面：", "【文件解析失败："))
+    if has_unread or has_failed:
+        return "mixed" if "【第 " in text else "unread"
+    return "text"
+
+
+def _fallback_inputs(
+    source_materials: list[dict], source_documents: list[DocumentInput], *,
+    allow_ocr: bool,
+) -> tuple[list[dict], list[SourceMaterialProvenance]]:
+    """Prepare text/OCR inputs only after direct input is unavailable or disabled."""
+    fallback_materials: list[dict] = []
+    provenance: list[SourceMaterialProvenance] = []
+    for material, document in zip(source_materials, source_documents):
+        content = material["content"]
+        parsed_method = ""
+        detail = ""
+        if not content or content.startswith("（原始文件尚未"):
+            try:
+                parsed = parse_file(document.path, allow_ocr=allow_ocr)
+                content = format_parse_text(parsed)
+                parsed_method = parsed.method if parsed.method in {"text", "ocr", "mixed"} else ""
+                if parsed.unread_pages or parsed.failed_pages:
+                    content += ("\n【覆盖提示】部分页面未读或解析失败，不能据此判定材料缺失"
+                                if content else "【覆盖提示】文件存在未读或解析失败页面")
+                    parsed_method = "mixed" if content and parsed.text_pages else "unread"
+            except (ParseError, OSError) as exc:
+                content = f"【文件解析失败：{str(exc)[:180]}】"
+                parsed_method = "unread"
+                detail = "文件解析失败，未据此判定材料缺失。"
+        method = parsed_method or _fallback_method_from_text(content)
+        if method == "ocr":
+            detail = detail or "使用本机 OCR 形成文字输入；未读页面仍需人工核对。"
+        elif method == "mixed":
+            detail = detail or "文字解析/OCR 仅覆盖部分页面；未读页面仍需人工核对。"
+        elif method == "unread":
+            detail = detail or "未形成完整文字输入；不能据此判定材料缺失。"
+        else:
+            detail = detail or "使用已有文字解析结果作为模型输入。"
+        fallback_materials.append({**material, "content": content})
+        provenance.append(SourceMaterialProvenance(id=material["id"], method=method,
+                                                   status="used", detail=detail))
+    return normalize_source_materials(fallback_materials), provenance
 
 
 def _source_material_prompt_parts(source_materials: Optional[list[dict]] = None) -> list[str]:
@@ -742,6 +804,20 @@ def draft_blueprint(
     client = client or get_client()
     source_documents = list(source_documents or [])
     effective_materials = normalized_materials
+    direct_input_succeeded = False
+    if normalized_materials and not client.configured:
+        input_provenance = _source_provenance(
+            normalized_materials,
+            status="not_configured",
+            detail="未配置模型密钥，未发送给外部模型。",
+        )
+    elif normalized_materials:
+        input_provenance = _source_provenance(
+            normalized_materials, method="text", status="used",
+            detail="使用草案中的文字资料作为模型输入。",
+        )
+    else:
+        input_provenance = []
     system = REVISION_SYSTEM_PROMPT if current_draft is not None else SYSTEM_PROMPT
     messages = [
         {"role": "system", "content": system},
@@ -749,39 +825,42 @@ def draft_blueprint(
     ]
     try:
         if source_documents and client.direct_documents_enabled:
+            fallback_reason = "原始文件直传不可用，已进入降级。"
             try:
                 payload = client.chat_json_documents(messages, source_documents)
+                direct_input_succeeded = True
             except LLMInputUnsupported as exc:
                 if settings.llm_input_mode == "direct":
                     return DraftResult(
                         blueprint=current_draft or Blueprint(),
                         warnings=[f"原始文件直传不可用（{exc}）；当前配置禁止文字/OCR 降级。"],
                         source_materials=source_material_summaries(normalized_materials),
+                        input_provenance=[p.model_copy(update={
+                            "method": "direct_model", "status": "failed",
+                            "detail": "原始文件直传被 provider 拒绝，未进入文字/OCR 降级。",
+                        }) for p in _source_provenance(normalized_materials)],
                     )
                 # auto 模式才进入本地文字解析/OCR，避免 direct 约束被偷偷绕过。
                 payload = None
+                fallback_reason = "原始文件直传不可用（provider 不支持），已进入降级。"
             except LLMError:
                 if settings.llm_input_mode == "direct":
+                    input_provenance = [p.model_copy(update={
+                        "method": "direct_model", "status": "failed",
+                        "detail": "原始文件直传调用失败，未进入文字/OCR 降级。",
+                    }) for p in _source_provenance(normalized_materials)]
                     raise
                 payload = None
+                fallback_reason = "原始文件直传调用失败，已进入降级。"
             if payload is None:
-                fallback_materials: list[dict] = []
-                for material, document in zip(normalized_materials, source_documents):
-                    content = material["content"]
-                    if not content or content.startswith("（原始文件尚未"):
-                        try:
-                            parsed = parse_file(
-                                document.path,
-                                allow_ocr=settings.llm_input_mode in {"auto", "ocr"},
-                            )
-                            content = format_parse_text(parsed)
-                            if parsed.unread_pages or parsed.failed_pages:
-                                content += ("\n【覆盖提示】部分页面未读或解析失败，不能据此判定材料缺失"
-                                            if content else "【覆盖提示】文件存在未读或解析失败页面")
-                        except (ParseError, OSError) as exc:
-                            content = f"【文件解析失败：{str(exc)[:180]}】"
-                    fallback_materials.append({**material, "content": content})
-                fallback_materials = normalize_source_materials(fallback_materials)
+                fallback_materials, fallback_provenance = _fallback_inputs(
+                    normalized_materials, source_documents,
+                    allow_ocr=settings.llm_input_mode in {"auto", "ocr"},
+                )
+                input_provenance = [p.model_copy(update={
+                    "status": "fallback",
+                    "detail": f"{fallback_reason} {p.detail}",
+                }) for p in fallback_provenance]
                 # Preserve the text actually used by the fallback model call so
                 # source validation and the immutable blueprint snapshot do not
                 # fall back to an unread placeholder.
@@ -791,6 +870,29 @@ def draft_blueprint(
                     {"role": "user", "content": _build_user_prompt(requirement_text, template, answered, current_draft, instruction, fallback_materials)},
                 ]
                 payload = client.chat_json(fallback_messages)
+            elif direct_input_succeeded:
+                input_provenance = _source_provenance(
+                    normalized_materials,
+                    method="direct_model",
+                    status="used",
+                    detail="已将原始文件交给配置的模型；文件/页码定位仍需人工核对。",
+                )
+        elif source_documents and client.configured:
+            # Explicit text/ocr mode (or a test/provider client without a direct
+            # input implementation) still prepares the configured local fallback.
+            effective_materials, fallback_provenance = _fallback_inputs(
+                normalized_materials, source_documents,
+                allow_ocr=settings.llm_input_mode in {"auto", "ocr"},
+            )
+            input_provenance = [p.model_copy(update={
+                "status": "used",
+                "detail": ("按当前输入模式使用本地文字/OCR 输入。 " + p.detail),
+            }) for p in fallback_provenance]
+            fallback_messages = [
+                {"role": "system", "content": system},
+                {"role": "user", "content": _build_user_prompt(requirement_text, template, answered, current_draft, instruction, effective_materials)},
+            ]
+            payload = client.chat_json(fallback_messages)
         else:
             payload = client.chat_json(messages)
         result = _parse_draft(payload)
@@ -799,15 +901,23 @@ def draft_blueprint(
             blueprint=current_draft or Blueprint(),
             warnings=[f"需求 Agent 暂不可用（{e}）。已保留当前草案，请手动编辑或稍后重试。"],
             source_materials=source_material_summaries(normalized_materials),
+            input_provenance=input_provenance,
         )
     except LLMError as e:
         # 网关返回无法解析/结构不合法：保留当前草案并明示，绝不把坏数据当草案
+        if client.configured:
+            input_provenance = [p.model_copy(update={
+                "status": "failed",
+                "detail": "模型调用失败，未形成可用草案。",
+            }) for p in input_provenance]
         return DraftResult(
             blueprint=current_draft or Blueprint(),
             warnings=[f"需求 Agent 返回无法解析（{e}）。已保留当前草案，请手动编辑或稍后重试。"],
             source_materials=source_material_summaries(normalized_materials),
+            input_provenance=input_provenance,
         )
     result.source_materials = source_material_summaries(normalized_materials)
+    result.input_provenance = input_provenance
     source_text = build_source_text(requirement_text, instruction, answered, effective_materials)
     result._effective_source_text = source_text
     validation_source = ((prior_source + chr(10) + source_text).strip()
