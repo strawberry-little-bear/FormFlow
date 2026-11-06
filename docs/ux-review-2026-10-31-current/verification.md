@@ -11,9 +11,7 @@
 
 ## 自动化覆盖
 
-历史失败集中在四处：干净 runner 没有被 `.gitignore` 忽略的 `data/samples/` 解析夹具；Ubuntu 模拟 Windows `tasklist` 时使用了不存在的 `mbcs` codec；Windows 前端契约中的异步测试主体误包住了后续用例，导致后续用例被取消；GitHub Actions 使用旧 Node 20 runtime。
-
-对应处理是：工作流在 pytest 前运行 `python scripts/make_samples.py`；测试夹具改为 ASCII bytes，生产代码在 Windows 优先使用 `mbcs`、跨平台测试时回退本地首选编码；异步契约测试拆成独立的 `test()`；checkout、setup-python、setup-node 升级到 v7，Python 3.12 和 Node.js 22 保持不变。
+CI 等价检查覆盖四类容易影响首次使用的运行条件：干净 runner 的解析样本、跨平台 `tasklist` 编码、异步前端契约隔离，以及当前 Node.js/Python 运行时。工作流会先生成解析样本；Windows 优先使用 `mbcs`，其他环境回退本地首选编码；前端异步用例各自隔离；Actions 使用当前稳定的 checkout、Python 和 Node 设置。
 
 ## 本机复现结果
 
@@ -25,7 +23,7 @@
 - `node --check app/static/app.js`：通过。
 - 全部 `ux_*.cjs` 与 `showcase_check.cjs` 语法检查：通过。
 
-## 真实浏览器校验
+## 浏览器校验
 
 环境为独立演示服务 `127.0.0.1:8011`、虚构种子、空 `FORMFLOW_LLM_API_KEY`、真实 Worker。
 
@@ -33,6 +31,6 @@
 2. 填写姓名并上传报告后，错误摘要自动隐藏，字段恢复为有效状态；刷新错误摘要没有再次抢焦点。
 3. 上传接口返回 HTTP 200；本次浏览器检查无控制台错误、页面错误或失败 HTTP 响应。
 
-## 体验边界
+## 边界
 
 该档案覆盖测试夹具、跨平台编码、异步测试边界和 Action runtime，并记录提交者从失败到修正的闭环。结果只适用于本机等价检查和本地浏览器，不替代 GitHub Actions 双平台运行、真实模型评估或公网部署验收。
