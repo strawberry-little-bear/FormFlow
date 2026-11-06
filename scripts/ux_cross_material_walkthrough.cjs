@@ -71,14 +71,32 @@ async function main() {
       await page.getByText('逐条核对证据', { exact: false }).waitFor();
       await page.waitForTimeout(500);
       const text = (await page.locator('body').innerText()).replace(/\s+/g, ' ');
-      const evidenceCount = await page.locator('[data-evidence], .evidence-row, .review-evidence').count();
+      // The review page keeps the selected rule in one evidence detail panel;
+      // count the actual quoted evidence blocks instead of the panel wrapper.
+      const evidenceCount = await page.locator('#review-evidence .evidence-list blockquote.evidence').count();
+      const resultCounts = await page.locator('.review-list-col .review-rule-item').evaluateAll(nodes => {
+        const counts = { satisfied: 0, issue: 0, unknown: 0, failed: 0 };
+        for (const node of nodes) {
+          const text = node.textContent || '';
+          if (text.includes('满足')) counts.satisfied += 1;
+          if (text.includes('问题')) counts.issue += 1;
+          if (text.includes('待确认') || text.includes('待人工核对')) counts.unknown += 1;
+          if (text.includes('检查未完成')) counts.failed += 1;
+        }
+        return counts;
+      }).catch(() => ({ satisfied: 0, issue: 0, unknown: 0, failed: 0 }));
       const review = {
         subjectId,
         text,
         hasCrossMaterialLabels: text.includes('材料 A') && text.includes('材料 B'),
         hasEvidenceLocation: /p\.\s*1|第\s*1\s*页|原文位置/.test(text),
+        hasEvidenceBoundary: evidenceCount > 0
+          || text.includes('这条规则没有可引用的原文证据')
+          || text.includes('此项须由组织者人工核对'),
+        hasSubmitterNextStep: text.includes('提交者可执行动作') || text.includes('提交者补正建议'),
         hasOrganizerNextStep: text.includes('组织者处理建议') || text.includes('组织者待办'),
         evidenceCount,
+        resultCounts,
       };
       report.organizer.reviews.push(review);
       await page.screenshot({ path: path.join(OUT, `review-${subjectId}.png`), fullPage: true });
@@ -109,6 +127,8 @@ async function main() {
     for (const review of report.organizer.reviews) {
       if (!review.hasCrossMaterialLabels) failures.push(`review ${review.subjectId} lacks A/B material labels`);
       if (!review.hasEvidenceLocation) failures.push(`review ${review.subjectId} lacks evidence locations`);
+      if (!review.hasEvidenceBoundary) failures.push(`review ${review.subjectId} lacks evidence or an explicit human-only boundary`);
+      if (!review.hasSubmitterNextStep) failures.push(`review ${review.subjectId} lacks submitter next step`);
       if (!review.hasOrganizerNextStep) failures.push(`review ${review.subjectId} lacks organizer next step`);
     }
     if (CREDENTIAL && (!report.submitter || report.submitter.hash !== '#/submit'
