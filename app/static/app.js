@@ -3799,6 +3799,40 @@ function reviewRevisionHistoryHtml(history, currentRevision) {
   </section>`;
 }
 
+function reviewEvidenceMethodLabel(method) {
+  const labels = {
+    direct_model: '模型直读原件',
+    llm: '模型语义核验',
+    text: '文字解析',
+    ocr: 'OCR 降级',
+    mixed: '文字 + OCR 降级',
+    program: '程序确定性校验',
+    coverage: '读取覆盖状态',
+    manual: '人工核对',
+  };
+  return labels[method] || method || '未记录输入方式';
+}
+
+function reviewEvidenceBboxLabel(bbox) {
+  if (!Array.isArray(bbox) || bbox.length !== 4 || bbox.some(v => !Number.isFinite(Number(v)))) return '';
+  const values = bbox.map(Number);
+  const [x, y, width, height] = values;
+  if (width <= 0 || height <= 0 || x < 0 || y < 0 || x + width > 1 || y + height > 1) return '';
+  const pct = value => `${Math.round(value * 100)}%`;
+  return `区域 ${pct(x)}, ${pct(y)} · ${pct(width)} × ${pct(height)}`;
+}
+
+function reviewEvidenceMeta(evidence) {
+  const parts = [];
+  if (evidence?.locator) parts.push(esc(evidence.locator));
+  if (evidence?.region) parts.push(`区域：${esc(evidence.region)}`);
+  const bbox = reviewEvidenceBboxLabel(evidence?.bbox);
+  if (bbox) parts.push(esc(bbox));
+  parts.push(`输入：${esc(reviewEvidenceMethodLabel(evidence?.method))}`);
+  if (evidence?.method === 'direct_model') parts.push('模型定位线索，需打开原件核对');
+  return parts.join(' · ') || '未标注位置';
+}
+
 function paintReview(taskId, sid) {
   const d = state.reviewData; if (!d) return;
   const rules = [...(d.rules || [])].sort((a, b) => {
@@ -3912,7 +3946,7 @@ function paintReview(taskId, sid) {
       })() : ""}
       ${active.decision ? `<div class="notice-warn"><b>${esc(DECISION_LABEL[active.decision.decision] || active.decision.decision)}</b><p>${esc(active.decision.reason)}</p><span class="muted">人工决定不改写原始检查结果；撤销后可重新核对。</span></div>` : ""}
       ${active.explanation ? `<p class="evidence-explanation">${esc(active.explanation)}</p>` : ""}
-      ${(active.evidence || []).length ? `<div class="evidence-list">${active.evidence.map(e => { const file = e.file_id ? reviewFiles.get(e.file_id) : null; const fileLink = file?.url ? `<a class="evidence-file-link" href="${esc(file.url)}" data-file-url="${esc(file.url)}" onclick="return openReviewFile(event,this.dataset.fileUrl)" target="_blank" rel="noreferrer">${icon("delivery")} 打开原件 · ${esc(file.name || "未命名文件")}</a>` : ""; return `<blockquote class="evidence"><span class="evidence-loc">${esc(e.locator || "未标注位置")} · ${esc(e.method || "-")}</span>${fileLink}${esc(e.quote || "")}</blockquote>`; }).join("")}</div>` : `<p class="muted">这条规则没有可引用的原文证据。</p>`}
+      ${(active.evidence || []).length ? `<div class="evidence-list">${active.evidence.map(e => { const file = e.file_id ? reviewFiles.get(e.file_id) : null; const fileLink = file?.url ? `<a class="evidence-file-link" href="${esc(file.url)}" data-file-url="${esc(file.url)}" onclick="return openReviewFile(event,this.dataset.fileUrl)" target="_blank" rel="noreferrer">${icon("delivery")} 打开原件 · ${esc(file.name || "未命名文件")}</a>` : ""; return `<blockquote class="evidence"><span class="evidence-loc">${reviewEvidenceMeta(e)}</span>${fileLink}${esc(e.quote || "")}</blockquote>`; }).join("")}</div>` : `<p class="muted">这条规则没有可引用的原文证据。</p>`}
       ${active.next_step ? `<div class="evidence-next"><b>${active.decision ? "提交者补正建议" : "提交者可执行动作"}</b><p>${esc(active.next_step)}</p></div>` : ""}
       ${active.organizer_next_step ? `<div class="evidence-next organizer-next-step"><b>组织者处理建议</b><p>${esc(active.organizer_next_step)}</p></div>` : ""}
     </article>` : `<article class="evidence-detail" id="review-evidence" tabindex="-1"><p class="muted">${rules.length ? "点击左侧任意一条规则查看证据。" : "暂时没有可展示的规则证据。"}</p></article>`;

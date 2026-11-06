@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import math
 from typing import Optional
 
 from sqlalchemy import select
@@ -186,8 +187,11 @@ def _execute_check_pipeline(db: Session, run: CheckRun, client=None) -> CheckRun
         db.add(rr)
         db.flush()
         for ev in r.evidence:
+            bbox_json = json.dumps(ev.bbox, ensure_ascii=False, separators=(",", ":")) \
+                if ev.bbox is not None else None
             db.add(Evidence(rule_result_id=rr.id, file_id=ev.file_id, locator=ev.locator,
-                            quote=ev.quote, method=ev.method, method_version="v0.1"))
+                            quote=ev.quote, method=ev.method, region=ev.region,
+                            bbox_json=bbox_json, method_version="v0.2"))
     run.status = RUN_SUCCESS
     db.flush()
     return run
@@ -311,6 +315,25 @@ def _latest_run(db: Session, submission: Optional[Submission]) -> Optional[Check
         CheckRun.status.not_in([RUN_SUPERSEDED])).order_by(CheckRun.id.desc()))
 
 
+def _decode_bbox(value: Optional[str]):
+    """读取旧库/异常数据时保持 API 稳定；非法坐标不冒充证据区域。"""
+    if not value:
+        return None
+    try:
+        parsed = json.loads(value)
+        if not isinstance(parsed, list) or len(parsed) != 4:
+            return None
+        numbers = [float(item) for item in parsed]
+        x, y, width, height = numbers
+        if any(not math.isfinite(item) for item in numbers):
+            return None
+        if width <= 0 or height <= 0 or x < 0 or y < 0 or x + width > 1 or y + height > 1:
+            return None
+        return numbers
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+
+
 def rule_details(db: Session, run: Optional[CheckRun]) -> list[dict]:
     """规则明细：哪里有问题、怎么改、引用证据。
 
@@ -326,7 +349,8 @@ def rule_details(db: Session, run: Optional[CheckRun]) -> list[dict]:
     out = []
     for r in db.scalars(select(RuleResult).where(RuleResult.run_id == run.id)).all():
         evs = [{"file_id": e.file_id, "locator": e.locator, "quote": e.quote,
-                "method": e.method, "method_version": e.method_version}
+                "method": e.method, "region": e.region, "bbox": _decode_bbox(e.bbox_json),
+                "method_version": e.method_version}
                for e in db.scalars(select(Evidence).where(
                    Evidence.rule_result_id == r.id)).all()]
         out.append({

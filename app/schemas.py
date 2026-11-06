@@ -8,6 +8,7 @@ from __future__ import annotations
 from datetime import datetime
 from enum import Enum
 from typing import Optional
+import math
 
 from pydantic import BaseModel, Field, PrivateAttr, model_validator
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -171,10 +172,40 @@ class DraftResult(BaseModel):
 
 # ---------------------------------------------------------------- 审核结果
 class EvidenceOut(BaseModel):
+    """可回链到原件的证据。
+
+    ``locator`` 是页码或结构化字段路径；``region`` 用来补充页面中的
+    人类可读区域名称；``bbox`` 采用 0..1 的归一化坐标，顺序为
+    ``x, y, width, height``。区域定位只能帮助人工打开原件核对，不能
+    把模型给出的坐标升级成程序已经验证过的原文。
+    """
+
     file_id: Optional[str] = None
     locator: str = ""
     quote: str = ""
     method: str = ""
+    region: str = ""
+    bbox: Optional[list[float]] = None
+
+    @model_validator(mode="after")
+    def validate_location(self):
+        self.locator = self.locator.strip()
+        self.quote = self.quote.strip()
+        self.method = self.method.strip()
+        self.region = self.region.strip()
+        if len(self.locator) > 255:
+            raise ValueError("证据定位不能超过 255 个字符")
+        if len(self.region) > 160:
+            raise ValueError("证据区域不能超过 160 个字符")
+        if self.bbox is not None:
+            if len(self.bbox) != 4 or any(
+                not math.isfinite(value) for value in self.bbox
+            ):
+                raise ValueError("bbox 必须是四个有限数字")
+            x, y, width, height = self.bbox
+            if width <= 0 or height <= 0 or x < 0 or y < 0 or x + width > 1 or y + height > 1:
+                raise ValueError("bbox 必须是 0..1 范围内的有效区域")
+        return self
 
 
 class RuleResultOut(BaseModel):

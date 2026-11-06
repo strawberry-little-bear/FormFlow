@@ -4,6 +4,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from app.agents.review_agent import (
     CheckContext,
     FileInfo,
@@ -22,7 +24,7 @@ from app.models import (
     RESULT_UNKNOWN,
 )
 from app.parsing import ParseResult
-from app.schemas import Blueprint, FieldDef, RuleDef, SlotDef
+from app.schemas import Blueprint, EvidenceOut, FieldDef, RuleDef, SlotDef
 from app.services.checks import run_coverage
 
 
@@ -243,6 +245,30 @@ def test_semantic_non_dict_evidence_items_ignored(stub_llm):
     r = run_semantic_rule(_bp().rules[4], _ctx(), client=stub_llm)
     assert r.result == RESULT_SATISFIED
     assert len(r.evidence) == 1
+
+
+def test_evidence_bbox_accepts_normalized_region():
+    evidence = EvidenceOut(file_id="f1", locator="p.1", region="姓名字段",
+                           bbox=[0.1, 0.2, 0.3, 0.08], quote="张三", method="direct_model")
+    assert evidence.region == "姓名字段"
+    assert evidence.bbox == [0.1, 0.2, 0.3, 0.08]
+
+
+def test_evidence_bbox_rejects_out_of_bounds_region():
+    with pytest.raises(ValueError):
+        EvidenceOut(file_id="f1", locator="p.1", bbox=[0.8, 0.2, 0.3, 0.1],
+                    quote="张三", method="direct_model")
+
+
+def test_semantic_invalid_bbox_downgrades_to_unknown(stub_llm):
+    stub_llm.responses = [json.dumps({
+        "result": "satisfied", "explanation": "找到姓名",
+        "evidence": [{"file_id": "f1", "locator": "p.1", "region": "姓名字段",
+                      "bbox": [0.8, 0.2, 0.3, 0.1], "quote": "2026 秋季第 1 期团课报告"}],
+    })]
+    result = run_semantic_rule(_bp().rules[4], _ctx(), client=stub_llm)
+    assert result.result == RESULT_UNKNOWN
+    assert "缺少可在原文定位的证据" in result.explanation
 
 def test_verify_quote_tolerates_ocr_punctuation_noise():
     """OCR 把全角标点识别成半角、文字加空格碎片时，合理引用仍应通过验证（V07）。"""

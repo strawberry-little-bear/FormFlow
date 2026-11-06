@@ -378,7 +378,7 @@ class RuleResult(Base):
 
 
 class Evidence(Base):
-    """证据对象：文件 ID 与版本、页码/段落/字段路径、原文或裁切、提取方式。"""
+    """证据对象：文件、页码/字段、区域、原文或裁切、提取方式。"""
 
     __tablename__ = "evidences"
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -387,6 +387,8 @@ class Evidence(Base):
     locator: Mapped[str] = mapped_column(String(255), default="")  # p.3 / field:name
     quote: Mapped[str] = mapped_column(Text, default="")
     method: Mapped[str] = mapped_column(String(32), default="")    # text/ocr/field/manual
+    region: Mapped[str] = mapped_column(String(160), default="")    # 标题/姓名字段/页眉等人类可读区域
+    bbox_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # [x,y,width,height], 0..1
     method_version: Mapped[str] = mapped_column(String(32), default="")
 
 

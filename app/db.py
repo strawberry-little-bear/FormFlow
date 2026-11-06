@@ -66,6 +66,7 @@ _SQLITE_COLUMNS = {
                          ("revokes_decision_id", "INTEGER REFERENCES manual_decisions(id)")],
     "check_runs": [("execution_mode", "VARCHAR(24) DEFAULT 'live'")],
     "rule_results": [("organizer_next_step", "TEXT DEFAULT ''")],
+    "evidences": [("region", "VARCHAR(160) DEFAULT ''"), ("bbox_json", "TEXT")],
 }
 
 
