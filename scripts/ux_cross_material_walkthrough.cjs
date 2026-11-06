@@ -54,7 +54,10 @@ async function main() {
     let subjectIds = SUBJECT_IDS_FROM_ENV;
     if (!subjectIds.length) {
       await page.goto(`${BASE}/#/workbench/${TASK_ID}`, { waitUntil: 'networkidle' });
-      await page.waitForTimeout(500);
+      // The workbench renders its loading shell first and fills the rows after
+      // the authenticated API response arrives.  Waiting on a fixed timeout
+      // made this walkthrough race the real page and report a false failure.
+      await page.locator('#wb-list .wb-row').first().waitFor({ state: 'visible' });
       subjectIds = await page.locator(`a[href^="#/review/${TASK_ID}/"]`).evaluateAll(nodes => {
         const ids = nodes.map(node => Number.parseInt(node.getAttribute('href').split('/').pop(), 10));
         return [...new Set(ids)].filter(Number.isInteger);
