@@ -79,7 +79,7 @@ def _review_run_source(db: Session, task: Task, run: CheckRun) -> str:
         if str(entry.get("run_id")) != str(run.id):
             continue
         saw_trace = True
-        if entry.get("tool") == "review.semantic_rule":
+        if entry.get("tool") in {"review.semantic_rule", "review.cross_material_rule"}:
             mode = entry.get("simulation")
             semantic_modes.append(mode if isinstance(mode, bool) else None)
     if not semantic_modes:
@@ -119,7 +119,10 @@ def _review_run_trace(db: Session, task: Task, run: CheckRun) -> list[dict]:
         if str(entry.get("run_id")) != str(run.id):
             continue
         tool = str(entry.get("tool") or "")[:64]
-        if tool not in {"review.deterministic_rule", "review.semantic_rule"}:
+        if tool not in {
+            "review.deterministic_rule", "review.semantic_rule",
+            "review.cross_material_rule",
+        }:
             continue
         try:
             sequence = max(0, min(512, int(entry.get("sequence") or 0)))

@@ -535,17 +535,19 @@ const agentRunCard = (run, rules, toolTrace = [], taskId = null, subjectId = nul
   const ruleById = new Map((rules || []).map(r => [r.rule_id, r]));
   const traceStatus = {satisfied: "找到符合依据", issue: "发现需处理", unknown: "待人工确认", failed: "本次检查未完成", not_applicable: "当前不适用"};
   const traceItems = (toolTrace || []).slice(-64);
-  const traceFilter = ["all", "deterministic", "semantic", "human"].includes(state.reviewTraceFilter)
+  const traceFilter = ["all", "deterministic", "semantic", "cross_material", "human"].includes(state.reviewTraceFilter)
     ? state.reviewTraceFilter : "all";
   const traceMatches = item => traceFilter === "all"
     || traceFilter === "deterministic" && item.tool === "review.deterministic_rule"
     || traceFilter === "semantic" && item.tool === "review.semantic_rule"
+    || traceFilter === "cross_material" && item.tool === "review.cross_material_rule"
     || traceFilter === "human" && ["unknown", "failed"].includes(item.status);
   const visibleTrace = traceItems.filter(traceMatches);
   const traceFilters = [
     ["all", "全部", traceItems.length],
     ["deterministic", "程序规则", traceItems.filter(item => item.tool === "review.deterministic_rule").length],
     ["semantic", "语义审核", traceItems.filter(item => item.tool === "review.semantic_rule").length],
+    ["cross_material", "跨材料", traceItems.filter(item => item.tool === "review.cross_material_rule").length],
     ["human", "需人工", traceItems.filter(item => ["unknown", "failed"].includes(item.status)).length],
   ];
   const traceAction = Number.isFinite(taskId) && Number.isFinite(subjectId)
@@ -556,6 +558,9 @@ const agentRunCard = (run, rules, toolTrace = [], taskId = null, subjectId = nul
     const rule = ruleById.get(item.rule_id);
     const title = rule?.requirement?.statement || item.rule_id || "核对步骤";
     const toolLabel = item.tool === "review.deterministic_rule" ? "程序规则"
+      : item.tool === "review.cross_material_rule" && item.simulation === true ? "离线跨材料结果"
+      : item.tool === "review.cross_material_rule" && item.simulation === false ? "跨材料模型"
+      : item.tool === "review.cross_material_rule" ? "跨材料模式未记录"
       : item.tool === "review.semantic_rule" && item.simulation === true ? "离线演示结果"
       : item.tool === "review.semantic_rule" && item.simulation === false ? "材料理解"
       : item.tool === "review.semantic_rule" ? "模式未记录" : "核对工具";
@@ -563,7 +568,7 @@ const agentRunCard = (run, rules, toolTrace = [], taskId = null, subjectId = nul
       : item.duration_ms < 1000 ? `${item.duration_ms} 毫秒` : `${(item.duration_ms / 1000).toFixed(1)} 秒`;
     const label = traceStatus[item.status] || "已记录";
     const tone = ["issue", "failed"].includes(item.status) ? "warn" : item.status === "unknown" ? "info" : "ok";
-    const toolIcon = item.tool === "review.deterministic_rule" ? "check" : item.tool === "review.semantic_rule" ? "design" : "review";
+    const toolIcon = item.tool === "review.deterministic_rule" ? "check" : item.tool === "review.semantic_rule" || item.tool === "review.cross_material_rule" ? "design" : "review";
     const sequence = Number(item.sequence) > 0 ? `第 ${item.sequence} 步` : "运行步骤";
     const version = item.tool_version ? ` · ${item.tool_version}` : "";
     const correlation = item.correlation_id ? ` · ${item.correlation_id}` : "";
@@ -571,10 +576,11 @@ const agentRunCard = (run, rules, toolTrace = [], taskId = null, subjectId = nul
   }).join("");
   const traceSimulation = (toolTrace || []).some(item => item.simulation === true);
   const traceModeUnknown = (toolTrace || []).some(item =>
-    item.tool === "review.semantic_rule" && item.simulation !== true && item.simulation !== false);
+    (item.tool === "review.semantic_rule" || item.tool === "review.cross_material_rule") && item.simulation !== true && item.simulation !== false);
   const runtimeTools = [
     {name: "review.deterministic_rule", scope: "review:deterministic", desc: "程序规则核验"},
     {name: "review.semantic_rule", scope: "review:semantic", desc: "语义证据核验"},
+    {name: "review.cross_material_rule", scope: "review:cross_material", desc: "跨材料一致性核验"},
   ];
   const runtimeHtml = `<details class="agent-runtime-info">
     <summary><span class="eyebrow">Agent 运行时</span><small>skill · harness · 审计边界</small></summary>

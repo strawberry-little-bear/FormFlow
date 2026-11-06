@@ -70,7 +70,8 @@ def test_agent_runtime_manifest_is_owner_scoped_and_descriptive(db_session):
         assert payload["contract_self_test"]["passed"] == payload["contract_self_test"]["total"] == 6
         assert "没有调用模型" in payload["contract_self_test"]["note"]
         assert {tool["name"] for tool in payload["tools"]} == {
-            "review.deterministic_rule", "review.semantic_rule"
+                "review.deterministic_rule", "review.semantic_rule",
+                "review.cross_material_rule",
         }
         review = next(skill for skill in payload["skills"] if skill["name"] == "review_one_submission")
         assert set(review["allowed_tools"]) == {tool["name"] for tool in payload["tools"]}

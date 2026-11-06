@@ -102,7 +102,7 @@ _CROSS_SCRIPTS = {
             "explanation": "表单和两份报名材料均写作“FF2026002”，学号一致。",
             "evidence": [
                 {"locator": "p.1", "quote": "材料 A\n姓名：李四\n学号：FF2026002"},
-                {"locator": "p.1", "quote": "材料 B\n姓名：李四\n学号：FF2026002"},
+                {"locator": "p.1", "quote": "材料 B\n姓名：李思\n学号：FF2026002"},
             ],
         },
         "王五": {
