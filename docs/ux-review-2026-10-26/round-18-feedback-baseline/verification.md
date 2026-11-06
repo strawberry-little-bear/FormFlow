@@ -22,7 +22,7 @@ node --test tests/frontend_contracts.test.cjs
 git diff --check
 ```
 
-结果：Python 专项 51 项通过，前端契约 162 项通过，JS 语法检查通过，`git diff --check` 通过，8000 端口已释放。专项通过项覆盖启动器 Windows `tasklist` 字节/代码页兼容、ZIP 条目时间戳、网页 bridge 权限隔离、sidecar 工具发现及前端 MCP 展示契约。未把本轮文档整理误报为真实模型质量、屏幕阅读器或公网部署验收。
+结果：Python 专项 51 项通过，前端契约 162 项通过，JS 语法检查通过，`git diff --check` 通过，8000 端口已释放。专项通过项覆盖启动器 Windows `tasklist` 字节/代码页兼容、ZIP 条目时间戳、网页 bridge 权限隔离、sidecar 工具发现及前端 MCP 展示契约。未把本档案文档整理误报为真实模型质量、屏幕阅读器或公网部署验收。
 
 ## 后续边界入口
 

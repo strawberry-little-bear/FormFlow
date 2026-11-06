@@ -19,7 +19,7 @@
 
 - 前端契约：171 项通过。
 - `node --check app/static/app.js`：通过。
-- `git diff --check`（本轮文件）：通过。
+- `git diff --check`（本档案文件）：通过。
 - 隔离服务：`127.0.0.1:8018`，空 `FORMFLOW_LLM_API_KEY`。
 - 浏览器走查：1440 / 390 / 320px 的 `scrollWidth` 与 `clientWidth` 分别为 1440/1440、390/390、320/320。
 - 浏览器读取到的真实入口：`#/design/1`、`#/review/1/2`、Harness 运行边界按钮、MCP 只读回放按钮。

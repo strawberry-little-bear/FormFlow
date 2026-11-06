@@ -17,4 +17,4 @@
 
 ## 证据与边界
 
-`results.json` 保存浏览器检查结果；PNG 为本轮实拍，`tasks-desktop.png` 用作 README 首屏截图。此次验证针对虚构演示种子和本地浏览器，不代表真实用户试点、真实模型质量评估、公网部署安全验收或屏幕阅读器验证。网页 Agent 目前没有直接调用 MCP sidecar。
+`results.json` 保存浏览器检查结果；PNG 为本档案实拍，`tasks-desktop.png` 用作 README 首屏截图。此次验证针对虚构演示种子和本地浏览器，不代表真实用户试点、真实模型质量评估、公网部署安全验收或屏幕阅读器验证。网页 Agent 目前没有直接调用 MCP sidecar。

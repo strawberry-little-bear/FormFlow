@@ -14,7 +14,7 @@
 - 20 个路由、交互与视口检查完成，覆盖 320px、390px 和 1440px；未发现横向溢出、控制台错误、未捕获页面异常或 HTTP 4xx/5xx。
 - Agent 架构导览桌面正文与窄屏说明可读性已提高；320px 快捷入口保持可见并能打开导览。
 - 前端契约与浏览器 harness：159 项通过。node --check app/static/app.js 与 git diff --check 通过。
-- 最近一次 Python 全量回归为 434 项通过；本轮仅修改 CSS 和展示记录，未重跑 Python。
+- 最近一次 Python 全量回归为 434 项通过；本档案仅修改 CSS 和展示记录，未重跑 Python。
 
 ## 证据
 

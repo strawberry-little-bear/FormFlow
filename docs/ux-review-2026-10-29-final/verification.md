@@ -19,4 +19,4 @@
 
 机器报告：`data/ux-review-20261029-live/presentation-landing-final/showcase-results.json`（本地隔离数据，不纳入版本控制）。
 
-本记录只加强验收等待与断言，没有改动产品交互实现。Python 全量和 axe-core 扫描未因本轮测试脚本调整而重跑；真实模型、屏幕阅读器及生产环境未覆盖。
+本记录只加强验收等待与断言，没有改动产品交互实现。Python 全量和 axe-core 扫描未因本档案测试脚本调整而重跑；真实模型、屏幕阅读器及生产环境未覆盖。

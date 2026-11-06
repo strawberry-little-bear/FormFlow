@@ -21,7 +21,7 @@
 - 前端契约：172 项通过。
 - Python 全量回归：439 项通过。
 - `node --check app/static/app.js`：通过。
-- `git diff --check`（本轮文件）：通过。
+- `git diff --check`（本档案文件）：通过。
 - 隔离服务：`127.0.0.1:8019`，空 `FORMFLOW_LLM_API_KEY`，虚构种子数据。
 - 1440px 浏览器读取到：需求 Skill“已登记”、审核 Skill“证据已授权”、Harness“5 次上限”、MCP“已回放”。
 - 点击“查看只读回放”后，MCP 面板展开并获得键盘焦点；控制面状态保持与服务端投影一致。

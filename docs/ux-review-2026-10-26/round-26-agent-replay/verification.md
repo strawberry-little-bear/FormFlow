@@ -34,7 +34,7 @@ git diff --check -- app/api/routes.py app/static/app.js app/static/style.css tes
 
 - 桌面 1440px：演示入口进入任务首页后，点击“运行 Agent 导览”，回放显示 `回放中 · 0/4`、`1/4`，随后完成并恢复四张调用卡片；截图保存在 `.tmp-ux-mcp-replay-20261026/mcp-replay-complete.png`。
 - 移动端 390px：回放中显示“下一步：读取收集汇总”，`scrollWidth=390`、`clientWidth=390`。
-- 本轮浏览器采样：控制台错误 0，4xx/5xx 请求 0。
+- 本档案浏览器采样：控制台错误 0，4xx/5xx 请求 0。
 
 ## 边界
 

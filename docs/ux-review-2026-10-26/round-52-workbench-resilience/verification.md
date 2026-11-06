@@ -15,4 +15,4 @@
 - `node --check app/static/app.js` 与 `node --check tests/frontend_contracts.test.cjs`：通过。
 - `git diff --check -- app/static/app.js app/static/style.css tests/frontend_contracts.test.cjs`：通过。
 
-本记录没有对现有演示数据库做写入，也没有进行真实浏览器断网或断网重连实拍；全站离线恢复仍不在本轮结论范围内。
+本记录没有对现有演示数据库做写入，也没有进行真实浏览器断网或断网重连实拍；全站离线恢复仍不在本档案结论范围内。
