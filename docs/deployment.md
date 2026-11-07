@@ -80,6 +80,23 @@ curl http://127.0.0.1:8000/api/ready
 
 SQLite 文件和 `FORMFLOW_STORAGE_DIR` 必须位于持久磁盘。备份应同时覆盖数据库和附件，并定期在新目录做恢复演练。需要多 Worker 或多 API 实例前，先把 SQLite 换成受支持的共享数据库，并为队列任务增加领取锁/租约；当前执行模型按单 Worker 设计。
 
+生产 SQLite 可使用与 API/Worker 相同的 `.env` 做一致性备份。执行前应停止 API 和 Worker，或由进程管理器保证没有写入：
+
+```bash
+python scripts/backup_runtime.py create
+# 将输出的 zip 复制到独立备份位置
+python scripts/backup_runtime.py verify /srv/formflow/backups/formflow-20261107T120000Z.zip
+```
+
+恢复不会覆盖现有目录，只能恢复到新目录，校验通过后再按部署平台切换数据目录：
+
+```bash
+python scripts/backup_runtime.py restore /srv/formflow/backups/formflow-20261107T120000Z.zip \
+  --target /srv/formflow/restore-check
+```
+
+当前工具只支持 SQLite；使用 PostgreSQL 等共享数据库时，应使用数据库供应商的原生备份，并单独备份附件目录。
+
 ### Docker Compose（可选）
 
 仓库提供 `deploy/docker-compose.yml`，用于把 API 和 Worker 固定在同一份配置、数据库和附件卷中：
