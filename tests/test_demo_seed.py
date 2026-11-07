@@ -8,7 +8,7 @@ from sqlalchemy import select
 from app.config import settings
 from app.models import AuditEvent, CheckRun, Subject, RUN_FAILED
 from app.services import export as export_service
-from app.services.checks import current_summary
+from app.services.checks import current_details, current_summary
 from app.services.demo_seed import seed_demo
 from app.services.progress import _review_run_failure, _review_run_source, _review_run_trace, demo_route_data
 
@@ -63,6 +63,39 @@ def test_seed_demo_state(db_session):
     included = [e["name"] for e in manifest["entries"] if e["included"]]
     assert included == ["张三"]
     assert manifest["totals"] == {"subjects": 5, "included": 1, "excluded": 4}
+
+
+def test_seed_demo_includes_cross_material_showcase(db_session):
+    summary = seed_demo(db_session)
+    from app.models import Task
+
+    assert summary["cross_task_id"] != summary["task_id"]
+    assert set(summary["cross_credentials"]) == {"张三", "李四", "王五"}
+    task = db_session.get(Task, summary["cross_task_id"])
+    subjects = db_session.scalars(select(Subject).where(Subject.task_id == task.id)).all()
+    assert {subject.display_name for subject in subjects} == {"张三", "李四", "王五"}
+
+    by_name = {subject.display_name: subject for subject in subjects}
+    assert current_summary(db_session, task, by_name["张三"].id)["summary"] == "待人工"
+    assert current_summary(db_session, task, by_name["李四"].id)["summary"] == "待补正"
+    assert current_summary(db_session, task, by_name["王五"].id)["summary"] == "待人工"
+
+    zhang_details = {row["rule_id"]: row for row in current_details(db_session, task, by_name["张三"].id)}
+    li_details = {row["rule_id"]: row for row in current_details(db_session, task, by_name["李四"].id)}
+    wang_details = {row["rule_id"]: row for row in current_details(db_session, task, by_name["王五"].id)}
+    assert zhang_details["x_name_consistency"]["result"] == "satisfied"
+    zhang_name_evidence = zhang_details["x_name_consistency"]["evidence"]
+    assert len([item for item in zhang_name_evidence if item["method"] == "llm"]) == 2
+    assert len({item["file_id"] for item in zhang_name_evidence if item["method"] == "llm"}) == 2
+    assert any(item["method"] == "program" and item["locator"] == "field:name" for item in zhang_name_evidence)
+    assert zhang_details["x_student_id_consistency"]["result"] == "satisfied"
+    zhang_student_id_evidence = zhang_details["x_student_id_consistency"]["evidence"]
+    assert len([item for item in zhang_student_id_evidence if item["method"] == "llm"]) == 2
+    assert len({item["file_id"] for item in zhang_student_id_evidence if item["method"] == "llm"}) == 2
+    assert any(item["method"] == "program" and item["locator"] == "field:student_id" for item in zhang_student_id_evidence)
+    assert li_details["x_name_consistency"]["result"] == "issue"
+    assert li_details["x_student_id_consistency"]["result"] == "satisfied"
+    assert wang_details["x_student_id_consistency"]["result"] == "unknown"
 
 
 def test_demo_route_projection_follows_seed_lifecycle(db_session):

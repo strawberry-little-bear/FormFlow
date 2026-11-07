@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import math
 from typing import Optional
 
 from sqlalchemy import select
@@ -54,7 +55,7 @@ from .decision_state import effective_rules, PASS_DECISIONS, RULE_DECISIONS, val
 from .eligibility import eligibility_view
 
 
-def _load_files(db: Session, revision: Revision) -> list[FileInfo]:
+def _load_files(db: Session, revision: Revision, *, allow_ocr: bool = True) -> list[FileInfo]:
     slot_map: dict[str, list[str]] = json.loads(revision.slot_file_ids_json)
     infos: list[FileInfo] = []
     for slot, fids in slot_map.items():
@@ -62,16 +63,18 @@ def _load_files(db: Session, revision: Revision) -> list[FileInfo]:
             fo = db.scalar(select(FileObject).where(FileObject.file_id == fid))
             if fo is None:
                 continue
-            info = FileInfo(file_id=fo.file_id, slot=slot, original_name=fo.original_name,
-                            size=fo.size)
             path = storage.file_dir(fo.file_id) / f"original_{fo.safe_name}"
+            info = FileInfo(file_id=fo.file_id, slot=slot, original_name=fo.original_name,
+                            size=fo.size, path=path)
             try:
-                info.parse = parse_file(path)
+                info.parse = parse_file(path, allow_ocr=allow_ocr)
+                info.input_method = "ocr" if info.parse.method in {"ocr", "mixed"} else "text"
                 fo.status = "ready"
             except ParseError as e:
                 fo.status = "failed"
                 fo.parse_error = str(e)
                 info.parse_error = str(e)
+                info.input_method = "unread"
             infos.append(info)
     db.flush()
     return infos
@@ -143,7 +146,11 @@ def _execute_check_pipeline(db: Session, run: CheckRun, client=None) -> CheckRun
     subject = db.get(Subject, submission.subject_id)
     members = [m.name for m in subject.members] if subject else []
 
-    files = _load_files(db, revision)
+    runtime_client = client or get_client()
+    files = _load_files(
+        db, revision,
+        allow_ocr=not getattr(runtime_client, "direct_documents_enabled", False),
+    )
     task = db.get(Task, run.task_id)
     # 第 10 节：补正时让模型看到历史问题与提交者解释，
     # 不从零重新推理，也不把解释当成结论。
@@ -154,7 +161,7 @@ def _execute_check_pipeline(db: Session, run: CheckRun, client=None) -> CheckRun
     from ..agents.tooling import build_review_skill, invoke_review_rule
 
     skill, tool_context = build_review_skill(
-        ctx, client=client or get_client(), db=db, task_id=run.task_id,
+        ctx, client=runtime_client, db=db, task_id=run.task_id,
         subject_id=subject.id, run_id=run.id,
         actor=f"review_agent:account:{task.created_by or 'unknown'}")
     tool_executor = lambda rule: invoke_review_rule(
@@ -163,9 +170,9 @@ def _execute_check_pipeline(db: Session, run: CheckRun, client=None) -> CheckRun
     # Keep the injectable run_checks seam compatible with test/diagnostic wrappers
     # that deliberately expose only the historical (ctx, client) signature.
     if "tool_executor" in inspect.signature(run_checks).parameters:
-        outcome = run_checks(ctx, client, tool_executor=tool_executor)
+        outcome = run_checks(ctx, runtime_client, tool_executor=tool_executor)
     else:
-        outcome = run_checks(ctx, client)
+        outcome = run_checks(ctx, runtime_client)
 
     run.llm_calls_used = outcome.llm_calls_used
     run.pages_read = outcome.pages_read
@@ -175,12 +182,16 @@ def _execute_check_pipeline(db: Session, run: CheckRun, client=None) -> CheckRun
     for r in outcome.results:
         rr = RuleResult(run_id=run.id, rule_id=r.rule_id, result=r.result,
                         severity=_severity_of(blueprint, r.rule_id),
-                        explanation=r.explanation, next_step=r.next_step)
+                        explanation=r.explanation, next_step=r.next_step,
+                        organizer_next_step=r.organizer_next_step)
         db.add(rr)
         db.flush()
         for ev in r.evidence:
+            bbox_json = json.dumps(ev.bbox, ensure_ascii=False, separators=(",", ":")) \
+                if ev.bbox is not None else None
             db.add(Evidence(rule_result_id=rr.id, file_id=ev.file_id, locator=ev.locator,
-                            quote=ev.quote, method=ev.method, method_version="v0.1"))
+                            quote=ev.quote, method=ev.method, region=ev.region,
+                            bbox_json=bbox_json, method_version="v0.2"))
     run.status = RUN_SUCCESS
     db.flush()
     return run
@@ -271,9 +282,11 @@ def run_coverage(run: Optional[CheckRun]) -> dict:
     """V08 覆盖缺口视图：按文件给出总页/已读/未读/失败与提取方式。
 
     未读/失败页存在时 complete=False：语义结论只能 unknown，
-    不得把“没读到”写成“确认缺失”。
+    不得把“没读到”写成“确认缺失”。原始文件直传成功时，解析器的
+    无文字探测不算语义缺口；model_direct/parser_unread 会保留这层来源信息。
     """
-    empty = {"files": [], "unread_pages": 0, "failed_pages": 0, "complete": True}
+    empty = {"files": [], "unread_pages": 0, "failed_pages": 0,
+             "complete": True, "model_direct": False, "direct_model_files": 0}
     if run is None or not run.coverage_json:
         return empty
     try:
@@ -285,8 +298,12 @@ def run_coverage(run: Optional[CheckRun]) -> dict:
     files = [{"file_id": fid, **cov} for fid, cov in sorted(raw.items())]
     unread = sum(int(c.get("unread", 0) or 0) for c in files)
     failed = sum(int(c.get("failed", 0) or 0) for c in files)
+    direct_model_files = sum(1 for c in files if c.get("model_direct") is True
+                             or c.get("method") == "direct_model")
     return {"files": files, "unread_pages": unread, "failed_pages": failed,
-            "complete": unread == 0 and failed == 0}
+            "complete": unread == 0 and failed == 0,
+            "model_direct": direct_model_files > 0,
+            "direct_model_files": direct_model_files}
 
 
 def _latest_run(db: Session, submission: Optional[Submission]) -> Optional[CheckRun]:
@@ -296,6 +313,25 @@ def _latest_run(db: Session, submission: Optional[Submission]) -> Optional[Check
     return db.scalar(select(CheckRun).where(
         CheckRun.revision_id == submission.current_revision_id,
         CheckRun.status.not_in([RUN_SUPERSEDED])).order_by(CheckRun.id.desc()))
+
+
+def _decode_bbox(value: Optional[str]):
+    """读取旧库/异常数据时保持 API 稳定；非法坐标不冒充证据区域。"""
+    if not value:
+        return None
+    try:
+        parsed = json.loads(value)
+        if not isinstance(parsed, list) or len(parsed) != 4:
+            return None
+        numbers = [float(item) for item in parsed]
+        x, y, width, height = numbers
+        if any(not math.isfinite(item) for item in numbers):
+            return None
+        if width <= 0 or height <= 0 or x < 0 or y < 0 or x + width > 1 or y + height > 1:
+            return None
+        return numbers
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
 
 
 def rule_details(db: Session, run: Optional[CheckRun]) -> list[dict]:
@@ -313,12 +349,14 @@ def rule_details(db: Session, run: Optional[CheckRun]) -> list[dict]:
     out = []
     for r in db.scalars(select(RuleResult).where(RuleResult.run_id == run.id)).all():
         evs = [{"file_id": e.file_id, "locator": e.locator, "quote": e.quote,
-                "method": e.method, "method_version": e.method_version}
+                "method": e.method, "region": e.region, "bbox": _decode_bbox(e.bbox_json),
+                "method_version": e.method_version}
                for e in db.scalars(select(Evidence).where(
                    Evidence.rule_result_id == r.id)).all()]
         out.append({
             "rule_id": r.rule_id, "result": r.result, "severity": r.severity,
             "explanation": r.explanation, "next_step": r.next_step,
+            "organizer_next_step": r.organizer_next_step,
             "requirement": rules_meta.get(r.rule_id, {}),
             "evidence": evs,
         })
@@ -339,7 +377,8 @@ def review_rule_details(db: Session, run: Optional[CheckRun], task: Task,
             rows.append({"rule_id": rule.id, "result": "manual_pending",
                          "severity": rule.severity, "requirement": rule.model_dump(),
                          "explanation": "此项须由组织者人工核对，系统不生成机器结论。",
-                         "next_step": "核对材料后，记录本项决定与理由。", "evidence": []})
+                         "next_step": "这一项由组织者处理，你暂时不用修改材料。",
+                         "organizer_next_step": "核对材料后，记录本项决定与理由。", "evidence": []})
     effects = effective_rules(_active_decisions(db, task.id, subject_id, revision_id))
     for row in rows:
         d = effects.get(row["rule_id"])

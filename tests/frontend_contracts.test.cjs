@@ -28,6 +28,7 @@ function element(value = '') {
 function setup(sharedStorage = storage()) {
   const els = Object.fromEntries(['sub', 'draft-hint', 'flash', 'receipt-out', 'decision-submit', 'presentation-toggle', 'lg-cred',
     'review-conflict', 'login-err', 'dc-type', 'dc-rule', 'dc-reason', 'dc-exp', 'acceptance-reason', 'acceptance-submit',
+    'source-pack', 'source-notice', 'source-roster', 'source-template', 'source-extra', 'source-files-notice', 'source-files-roster', 'source-files-template', 'source-files-attachment', 'source-materials-state',
     'review-draft-status', 'submission-errors', 'field-error-name', 'dl', 'delivery-history-list', 'delivery-history-more-error', 'snap-view', 'create-snapshot', 'snap-kind', 'create-submit', 'create-error', 'tk-name', 'tk-mode', 'tk-kind', 'create-dialog', 'app', 'rv', 'rv-name', 'my-results', 'my-results-card', 'submit-next-step', 'nav', 'role-label', 'wb-next-step', 'btn-logout', 'workspace-agent-mode', 'workspace-agent-status', 'agent-tour-mode', 'agent-tour-availability', 'agent-runtime-mode', 'agent-runtime-status', 'grant-out', 'roster-name', 'roster-stats', 'roster-filter', 'roster-results-status', 'roster-table', 'roster-load-state', 'roster-content', 'roster-grant-all', 'draft-panel', 'draft-state'].map(id => [id, element()]));
   els['task-list'] = element();
   els['task-search'] = element();
@@ -36,7 +37,7 @@ function setup(sharedStorage = storage()) {
   els['login-err'].style = {};
   els['field-name'] = fields[0];
   const body = Object.assign(element(), {dataset: {page: 'tasks'}});
-  const document = {body, documentElement: {style: {setProperty(name, value) { this[name] = value; }}}, getElementById: id => els[id] || null,
+  const document = {title: '', body, documentElement: {style: {setProperty(name, value) { this[name] = value; }}}, getElementById: id => els[id] || null,
     createElement: tag => Object.assign(element(), {tagName: tag, style: {}, select() { this.selected = true; }}),
     querySelectorAll: sel => sel === '[data-field]' ? fields : sel === '[data-filter]' ? taskFilters : [], querySelector: () => null};
   body.appendChild = child => { child.parentNode = body; };
@@ -48,7 +49,7 @@ function setup(sharedStorage = storage()) {
     requestAnimationFrame: fn => fn(),
     setTimeout, clearTimeout, confirm: () => true, console,
     fetch: async () => {throw new Error('Unexpected request');}});
-vm.runInContext(source + '\nthis.app = {state, route, useVersionAsBase, loadDesignVersion, cacheDesignInputs, restoreDesignInputs, recoverDesignInput, recoverDesignInput, paintChat, renderDraftPanel, runAgent, runExport, deliveryHistoryHtml, deliverySnapshotStatusHtml, loadDeliveryHistory, inspectSnapshot, paintSnapshot, agentEvidenceSummaryHtml, canPublishDesign, publishDiffHtml, designVersionImpactHtml, publishGovernanceHtml, publishBp, confirmPublish, saveTimePolicy, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, fmtTimeShort, designReadinessHtml, designProgressHtml, applyDraft, quickTemplate, draftFingerprint, collectDraftFields, paintSubmitterNextStep, submitterNextStepHtml, setSubMode, moveSubmitModeTab, setDesignTab, moveDesignTab, refreshSlotConditions, wbMatches, api, apiError, submitDecision, saveDraft, doSubmit, doSubLogin, uploadSlot, deleteSlotFile, cacheReviewDraft, discardReviewDraft, logout, nextPendingReview, setReviewFilter, setReviewTraceFilter, selectReviewRule, viewReview, reviewRevisionHistoryHtml, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, chooseWorkbenchNextStep, workbenchNextStepHtml, agentRunCard, agentTourHtml, agentTourRuntimeHtml, runtimeSelfTestHtml, submitterGuidance, ruleCard, receiptFilesHtml, submissionIssues, checkAgentRequestNow, resumePendingAgentRequest, savePendingAgentRequest, agentRequestProgressHtml, retryAgent, pollAgentRequest, showSubmissionIssues, refreshSubmissionValidation, initSubChat, demoRouteTask, demoRouteHtml, demoRouteCueHtml, copyDemoRouteCue, agentArchitectureRailHtml, agentQuickReadHtml, agentShowcaseHtml, runStageReplayHtml, paintAgentShowcase, jumpToRunStage, mcpSnapshotHtml, renderDemoRoute, paintWorkspaceAgentStatus, paintAgentRuntime, paintAgentRuntimeContractIssue, viewLogin, viewSubmit, switchLoginTab, moveLoginTab, setFlash, openDialog, readPresentationMode, showcaseReturnHtml, applyPresentationMode, setPresentationMode, togglePresentationMode, fillDemoCred, doLogin, issueGrant, issueAllGrants, viewRoster, loadRoster, setRosterFilter, renderRosterTable, showCredential, showCredentialList, setEmptyTaskHome, jumpToSubmitResults, filterTasks, clearTaskFilters, paintTasks, createTask};', context);
+vm.runInContext(source + '\nthis.app = {state, route, pageTitleForRoute, useVersionAsBase, loadDesignVersion, cacheDesignInputs, restoreDesignInputs, recoverDesignInput, recoverDesignInput, collectSourceMaterials, restoreSourceMaterials, collectDesignInputs, sourceMaterialIds, renderSourceMaterials, loadSourceMaterials, uploadSourceFiles, deleteSourceMaterial, sourceMaterialsSummaryHtml, paintChat, renderDraftPanel, runAgent, runExport, deliveryHistoryHtml, deliverySnapshotStatusHtml, loadDeliveryHistory, inspectSnapshot, paintSnapshot, agentEvidenceSummaryHtml, canPublishDesign, publishDiffHtml, designVersionImpactHtml, publishGovernanceHtml, publishBp, confirmPublish, saveTimePolicy, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, fmtTimeShort, designReadinessHtml, designProgressHtml, applyDraft, quickTemplate, draftFingerprint, collectDraftFields, paintSubmitterNextStep, submitterNextStepHtml, setSubMode, moveSubmitModeTab, setDesignTab, moveDesignTab, refreshSlotConditions, wbMatches, api, apiError, submitDecision, saveDraft, doSubmit, doSubLogin, uploadSlot, deleteSlotFile, cacheReviewDraft, discardReviewDraft, logout, nextPendingReview, setReviewFilter, setReviewTraceFilter, selectReviewRule, viewReview, reviewRevisionHistoryHtml, reviewEvidenceMethodLabel, reviewEvidenceBboxLabel, reviewEvidenceMeta, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, chooseWorkbenchNextStep, workbenchNextStepHtml, agentRunCard, agentTourHtml, agentTourRuntimeHtml, runtimeSelfTestHtml, submitterGuidance, ruleCard, receiptFilesHtml, submissionIssues, checkAgentRequestNow, resumePendingAgentRequest, savePendingAgentRequest, agentRequestProgressHtml, retryAgent, pollAgentRequest, showSubmissionIssues, refreshSubmissionValidation, initSubChat, demoRouteTask, demoRouteHtml, demoRouteCueHtml, copyDemoRouteCue, agentArchitectureRailHtml, agentQuickReadHtml, agentShowcaseHtml, runStageReplayHtml, paintAgentShowcase, jumpToRunStage, mcpSnapshotHtml, renderDemoRoute, paintWorkspaceAgentStatus, paintAgentRuntime, paintAgentRuntimeContractIssue, viewLogin, viewSubmit, switchLoginTab, moveLoginTab, setFlash, openDialog, readPresentationMode, showcaseReturnHtml, applyPresentationMode, setPresentationMode, togglePresentationMode, fillDemoCred, doLogin, issueGrant, issueAllGrants, viewRoster, loadRoster, setRosterFilter, renderRosterTable, showCredential, showCredentialList, setEmptyTaskHome, jumpToSubmitResults, filterTasks, clearTaskFilters, paintTasks, createTask};', context);
   context.app.copyText = vm.runInContext('copyText', context);
   context.app.copyCredential = vm.runInContext('copyCredential', context);
   context.app.submissionMatchesReceipt = context.submissionMatchesReceipt;
@@ -70,6 +71,18 @@ function response(data, status = 200) {
 function deferred() {
   let resolve; const promise = new Promise(r => {resolve=r;}); return {promise,resolve};
 }
+
+test('route titles identify the current page and task context', () => {
+  const {app, context, document} = setup();
+  assert.equal(app.pageTitleForRoute(['login'], new URLSearchParams()), '登录 · 收齐啦');
+  assert.equal(app.pageTitleForRoute(['login'], new URLSearchParams('role=sub')), '提交者登录 · 收齐啦');
+  assert.equal(app.pageTitleForRoute(['tasks']), '我的任务 · 收齐啦');
+  assert.equal(app.pageTitleForRoute(['review', '1', '2']), '证据复核 · 任务 #1 · 收齐啦');
+  assert.equal(app.pageTitleForRoute(['submit']), '我的提交 · 收齐啦');
+  context.location.hash = '#/review/1/2';
+  app.route();
+  assert.equal(document.title, '证据复核 · 任务 #1 · 收齐啦');
+});
 
 test('task creation explains whitespace-only names and returns focus to the field', async () => {
   const {app, els} = setup();
@@ -289,6 +302,46 @@ test('design load failures replace the preview with recovery actions', () => {
   assert.doesNotMatch(els['draft-panel'].innerHTML, /LIVE PREVIEW/);
   assert.equal(els['draft-state'].textContent, '无法读取');
 });
+test('design source materials are collected and summarized without exposing full text', () => {
+  const {app, els} = setup();
+  els['source-notice'] = element('报名通知正文');
+  els['source-roster'] = element('张三\n李四');
+  els['source-template'] = element('姓名、学号、报告');
+  els['source-extra'] = element('PDF，20 页以内');
+  const materials = app.collectSourceMaterials();
+  assert.equal(Array.from(materials, m => m.id).join(','), 'notice,roster,template,attachment');
+  assert.equal(materials[0].name, '报名通知');
+  assert.equal(materials[0].content, '报名通知正文');
+  app.restoreSourceMaterials([{id:'notice', content:'恢复后的通知'}]);
+  assert.equal(els['source-notice'].value, '恢复后的通知');
+  assert.equal(els['source-roster'].value, '');
+  app.state.taskId = 1;
+  app.state.bpId = 1;
+  app.state.designTab = 'rules';
+  app.state.draft = {blueprint:{rules:[], fields:[], slots:[], time_policy:{}}, clarifications:[], source_materials:[
+    {id:'notice', name:'报名通知', kind:'notice', chars:6},
+    {id:'roster', name:'适用名单', kind:'roster', chars:3},
+  ], input_provenance:[
+    {id:'notice', method:'direct_model', status:'used', detail:'已将原始文件交给配置的模型'},
+    {id:'roster', method:'ocr', status:'fallback', detail:'provider 不支持原始文件输入'},
+  ]};
+  app.renderDraftPanel();
+  assert.match(els['draft-panel'].innerHTML, /本次使用的来源资料/);
+  assert.match(els['draft-panel'].innerHTML, /报名通知/);
+  assert.match(els['draft-panel'].innerHTML, /6 字/);
+  assert.match(els['draft-panel'].innerHTML, /模型直读原件/);
+  assert.match(els['draft-panel'].innerHTML, /OCR 降级/);
+  assert.doesNotMatch(els['draft-panel'].innerHTML, /报名通知正文/);
+});
+test('uploaded source materials stay addressable and expose a readable status', () => {
+  const {app, els} = setup();
+  app.state.sourceMaterials = [{id:'src_notice', name:'通知.pdf', kind:'notice', size:2048, status:'unread'}];
+  assert.deepEqual(app.sourceMaterialIds(), ['src_notice']);
+  app.renderSourceMaterials();
+  assert.match(els['source-files-notice'].innerHTML, /通知\.pdf/);
+  assert.match(els['source-files-notice'].innerHTML, /等待模型直读/);
+  assert.match(els['source-materials-state'].innerHTML, /服务器已保存 1 份资料/);
+});
 test('submitter credential errors show the server guidance once', async () => {
   const {app, context, els} = setup();
   els['lg-cred'].value = 'expired-token';
@@ -472,6 +525,13 @@ test('demo route explains the full workflow and points to the selected task', ()
   assert.doesNotMatch(html, /class="demo-route-step[^>]*aria-label=/);
   assert.match(styleSource, /\.demo-route-owner\.system/);
   assert.match(styleSource, /\.demo-route-owner\.human/);
+});
+test('demo route prioritizes the cross-material showcase task', () => {
+  const {app} = setup();
+  const legacy = {id: 1, name: '团课报告收集', status: 'collecting'};
+  const crossMaterial = {id: 2, name: '2026 秋季第 1 期报名材料核验（演示）', status: 'draft'};
+  assert.equal(app.demoRouteTask([legacy, crossMaterial]).id, 2);
+  assert.equal(app.demoRouteTask([{...crossMaterial, status: 'archived'}, legacy]).id, 1);
 });
 test('demo route focus turns the evidence entry into a stage-specific action', () => {
   const {app} = setup();
@@ -3580,6 +3640,17 @@ test('review evidence links only known current files and escapes long names and 
   assert.match(html,/target="_blank"/);assert.match(html,/rel="noreferrer"/);
   assert.equal((html.match(/evidence-file-link/g) || []).length, 1);
   assert.match(html,/没有文件元数据/);
+});
+test('review evidence explains region, input method and direct-model verification boundary', () => {
+  const env = setup();
+  assert.equal(env.app.reviewEvidenceMethodLabel('direct_model'), '模型直读原件');
+  assert.equal(env.app.reviewEvidenceBboxLabel([0.1, 0.2, 0.3, 0.08]), '区域 10%, 20% · 30% × 8%');
+  assert.equal(env.app.reviewEvidenceBboxLabel([0.8, 0.2, 0.3, 0.1]), '');
+  const meta = env.app.reviewEvidenceMeta({locator:'p.1', region:'姓名字段', bbox:[0.1,0.2,0.3,0.08], method:'direct_model'});
+  assert.match(meta, /p\.1/);
+  assert.match(meta, /区域：姓名字段/);
+  assert.match(meta, /输入：模型直读原件/);
+  assert.match(meta, /模型定位线索，需打开原件核对/);
 });
 test('long review queues keep all rules addressable and retain the next-pending shortcut', async () => {
   const env=setup(),page=reviewPage(reviewScope('a'));

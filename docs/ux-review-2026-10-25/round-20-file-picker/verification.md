@@ -1,4 +1,7 @@
-# Round 20: Submitter File Picker
+# 验证档案：Submitter File Picker
+
+
+> 这是一份历史验证存档：记录指定版本、数据和环境下的用户可见结果。它不是产品介绍、开发日报或未来承诺。
 
 Date: 2026-10-25
 
@@ -6,7 +9,7 @@ Date: 2026-10-25
 
 The submitter material slot used the browser's default English file input, which looked out of place in the Chinese interface and gave no consistent filename preview.
 
-## Change
+## Results
 
 Both the complete form and step-by-step guide now share a Chinese file picker with a visible selected filename, an accessible name, a live filename announcement, keyboard focus styling, and the existing format filter. The full-form input remains associated with its slot validation message. The file upload API and upload limits are unchanged.
 

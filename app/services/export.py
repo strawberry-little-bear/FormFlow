@@ -250,7 +250,12 @@ def _agent_evidence(db: Session, manifest: dict, snapshot_id: int) -> dict:
                                      for v in coverage.values() if isinstance(v, dict)),
                 "failed_pages": sum(int(v.get("failed", 0) or 0)
                                      for v in coverage.values() if isinstance(v, dict)),
+                "direct_model_files": sum(1 for v in coverage.values()
+                                           if isinstance(v, dict) and (
+                                               v.get("model_direct") is True
+                                               or v.get("method") == "direct_model")),
             }
+            coverage_summary["model_direct"] = coverage_summary["direct_model_files"] > 0
             trace = []
             events = db.scalars(select(AuditEvent).where(
                 AuditEvent.task_id == manifest.get("task_id"),

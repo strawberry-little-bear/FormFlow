@@ -1,10 +1,13 @@
-# 2026-10-25 Round 8 Accessibility Walkthrough
+# 验证档案：Round 8 Accessibility Walkthrough
+
+
+> 这是一份历史验证存档：记录指定版本、数据和环境下的用户可见结果。它不是产品介绍、开发日报或未来承诺。
 
 ## Scope
 
 Read-only browser review of the presentation service at `http://127.0.0.1:8000`, using the existing fictional demo seed and the current local build. Chromium's computed accessibility tree was checked on organizer task, design, roster, workbench, review, and delivery routes, plus the submitter login entry. Review details were expanded before inspecting the run-record filters.
 
-## Findings and Changes
+## Findings and Results
 
 - The earlier scan report that the four run-record filter buttons had no accessible names was a false positive. With the containing disclosure expanded, Chromium reports the visible names `全部`, `程序规则`, `语义审核`, and `需人工`; each also exposes its selected state with `aria-pressed`.
 - The live accessibility tree reports names for all visible actionable controls checked across the routes. Main landmarks were present, and the review route also exposes its named step navigation.

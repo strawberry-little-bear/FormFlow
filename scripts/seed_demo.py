@@ -23,12 +23,17 @@ def main() -> None:
     finally:
         db.close()
     print("=" * 56)
-    print("演示数据已写入（BP-C-001 团课报告，全部虚构）")
+    print("演示数据已写入（BP-C-001 团课报告 + BP-C-002 跨文件报名材料核验，全部虚构）")
     print(f"组织者账号：{summary['account']['username']} / {summary['account']['password']}")
-    print(f"任务 ID：{summary['task_id']}")
-    print("提交者凭证（仅显示这一次）：")
+    print(f"任务 ID（团课报告）：{summary['task_id']}")
+    print(f"任务 ID（跨文件核验）：{summary['cross_task_id']}")
+    print("团课报告提交者凭证（仅显示这一次）：")
     for name, cred in summary["credentials"].items():
         print(f"  {name}: {cred}")
+    print("跨文件核验提交者凭证（姓名/学号 + 材料 A/B）：")
+    for name, cred in summary["cross_credentials"].items():
+        print(f"  {name}: {cred}")
+    print("主展示建议：进入跨文件核验任务，查看张三（满足）、李四（姓名问题）、王五（学号待确认）。")
     print("启动服务：uvicorn app.main:app --reload")
     print("=" * 56)
 

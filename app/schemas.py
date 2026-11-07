@@ -8,8 +8,9 @@ from __future__ import annotations
 from datetime import datetime
 from enum import Enum
 from typing import Optional
+import math
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, PrivateAttr, model_validator
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from .timeutils import as_utc
 
@@ -68,11 +69,22 @@ class SlotDef(BaseModel):
 
 
 class RuleDef(BaseModel):
-    """检查规则：来源、确认状态、执行者、阻塞级别。"""
+    """检查规则：来源、确认状态、执行者、阻塞级别。
+
+    ``source_material_id`` 和 ``source_locator`` 是需求 Agent 的可追溯
+    引用。它们保持可选，以便读取历史草案；新草案一旦引用上传资料，
+    发布校验会要求同时给出来源编号和位置。
+    """
 
     id: str
     statement: str = Field(description="规则表述")
     requirement_source: str = Field(description="原始要求出处（引用原文，不得暗加）")
+    source_material_id: Optional[str] = Field(
+        default=None, description="来源资料稳定 ID；直接来自组织者上传资料时填写"
+    )
+    source_locator: str = Field(
+        default="", description="来源资料中的位置，如 p.2、表格第 3 行或 field:deadline"
+    )
     executor: Executor
     capability: Capability = Capability.SUPPORTED
     severity: str = "blocking"  # blocking / advisory
@@ -125,6 +137,24 @@ class Clarification(BaseModel):
     affects_rule_ids: list[str] = Field(default_factory=list)
 
 
+class SourceMaterialSummary(BaseModel):
+    """脱敏的来源资料摘要；完整正文只保留在草案来源文本中。"""
+
+    id: str
+    name: str
+    kind: str
+    chars: int = 0
+
+
+class SourceMaterialProvenance(BaseModel):
+    """本次草案实际使用的资料输入路径；不包含正文、请求或密钥。"""
+
+    id: str
+    method: str = "none"  # direct_model / text / ocr / mixed / unread / none
+    status: str = "not_sent"  # used / fallback / not_configured / failed / not_sent
+    detail: str = ""
+
+
 class DraftResult(BaseModel):
     """需求 Agent 输出：结构化草案 + 待澄清 + 发布摘要。"""
 
@@ -132,14 +162,50 @@ class DraftResult(BaseModel):
     clarifications: list[Clarification] = Field(default_factory=list)
     publish_summary: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    source_materials: list[SourceMaterialSummary] = Field(default_factory=list)
+    input_provenance: list[SourceMaterialProvenance] = Field(default_factory=list)
+    # The effective source text may include parser/OCR fallback content. Keep it
+    # internal so API responses expose metadata only while the task service can
+    # persist the exact text that was used to validate the draft.
+    _effective_source_text: str = PrivateAttr(default="")
 
 
 # ---------------------------------------------------------------- 审核结果
 class EvidenceOut(BaseModel):
+    """可回链到原件的证据。
+
+    ``locator`` 是页码或结构化字段路径；``region`` 用来补充页面中的
+    人类可读区域名称；``bbox`` 采用 0..1 的归一化坐标，顺序为
+    ``x, y, width, height``。区域定位只能帮助人工打开原件核对，不能
+    把模型给出的坐标升级成程序已经验证过的原文。
+    """
+
     file_id: Optional[str] = None
     locator: str = ""
     quote: str = ""
     method: str = ""
+    region: str = ""
+    bbox: Optional[list[float]] = None
+
+    @model_validator(mode="after")
+    def validate_location(self):
+        self.locator = self.locator.strip()
+        self.quote = self.quote.strip()
+        self.method = self.method.strip()
+        self.region = self.region.strip()
+        if len(self.locator) > 255:
+            raise ValueError("证据定位不能超过 255 个字符")
+        if len(self.region) > 160:
+            raise ValueError("证据区域不能超过 160 个字符")
+        if self.bbox is not None:
+            if len(self.bbox) != 4 or any(
+                not math.isfinite(value) for value in self.bbox
+            ):
+                raise ValueError("bbox 必须是四个有限数字")
+            x, y, width, height = self.bbox
+            if width <= 0 or height <= 0 or x < 0 or y < 0 or x + width > 1 or y + height > 1:
+                raise ValueError("bbox 必须是 0..1 范围内的有效区域")
+        return self
 
 
 class RuleResultOut(BaseModel):
@@ -147,4 +213,23 @@ class RuleResultOut(BaseModel):
     result: str  # satisfied/issue/unknown/not_applicable/failed
     explanation: str = ""
     next_step: str = ""
+    organizer_next_step: str = ""
     evidence: list[EvidenceOut] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def fill_organizer_next_step(self):
+        """Keep organizer handling explicit even for older tools/providers."""
+        if self.organizer_next_step.strip():
+            return self
+        defaults = {
+            "satisfied": "组织者核对证据后，可将本条纳入当前版本验收。",
+            "issue": "组织者核对证据并决定：确认问题后要求补正，或记录有范围的人工例外。",
+            "unknown": "组织者核对原件或补充证据；在确认前不要按缺失或不满足处理。",
+            "failed": "组织者查看检查失败原因，重试检查或转人工核对。",
+            "manual_pending": "组织者按要求人工核对，并记录决定与理由。",
+            "not_applicable": "组织者确认适用条件不成立，并保留本条不适用的依据。",
+        }
+        self.organizer_next_step = defaults.get(
+            self.result, "组织者核对本条结果后决定下一步。"
+        )
+        return self

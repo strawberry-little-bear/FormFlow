@@ -1,4 +1,7 @@
-# Round 21: Reminder Deadline Clarity
+# 验证档案：Reminder Deadline Clarity
+
+
+> 这是一份历史验证存档：记录指定版本、数据和环境下的用户可见结果。它不是产品介绍、开发日报或未来承诺。
 
 Date: 2026-10-25
 
@@ -6,7 +9,7 @@ Date: 2026-10-25
 
 The organizer's default reminder said to pay attention to the deadline but did not include the task's actual first-submission deadline. This left a common copy-and-send workflow vulnerable to date confusion.
 
-## Change
+## Results
 
 The generated reminder draft now includes the first deadline formatted in the task timezone. If the task has no first deadline, the draft uses a generic instruction without inventing a date. Organizers can edit the text before generating a notification intent; the application still does not send notifications.
 

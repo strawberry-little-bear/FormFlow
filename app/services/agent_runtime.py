@@ -12,6 +12,7 @@ from ..config import settings
 from ..models import BlueprintVersion, Task
 from ..schemas import Blueprint
 from ..agents.tooling import RULE_REVIEW_SKILL, review_harness_budget, review_tool_manifest
+from ..agents.requirements_agent import requirements_skill_manifest, requirements_skill_self_test
 
 AGENT_RUNTIME_CONTRACT_VERSION = 1
 MCP_READONLY_TOOLS = (
@@ -87,6 +88,12 @@ def _contract_self_test(
             "passed": tuple(mcp_tools) == MCP_READONLY_TOOLS and len(set(mcp_tools)) == len(mcp_tools),
             "detail": "sidecar 仅提供 4 项组织者只读读取工具",
         },
+        {
+            "id": "requirements_skill_contract",
+            "label": "需求 Skill 合同可执行",
+            "passed": requirements_skill_self_test().get("status") == "passed",
+            "detail": "需求资料分类、来源约束、澄清上限和人工发布门槛已声明",
+        },
     ]
     passed = sum(1 for check in checks if check["passed"])
     return {
@@ -106,6 +113,8 @@ def agent_runtime_manifest(db: Session, task: Task) -> dict:
     tools = review_tool_manifest()
     mcp_tools = list(MCP_READONLY_TOOLS)
     contract_self_test = _contract_self_test(tools, budget, mcp_tools)
+    requirements = requirements_skill_manifest()
+    requirements["self_test"] = requirements_skill_self_test()
     return {
         "contract_version": AGENT_RUNTIME_CONTRACT_VERSION,
         "task_id": task.id,
@@ -113,6 +122,11 @@ def agent_runtime_manifest(db: Session, task: Task) -> dict:
             "configured": settings.llm_configured,
             "mode": "online" if settings.llm_configured else "offline",
             "label": "模型已接入" if settings.llm_configured else "离线可演示",
+            "provider": settings.llm_base_url,
+            "model_name": settings.llm_model,
+            "input_mode": settings.llm_input_mode,
+            "direct_documents": settings.llm_input_mode in {"auto", "direct"},
+            "api_key_exposed": False,
         },
         "scope": {
             "published_blueprint": task.current_blueprint_id is not None,
@@ -127,15 +141,7 @@ def agent_runtime_manifest(db: Session, task: Task) -> dict:
             "max_steps": RULE_REVIEW_SKILL.max_steps,
             "stop_on_failure": RULE_REVIEW_SKILL.stop_on_failure,
             "human_on_unknown": RULE_REVIEW_SKILL.human_on_unknown,
-        }, {
-            "name": "requirements_draft",
-            "description": "把组织者原始要求整理成待确认蓝图草案；不自行发布。",
-            "allowed_tools": [],
-            "execution": "application_service",
-            "request_idempotency": "task_account_request_id",
-            "version_conflict": "fail_closed",
-            "human_gate": "发布前必须由组织者确认",
-        }],
+        }, requirements],
         "tools": tools,
         "harness": {
             "max_steps": RULE_REVIEW_SKILL.max_steps,

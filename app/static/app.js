@@ -1,7 +1,7 @@
 "use strict";
 /* 收齐啦 FormFlow 前端（P01–P05）。纯静态 SPA，直接调用 /api。 */
 const ORG_KEY = "ff_org_token", SUB_KEY = "ff_sub_token", PRESENTATION_KEY = "ff_tasks_presentation";
-const state = { taskId: null, chat: [], bpId: null, draft: null, requirement: "", answeredDone: false, files: {}, filesMeta: {}, draftVersion: null, me: null, lastJob: null, roster: {}, rosterEntries: [], rosterFilter: "all", rosterGrantBusy: false, designEpoch: 0, agentBusy: false, agentRequest: null, agentRequestPollTimer: 0, agentResumeStarted: false, agentRequestDisplayedId: null, draftStatus: "draft", draftVersionId: null, designTab: "preview", tasks: [], llmConfigured: null, agentRuntime: null, mcpSnapshot: null, mcpSnapshotLoading: false, mcpSnapshotRunning: false, mcpReplayIndex: null, mcpReplayTimer: 0, demoTaskId: null, designBlocking: [], designAdvisories: [], designVersions: [], designHistory: [], viewingVersion: null, viewingPublished: null, viewingImpact: null, wbRows: [], wbFilter: "all", reviewRule: null, reviewFilter: "all", reviewTraceFilter: "all", presentationMode: false, presentationStartAligned: false, timePolicySaving: false, submissionValidationAttempted: false };
+const state = { taskId: null, chat: [], bpId: null, draft: null, requirement: "", answeredDone: false, files: {}, filesMeta: {}, draftVersion: null, me: null, lastJob: null, roster: {}, rosterEntries: [], rosterFilter: "all", rosterGrantBusy: false, designEpoch: 0, agentBusy: false, agentRequest: null, agentRequestPollTimer: 0, agentResumeStarted: false, agentRequestDisplayedId: null, draftStatus: "draft", draftVersionId: null, designTab: "preview", tasks: [], llmConfigured: null, agentRuntime: null, mcpSnapshot: null, mcpSnapshotLoading: false, mcpSnapshotRunning: false, mcpReplayIndex: null, mcpReplayTimer: 0, demoTaskId: null, designBlocking: [], designAdvisories: [], designVersions: [], designHistory: [], viewingVersion: null, viewingPublished: null, viewingImpact: null, wbRows: [], wbFilter: "all", reviewRule: null, reviewFilter: "all", reviewTraceFilter: "all", presentationMode: false, presentationStartAligned: false, timePolicySaving: false, submissionValidationAttempted: false, sourceMaterials: [], sourceMaterialsLoading: false, sourceMaterialsBusy: false, sourceMaterialsError: "" };
 
 const orgToken = () => localStorage.getItem(ORG_KEY) || "";
 const subToken = () => localStorage.getItem(SUB_KEY) || "";
@@ -293,6 +293,8 @@ async function api(path, opts = {}) {
   } else if (opts.form !== undefined) {
     body = new URLSearchParams(opts.form);
     headers["Content-Type"] = "application/x-www-form-urlencoded";
+  } else if (opts.formData !== undefined) {
+    body = opts.formData;
   }
   const tok = opts.token !== undefined ? opts.token : (opts.sub ? subToken() : orgToken());
   if (tok) headers["Authorization"] = "Bearer " + tok;
@@ -441,21 +443,27 @@ const RESULT_BADGE = {
 const resultBadge = (r) => RESULT_BADGE[r] || esc(r);
 const METHOD_LABEL = {
   text: "文字层提取", ocr: "OCR 识别", mixed: "文字层+OCR",
-  visual: "无可提取文字（图像）", none: "未提取到文字",
+  direct_model: "模型直读原件", visual: "无可提取文字（图像）", none: "未提取到文字",
 };
 const coverageCard = (run) => {
   if (!run || !run.coverage) return "";
   const cov = run.coverage;
   const gap = (cov.unread_pages || 0) + (cov.failed_pages || 0);
+  const direct = !!cov.model_direct || (cov.files || []).some(f => f.model_direct || f.method === "direct_model");
+  const provenance = direct
+    ? `<p class="kv" style="margin-top:8px">原始文件已交给模型直读；文件和页码是模型提供的定位线索，仍需组织者核对。</p>`
+    : gap
+      ? `<p class="kv" style="margin-top:8px">未读页不等于材料缺失；相关结论会停在待确认，补充清晰材料或转人工核对即可。</p>`
+      : "";
   return `<div class="card"><h3>材料读取明细</h3>
     <p class="kv">已读 ${run.pages_read ?? 0} 页${gap ? ` · ${gap} 页未能读取` : " · 页面覆盖完整"}
       ｜ <span class="badge${gap ? " warn" : " ok"}">${cov.complete === false ? "覆盖不完整" : "覆盖完整"}</span></p>
     <table><tr><th>文件</th><th>读取方式</th><th>总页</th><th>已读</th><th>未读</th><th>失败</th></tr>
     ${(cov.files || []).map(f => `<tr><td>${esc(f.name || f.file_id)}</td>
       <td>${esc(METHOD_LABEL[f.method] || f.method || "-")}</td>
-      <td>${f.total ?? 0}</td><td>${f.text ?? 0}</td><td>${f.unread ?? 0}</td><td>${f.failed ?? 0}</td></tr>`).join("")}
+      <td>${f.total ?? 0}</td><td>${f.read ?? f.text ?? 0}</td><td>${f.unread ?? 0}</td><td>${f.failed ?? 0}</td></tr>`).join("")}
     </table>
-    ${gap ? `<p class="kv" style="margin-top:8px">未读页不等于材料缺失；相关结论会停在待确认，补充清晰材料或转人工核对即可。</p>` : ""}
+    ${provenance}
   </div>`;
 };
 const agentRunCard = (run, rules, toolTrace = [], taskId = null, subjectId = null) => {
@@ -527,17 +535,19 @@ const agentRunCard = (run, rules, toolTrace = [], taskId = null, subjectId = nul
   const ruleById = new Map((rules || []).map(r => [r.rule_id, r]));
   const traceStatus = {satisfied: "找到符合依据", issue: "发现需处理", unknown: "待人工确认", failed: "本次检查未完成", not_applicable: "当前不适用"};
   const traceItems = (toolTrace || []).slice(-64);
-  const traceFilter = ["all", "deterministic", "semantic", "human"].includes(state.reviewTraceFilter)
+  const traceFilter = ["all", "deterministic", "semantic", "cross_material", "human"].includes(state.reviewTraceFilter)
     ? state.reviewTraceFilter : "all";
   const traceMatches = item => traceFilter === "all"
     || traceFilter === "deterministic" && item.tool === "review.deterministic_rule"
     || traceFilter === "semantic" && item.tool === "review.semantic_rule"
+    || traceFilter === "cross_material" && item.tool === "review.cross_material_rule"
     || traceFilter === "human" && ["unknown", "failed"].includes(item.status);
   const visibleTrace = traceItems.filter(traceMatches);
   const traceFilters = [
     ["all", "全部", traceItems.length],
     ["deterministic", "程序规则", traceItems.filter(item => item.tool === "review.deterministic_rule").length],
     ["semantic", "语义审核", traceItems.filter(item => item.tool === "review.semantic_rule").length],
+    ["cross_material", "跨材料", traceItems.filter(item => item.tool === "review.cross_material_rule").length],
     ["human", "需人工", traceItems.filter(item => ["unknown", "failed"].includes(item.status)).length],
   ];
   const traceAction = Number.isFinite(taskId) && Number.isFinite(subjectId)
@@ -548,6 +558,9 @@ const agentRunCard = (run, rules, toolTrace = [], taskId = null, subjectId = nul
     const rule = ruleById.get(item.rule_id);
     const title = rule?.requirement?.statement || item.rule_id || "核对步骤";
     const toolLabel = item.tool === "review.deterministic_rule" ? "程序规则"
+      : item.tool === "review.cross_material_rule" && item.simulation === true ? "离线跨材料结果"
+      : item.tool === "review.cross_material_rule" && item.simulation === false ? "跨材料模型"
+      : item.tool === "review.cross_material_rule" ? "跨材料模式未记录"
       : item.tool === "review.semantic_rule" && item.simulation === true ? "离线演示结果"
       : item.tool === "review.semantic_rule" && item.simulation === false ? "材料理解"
       : item.tool === "review.semantic_rule" ? "模式未记录" : "核对工具";
@@ -555,7 +568,7 @@ const agentRunCard = (run, rules, toolTrace = [], taskId = null, subjectId = nul
       : item.duration_ms < 1000 ? `${item.duration_ms} 毫秒` : `${(item.duration_ms / 1000).toFixed(1)} 秒`;
     const label = traceStatus[item.status] || "已记录";
     const tone = ["issue", "failed"].includes(item.status) ? "warn" : item.status === "unknown" ? "info" : "ok";
-    const toolIcon = item.tool === "review.deterministic_rule" ? "check" : item.tool === "review.semantic_rule" ? "design" : "review";
+    const toolIcon = item.tool === "review.deterministic_rule" ? "check" : item.tool === "review.semantic_rule" || item.tool === "review.cross_material_rule" ? "design" : "review";
     const sequence = Number(item.sequence) > 0 ? `第 ${item.sequence} 步` : "运行步骤";
     const version = item.tool_version ? ` · ${item.tool_version}` : "";
     const correlation = item.correlation_id ? ` · ${item.correlation_id}` : "";
@@ -563,10 +576,11 @@ const agentRunCard = (run, rules, toolTrace = [], taskId = null, subjectId = nul
   }).join("");
   const traceSimulation = (toolTrace || []).some(item => item.simulation === true);
   const traceModeUnknown = (toolTrace || []).some(item =>
-    item.tool === "review.semantic_rule" && item.simulation !== true && item.simulation !== false);
+    (item.tool === "review.semantic_rule" || item.tool === "review.cross_material_rule") && item.simulation !== true && item.simulation !== false);
   const runtimeTools = [
     {name: "review.deterministic_rule", scope: "review:deterministic", desc: "程序规则核验"},
     {name: "review.semantic_rule", scope: "review:semantic", desc: "语义证据核验"},
+    {name: "review.cross_material_rule", scope: "review:cross_material", desc: "跨材料一致性核验"},
   ];
   const runtimeHtml = `<details class="agent-runtime-info">
     <summary><span class="eyebrow">Agent 运行时</span><small>skill · harness · 审计边界</small></summary>
@@ -607,7 +621,9 @@ function submitterGuidance(r) {
       ? "系统当时还不能确认这一项，组织者已经人工核对过了，原始意见和后续处理分开展示。"
       : "组织者已记录处理结果，原始检查意见和人工决定会分开展示。"
     : "组织者确认这项还需要处理，可以按下方建议补充或核对。";
-  if (r.result === "issue") return "这项材料还需要核对；只针对这条收集要求，不是在评价你本人。";
+  if (r.result === "issue") return r.decision
+    ? "组织者已确认这项需要处理；请按下方补正建议修改后重新正式提交。"
+    : "这项材料还需要核对；只针对这条收集要求，不是在评价你本人。";
   if (r.result === "unknown") return "目前还没能从材料中找到足够清楚、可核对的依据；这不代表缺失，组织者可以帮你确认。";
   if (r.result === "failed") return "这次检查没能完成，材料已经收到；这不代表不合格。你可以稍后再看，组织者也可以重试或人工核对。";
   if (r.result === "manual_pending") return "这一项由组织者来确认，你暂时不用修改材料。";
@@ -625,6 +641,8 @@ function submitterNextStep(r) {
   if (r.result === "satisfied") return "";
   if (r.decision?.resolves) return "组织者已处理这一项，无需重复提交。";
   const raw = String(r.next_step || "").trim();
+  if (r.result === "issue" && !r.decision)
+    return raw || "先等待组织者核对；如果组织者确认需要补正，页面会显示具体修改动作。";
   if (r.result === "unknown" && (!raw || /转人工|人工复核|模型结论|无法判断/.test(raw)))
     return "请联系组织者帮你确认；如果方便，也可以补一份更清晰的材料。";
   if (r.result === "failed") return "稍后刷新查看；如果赶截止时间，请联系组织者协助核对。";
@@ -717,8 +735,11 @@ function jumpToSubmitResults() {
   target.scrollIntoView?.({behavior: reduceMotion ? "auto" : "smooth", block: "start"});
   target.focus?.({preventScroll: true});
 }
-const ruleCard = (r) => {
-  const explanation = submitterExplanation(r), nextStep = submitterNextStep(r);
+const ruleCard = (r, audience = "submitter") => {
+  const explanation = submitterExplanation(r);
+  const nextStep = audience === "organizer"
+    ? String(r.organizer_next_step || r.next_step || "组织者核对本条结果后决定下一步。")
+    : submitterNextStep(r);
   const evidence = (r.evidence || []).map(e =>
     `<div class="evidence">[${esc(e.locator || "未标位置")} · ${esc(submitterEvidenceMethod(e.method))}] ${esc(e.quote || "")}</div>`).join("");
   const noEvidence = ["manual_pending", "failed"].includes(r.result) ? ""
@@ -729,14 +750,31 @@ const ruleCard = (r) => {
     <p class="result-human-note">${esc(submitterGuidance(r))}</p>
     ${r.decision ? `<div class="notice-warn"><b>${esc(DECISION_LABEL[r.decision.decision] || r.decision.decision)}</b><p>${esc(r.decision.reason)}</p><span>人工决定与原始检查结论分开保留。</span></div>` : ""}
     ${explanation ? `<p>${esc(explanation)}</p>` : ""}
-    ${nextStep ? `<div class="result-next-step"><b>${r.decision ? "组织者记录的后续建议" : "可以这样处理"}</b><p>${esc(nextStep)}</p></div>` : ""}
+    ${nextStep ? `<div class="result-next-step"><b>${audience === "organizer" ? "组织者处理建议" : r.decision ? "组织者记录的后续建议" : "可以这样处理"}</b><p>${esc(nextStep)}</p></div>` : ""}
     ${r.requirement && r.requirement.statement ?
-      `<p class="kv">对应要求：${esc(submitterRequirementSource(r.requirement.requirement_source))}</p>` : ""}
+      `<p class="kv">对应要求：${esc(submitterRequirementSource(r.requirement.requirement_source))}</p>${r.requirement.source_material_id ? `<p class="field-help source-citation">依据资料：${esc(r.requirement.source_material_id)}${r.requirement.source_locator ? ` · ${esc(r.requirement.source_locator)}` : " · 未标位置"}</p>` : ""}` : ""}
     ${evidence || noEvidence}
   </div>`;
 };
 
 /* ---------------------------------------------------------------- 路由 */
+function pageTitleForRoute(parts = [], query = new URLSearchParams()) {
+  const route = parts[0] || "login";
+  if (route === "login") return query.get("role") === "sub" ? "提交者登录 · 收齐啦" : "登录 · 收齐啦";
+  if (route === "submit") return "我的提交 · 收齐啦";
+  const labels = {
+    tasks: "我的任务",
+    design: "需求设计",
+    roster: "名单与凭证",
+    workbench: "收集工作台",
+    review: "证据复核",
+    delivery: "交付与归档",
+  };
+  const label = labels[route];
+  if (!label) return "登录 · 收齐啦";
+  const taskId = /^\d+$/.test(parts[1] || "") ? ` · 任务 #${parts[1]}` : "";
+  return `${label}${taskId} · 收齐啦`;
+}
 function route() {
   window.scrollTo?.({top: 0, left: 0, behavior: "instant"});
   cacheSubmissionDraft();
@@ -760,6 +798,7 @@ function route() {
   const [path, queryString = ""] = h.split("?");
   const parts = path.split("/").filter(Boolean);
   const query = new URLSearchParams(queryString);
+  document.title = pageTitleForRoute(parts, query);
   document.body.classList.toggle("auth-page", parts[0] === "login");
   document.body.dataset.page = parts[0] || "login";
   state.presentationMode = parts[0] === "tasks" && readPresentationMode();
@@ -806,7 +845,8 @@ const ICONS = {
   sparkle: '<path d="m12 3 1.7 5.3L19 10l-5.3 1.7L12 17l-1.7-5.3L5 10l5.3-1.7Z"/><path d="m19 16 .7 2.3L22 19l-2.3.7L19 22l-.7-2.3L16 19l2.3-.7Z"/>',
   close: '<path d="m6 6 12 12M18 6 6 18"/>',
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5m0-8h.01"/>',
-  warning: '<circle cx="12" cy="12" r="9"/><path d="M12 7v6m0 4h.01"/>'
+  warning: '<circle cx="12" cy="12" r="9"/><path d="M12 7v6m0 4h.01"/>',
+  trash: '<path d="M4 7h16M10 11v6m4-6v6M9 7V4h6v3m-9 0 1 14h10l1-14"/>'
 };
 function icon(name) { return `<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] || ICONS.tasks}</svg>`; }
 function renderNav() {
@@ -1339,7 +1379,12 @@ function setEmptyTaskHome(isEmpty) {
   document.getElementById("app")?.classList.toggle("task-home-empty", isEmpty);
 }
 function demoRouteTask(tasks = []) {
-  return tasks.find(t => t.status === "collecting")
+  const crossMaterial = tasks.find(t =>
+    /跨文件|报名材料核验/.test(String(t.name || ""))
+    && !["archived", "cancelled", "closed"].includes(t.status)
+  );
+  return crossMaterial
+    || tasks.find(t => t.status === "collecting")
     || tasks.find(t => t.status === "draft")
     || tasks.find(t => !["archived", "cancelled", "closed"].includes(t.status))
     || tasks[0]
@@ -1896,13 +1941,171 @@ function writeDesignInputs(value) {
   try { sessionStorage.setItem(key, JSON.stringify(value)); state.designCacheFailed = false; }
   catch (e) { state.designCacheFailed = true; }
 }
+const SOURCE_MATERIAL_FIELDS = [
+  {id:'source-notice', key:'notice', kind:'notice', name:'报名通知'},
+  {id:'source-roster', key:'roster', kind:'roster', name:'适用名单'},
+  {id:'source-template', key:'template', kind:'template', name:'报名模板'},
+  {id:'source-extra', key:'attachment', kind:'attachment', name:'附件说明 / 其他资料'},
+];
+const SOURCE_STATUS_LABEL = {
+  processing: '正在准备',
+  ready: '可作为资料',
+  unread: '等待模型直读',
+  failed: '解析失败，可重试',
+};
+const SOURCE_KIND_LABEL = {notice:'通知', roster:'名单', template:'模板', attachment:'附件', other:'其他'};
+function sourceInputProvenanceLabel(provenance) {
+  const method = provenance?.method || 'none';
+  const status = provenance?.status || 'not_sent';
+  if (status === 'not_configured') return '尚未发送：未配置模型';
+  if (status === 'failed') return '输入失败：等待人工处理';
+  if (status === 'not_sent') return '尚未发送';
+  if (status === 'fallback') {
+    if (method === 'ocr') return 'OCR 降级';
+    if (method === 'mixed') return '文字 + OCR 降级';
+    if (method === 'unread') return '降级后仍有未读页';
+    return '文字解析降级';
+  }
+  if (method === 'direct_model') return '模型直读原件';
+  if (method === 'ocr') return '本机 OCR';
+  if (method === 'mixed') return '文字 + OCR';
+  if (method === 'unread') return '未形成完整文字输入';
+  if (method === 'text') return '文字解析';
+  return '输入路径未记录';
+}
+function collectSourceMaterials() {
+  return SOURCE_MATERIAL_FIELDS.map(f => ({...f, content:document.getElementById(f.id)?.value || ''}))
+    .filter(f => String(f.content || '').trim())
+    .map(({id, key, ...f}) => ({...f, id:key, content:String(f.content).trim()}));
+}
+function restoreSourceMaterials(materials = []) {
+  const byId = Object.fromEntries((Array.isArray(materials) ? materials : []).map(m => [m.id, m.content || '']));
+  SOURCE_MATERIAL_FIELDS.forEach(f => { const el=document.getElementById(f.id); if(el) el.value=byId[f.key] || ''; });
+}
+function sourceMaterialsSummaryHtml(draft = state.draft) {
+  const materials = Array.isArray(draft?.source_materials) ? draft.source_materials : [];
+  if (!materials.length) return '';
+  const provenance = Object.fromEntries((Array.isArray(draft?.input_provenance) ? draft.input_provenance : [])
+    .map(item => [item.id, item]));
+  const rows = materials.map(material => {
+    const kind = {notice:'通知', roster:'名单', template:'模板', attachment:'附件', other:'其他'}[material.kind] || material.kind || '资料';
+    const path = provenance[material.id];
+    const pathLabel = sourceInputProvenanceLabel(path);
+    const detail = path?.detail ? ` · ${esc(path.detail)}` : '';
+    return `<li><span class="source-pack-badge">${esc(kind)}</span><span><b>${esc(material.name || material.id || '来源资料')}</b><small>${Number(material.chars || 0).toLocaleString('zh-CN')} 字 · ${esc(pathLabel)}</small>${detail ? `<small class="source-input-detail">${detail}</small>` : ''}</span></li>`;
+  }).join('');
+  return `<details class="source-summary"><summary>本次使用的来源资料 <span>${materials.length} 份</span></summary><ul>${rows}</ul><p class="field-help">路径只记录本次输入方式，不保存文件正文、请求内容或 API Key；原始文件和页码仍是人工核对依据。</p></details>`;
+}
+function sourceMaterialStatusText(material) {
+  const status = material?.status || 'processing';
+  if (status === 'unread') return '没有文字缓存；发送给模型时会优先尝试原始文件直读。';
+  if (status === 'failed') return material.parse_error || '服务器解析失败；发送给模型时仍会尝试原始文件。';
+  if (status === 'ready') return material.parse_method ? `已建立${material.parse_method === 'text' ? '文字' : material.parse_method}摘要；原始文件仍保留。` : '原始文件已保存。';
+  return '文件已收到，正在建立可用状态。';
+}
+function sourceMaterialsForKind(kind) {
+  return (state.sourceMaterials || []).filter(item => item.kind === kind);
+}
+function sourceMaterialsListHtml(kind) {
+  const items = sourceMaterialsForKind(kind);
+  if (!items.length) return '<p class="source-material-empty">还没有上传文件；也可以直接粘贴文字。</p>';
+  return `<ul class="source-material-list">${items.map(item => {
+    const status = item.status || 'processing';
+    return `<li class="source-material-row"><div class="source-material-main"><b title="${esc(item.name || item.id)}">${esc(item.name || item.id || '未命名资料')}</b><span>${Number(item.size || 0).toLocaleString('zh-CN')} bytes · ${esc(SOURCE_STATUS_LABEL[status] || status)}</span><small>${esc(sourceMaterialStatusText(item))}</small></div><button class="icon-btn source-material-delete" type="button" data-source-delete="${esc(item.id)}" onclick="deleteSourceMaterial('${esc(item.id)}')" aria-label="删除 ${esc(item.name || '来源资料')}" title="删除来源资料">${icon('trash')}</button></li>`;
+  }).join('')}</ul>`;
+}
+function renderSourceMaterials() {
+  SOURCE_MATERIAL_FIELDS.forEach(field => {
+    const box = document.getElementById(`source-files-${field.kind}`);
+    if (box) box.innerHTML = sourceMaterialsListHtml(field.kind);
+  });
+  const stateBox = document.getElementById('source-materials-state');
+  if (stateBox) {
+    const count = (state.sourceMaterials || []).length;
+    stateBox.innerHTML = state.sourceMaterialsError
+      ? `<span class="source-material-error" role="alert">${esc(state.sourceMaterialsError)} <button class="link-button" type="button" onclick="loadSourceMaterials()">重试</button></span>`
+      : `<span>${count ? `服务器已保存 ${count} 份资料` : '服务器资料尚未上传'}</span><span>上传后会保留原文件，需求 Agent 请求会带上资料编号。</span>`;
+  }
+  document.querySelectorAll('#source-pack input[type="file"]').forEach(input => { input.disabled = !!(state.agentBusy || state.sourceMaterialsBusy || state.designLoadFailed); });
+  document.querySelectorAll('[data-source-delete]').forEach(button => { button.disabled = !!(state.agentBusy || state.sourceMaterialsBusy || state.designLoadFailed); });
+}
+async function loadSourceMaterials(taskId = state.taskId, epoch = state.designEpoch, token = orgToken()) {
+  if (!taskId) return;
+  state.sourceMaterialsLoading = true;
+  state.sourceMaterialsError = '';
+  renderSourceMaterials();
+  try {
+    const result = await api(`/api/tasks/${taskId}/source-materials`);
+    if (epoch !== state.designEpoch || token !== orgToken()) return;
+    state.sourceMaterials = Array.isArray(result.items) ? result.items : [];
+  } catch (error) {
+    if (epoch !== state.designEpoch || token !== orgToken()) return;
+    state.sourceMaterialsError = error.message || '来源资料暂时无法读取';
+  } finally {
+    if (epoch === state.designEpoch && token === orgToken()) {
+      state.sourceMaterialsLoading = false;
+      renderSourceMaterials();
+    }
+  }
+}
+async function uploadSourceFiles(kind, input) {
+  if (state.agentBusy || state.sourceMaterialsBusy || !input?.files?.length) return;
+  const files = Array.from(input.files);
+  state.sourceMaterialsBusy = true;
+  state.sourceMaterialsError = '';
+  renderSourceMaterials();
+  let uploaded = 0;
+  let failure = '';
+  try {
+    for (const file of files) {
+      const formData = new FormData();
+      formData.append('kind', kind);
+      formData.append('file', file);
+      try {
+        await api(`/api/tasks/${state.taskId}/source-materials`, {method:'POST', formData});
+        uploaded += 1;
+      } catch (error) {
+        failure = failure || `${file.name}：${error.message || '上传失败'}`;
+      }
+    }
+    input.value = '';
+    await loadSourceMaterials();
+    if (failure) setFlash(uploaded ? `已上传 ${uploaded} 份；${failure}` : failure);
+    else if (uploaded) setFlash(`已保存 ${uploaded} 份来源资料`, 'ok');
+  } finally {
+    state.sourceMaterialsBusy = false;
+    renderSourceMaterials();
+  }
+}
+async function deleteSourceMaterial(sourceId) {
+  const material = (state.sourceMaterials || []).find(item => item.id === sourceId);
+  if (!material || state.agentBusy || state.sourceMaterialsBusy) return;
+  if (typeof confirm === 'function' && !confirm(`删除「${material.name || '这份来源资料'}」？`)) return;
+  state.sourceMaterialsBusy = true;
+  renderSourceMaterials();
+  try {
+    await api(`/api/tasks/${state.taskId}/source-materials/${encodeURIComponent(sourceId)}`, {method:'DELETE'});
+    await loadSourceMaterials();
+    setFlash(`已删除「${material.name || '来源资料'}」`, 'ok');
+  } catch (error) {
+    setFlash(error.message || '来源资料暂时无法删除');
+  } finally {
+    state.sourceMaterialsBusy = false;
+    renderSourceMaterials();
+  }
+}
 function hasDesignInput(value) {
-  return !!value && [value.composer, value.extra, ...Object.values(value.answers || {})].some(x => String(x || '').trim());
+  return !!value && [value.composer, value.extra, ...Object.values(value.answers || {}),
+    ...(value.source_materials || []).map(m => m.content)].some(x => String(x || '').trim());
 }
 function collectDesignInputs() {
   return {composer:document.getElementById('chat-in')?.value || '',
     answers:Object.fromEntries((state.designQuestions || []).map((q,i) => [q.question,document.getElementById(`clar-${i}`)?.value || ''])),
-    extra:document.getElementById('clar-extra')?.value || ''};
+    extra:document.getElementById('clar-extra')?.value || '',
+    source_materials:collectSourceMaterials(), source_material_ids:sourceMaterialIds()};
+}
+function sourceMaterialIds() {
+  return (state.sourceMaterials || []).map(item => String(item.id || '').trim()).filter(Boolean);
 }
 function canPublishDesign() {
   const bp=state.draft?.blueprint;
@@ -1929,12 +2132,15 @@ function cacheDesignInputs() {
   writeDesignInputs(saved); state.designDirty=hasDesignInput(value); paintDesignInputState();
 }
 function designInputText(value) {
-  return [value.composer,...Object.entries(value.answers || {}).filter(([,v])=>String(v).trim()).map(([q,v])=>`${q}：${v}`),value.extra].filter(Boolean).join('\n');
+  const materials=(value.source_materials || []).filter(m=>String(m.content || '').trim())
+    .map(m=>`【${m.name || m.id}】\n${m.content}`).join('\n\n');
+  return [materials,value.composer,...Object.entries(value.answers || {}).filter(([,v])=>String(v).trim()).map(([q,v])=>`${q}：${v}`),value.extra].filter(Boolean).join('\n\n');
 }
 function restoreDesignInputs() {
   if (!designInputKey() || state.designToken !== orgToken()) return;
   const saved=readDesignInputs(), base=String(state.designBaseId || 0), value=saved.versions[base] || {};
   const input=document.getElementById('chat-in'); if (input) input.value=value.composer || '';
+  restoreSourceMaterials(value.source_materials || []);
   (state.designQuestions || []).forEach((q,i)=>{const el=document.getElementById(`clar-${i}`);if(el) el.value=value.answers?.[q.question] || '';});
   const extra=document.getElementById('clar-extra');if(extra)extra.value=value.extra || '';
   state.designDirty=hasDesignInput(value);paintDesignInputState();
@@ -1946,21 +2152,27 @@ function recoverDesignInput(base) {
   if(state.agentBusy || state.viewingVersion) return;
   const saved=readDesignInputs(), value=saved.versions[base];if(!value)return;
   const input=document.getElementById('chat-in');
-  input.value=[input.value,designInputText(value)].filter(Boolean).join('\n\n');
+  const recoveredAnswers=Object.entries(value.answers || {})
+    .filter(([,answer])=>String(answer || '').trim())
+    .map(([question,answer])=>`${question}：${answer}`);
+  input.value=[input.value,value.composer,...recoveredAnswers,value.extra].filter(Boolean).join('\n\n');
+  const current=collectSourceMaterials();
+  if(!current.length) restoreSourceMaterials(value.source_materials || []);
   delete saved.versions[base];writeDesignInputs(saved);cacheDesignInputs();restoreDesignInputs();input.focus();
 }
 function consumeDesignInput(base, sent, source) {
   const saved=readDesignInputs();
   if(JSON.stringify(saved.versions[String(base || 0)])===JSON.stringify(sent)) {
     saved.versions[String(base || 0)]=source==='clarifications'
-      ? {...sent,answers:{},extra:''} : {...sent,composer:''};writeDesignInputs(saved);
+      ? {...sent,answers:{},extra:'',source_materials:[]}
+      : {...sent,composer:'',source_materials:[]};writeDesignInputs(saved);
   }
 }
 async function viewDesign(taskId) {
   cacheDesignInputs();
   const epoch = ++state.designEpoch, token = orgToken();
   state.timePolicySaving = false;
-  Object.assign(state,{designTaskId:taskId,designOwnerId:null,designToken:token,designBaseId:0,designQuestions:[],designRenderedBase:null,designDirty:false,designCacheFailed:false,designNeedsRevision:false});
+  Object.assign(state,{designTaskId:taskId,designOwnerId:null,designToken:token,designBaseId:0,designQuestions:[],designRenderedBase:null,designDirty:false,designCacheFailed:false,designNeedsRevision:false,sourceMaterials:[],sourceMaterialsLoading:false,sourceMaterialsBusy:false,sourceMaterialsError:''});
   Object.assign(state, {taskId, chat: [], bpId: null, draft: null, requirement: "", answeredDone: false, draftStatus: "draft", draftVersionId: null, designLoadFailed: false, designLoadError: "", retryRequest: null, agentRequest: null, agentRequestPollTimer: 0, agentResumeStarted: false, agentRequestDisplayedId: null, designTab: "preview", agentBusy: false, designBlocking: [], designAdvisories: [], designVersions: [], designHistory: [], viewingVersion: null, viewingPublished: null, viewingImpact: null});
   document.getElementById("app").innerHTML = `<div class="breadcrumb"><a href="#/tasks">我的任务</a><span>/</span><span id="design-name">收集任务 #${taskId}</span></div>
     ${showcaseReturnHtml("需求设计")}
@@ -1971,18 +2183,21 @@ async function viewDesign(taskId) {
     <div class="step-flow"><span class="st on"><span class="dot">1</span>描述需求</span><span class="arw"></span><span class="st" id="st-2"><span class="dot">2</span>核对与澄清</span><span class="arw"></span><span class="st" id="st-3"><span class="dot">3</span>确认发布</span><span class="step-hint">草案存在服务器上；没发出去的内容只留在当前标签页</span></div>
     <nav class="design-jump-nav" aria-label="需求设计区域"><button type="button" onclick="jumpToDesignSection('design-chat')">${icon("sparkle")} 和小齐整理</button><button type="button" onclick="jumpToDesignSection('draft-panel')">${icon("review")} 核对收集表</button></nav>
     <div id="design-recovery"></div><div class="grid-chat"><section id="design-chat" class="card agent-panel"><div class="agent-heading"><span class="agent-mark">${icon("sparkle")}</span><div><h2>小齐 <span>需求设计助手</span></h2><p id="agent-status">正在准备…</p></div><span class="agent-live"></span></div>
-      <div class="chat"><div class="chat-scroll" id="chat-scroll" role="log" aria-label="需求对话" aria-live="polite"></div><div class="composer"><div class="chips" id="chat-chips"></div>
-      <label class="sr-only" for="chat-in">告诉小齐你的收集要求</label><textarea id="chat-in" oninput="cacheDesignInputs()" placeholder="例如：收一份团课 PDF 报告，登记姓名和班级…" onkeydown="if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing){event.preventDefault();chatSend()}"></textarea>
+       <div class="chat"><div class="chat-scroll" id="chat-scroll" role="log" aria-label="需求对话" aria-live="polite"></div><div class="composer"><div class="chips" id="chat-chips"></div>
+       <section class="source-pack" id="source-pack" aria-labelledby="source-pack-title"><div class="source-pack-heading"><div><b id="source-pack-title">来源资料包</b><span>上传原文件或粘贴文字；需求 Agent 会保留资料编号，规则可以回到来源。</span></div><span class="source-pack-badge">私有资料</span></div><div class="source-pack-grid">
+       ${SOURCE_MATERIAL_FIELDS.map(f => `<label class="source-pack-entry"><span class="source-pack-label">${esc(f.name)}</span><input class="source-file-picker" type="file" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.txt,.md" onchange="uploadSourceFiles('${esc(f.kind)}', this)" aria-label="上传${esc(f.name)}"><textarea id="${f.id}" oninput="cacheDesignInputs()" placeholder="也可以粘贴${esc(f.name)}正文"></textarea><div id="source-files-${f.kind}" class="source-files" aria-live="polite"></div></label>`).join('')}</div><div id="source-materials-state" class="source-materials-state" role="status"></div><p class="field-help">上传不会在服务器端偷偷启动 OCR。模型支持原始文件时优先直读；不支持或读取失败时，才按配置进入文字解析或 OCR 降级。名单、冲突和不确定内容会列为待确认，不会自动发布。</p></section>
+       <label class="sr-only" for="chat-in">告诉小齐你的收集要求</label><textarea id="chat-in" oninput="cacheDesignInputs()" placeholder="再用一句话补充：这次要收什么、有什么特别要求…" onkeydown="if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing){event.preventDefault();chatSend()}"></textarea>
       <div class="composer-foot"><span>Enter 发送 · Shift + Enter 换行</span><button id="chat-send" onclick="chatSend()" aria-label="发送需求">发送 ${icon('arrow')}</button></div><p class="field-help" id="design-input-hint" role="status"></p></div></div>${designRuntimeHtml()}${designProgressHtml()}
     </section><section id="draft-panel" aria-label="实时收集表预览"></section></div>
     <dialog id="publish-dialog" aria-labelledby="publish-title"><form onsubmit="event.preventDefault();confirmPublish()"><div class="eyebrow">REVIEW & PUBLISH</div><h2 id="publish-title" tabindex="-1">确认这份收集要求</h2><p>发布后，这个版本的字段、材料和规则会被冻结。后续修改将产生新版本。</p><div id="publish-summary"></div><label class="check-label"><input type="checkbox" id="publish-consent" required>我已核对上方要求与数据处理说明，并按实际约定确认未填写项</label><div class="dialog-actions"><button type="button" class="ghost" onclick="this.closest('dialog').close()">返回核对</button><button type="submit" id="publish-confirm">确认并发布</button></div><div id="publish-error" role="alert" class="inline-error"></div></form></dialog>`;
-  setAgentBusy(true, "正在加载"); renderDraftPanel();
+  setAgentBusy(true, "正在加载"); renderSourceMaterials(); renderDraftPanel();
   try {
     const r = await api(`/api/tasks/${taskId}/design`);
     if (epoch !== state.designEpoch || token !== orgToken()) return;
     state.task = r.task; state.designOwnerId=r.task.owner_id;
     state.designPublished=r.published;state.designPublishImpact=r.publish_impact;
     document.getElementById("design-name").textContent = r.task.name;
+    await loadSourceMaterials(taskId, epoch, token);
     const pendingAgentRequest = readDesignInputs().pendingAgentRequest;
     if (pendingAgentRequest?.requestId && !state.agentRequest) state.agentRequest = pendingAgentRequest;
     if (r.blueprint_version_id) {
@@ -2061,12 +2276,13 @@ function setAgentBusy(on, label = "正在整理") {
   const locked=on || !!state.viewingVersion || state.designLoadFailed;
   document.getElementById('chat-send')?.toggleAttribute('disabled', locked);
   document.getElementById('chat-in')?.toggleAttribute('disabled', locked);
+  document.querySelectorAll('.source-pack textarea').forEach(x => x.disabled = locked);
   document.querySelectorAll('#chat-chips button, #clar-card input, #clar-card button, [data-publish]').forEach(x => x.disabled = locked);
   document.querySelectorAll('.version-picker select').forEach(x=>x.disabled=on);
   const status = document.getElementById('agent-status');
   if (status) status.textContent = on ? `${label} · ${agentWaitCopy()}` : '有什么想收的，先告诉我吧';
   const box = document.getElementById('chat-scroll'); if (box) box.setAttribute('aria-busy', String(on));
-  chatTyping(on);paintDesignInputState(); paintAgentRuntime();
+  chatTyping(on);paintDesignInputState(); paintAgentRuntime(); renderSourceMaterials();
 }
 function paintAgentRuntime() {
   const mode = document.getElementById('agent-runtime-mode');
@@ -2144,6 +2360,14 @@ async function quickTemplate(tpl) {
     try { fresh = await api(`/api/tasks/${state.taskId}/design`); } catch (e) { fresh = null; }
     if (epoch !== state.designEpoch) return;
     applyDraft(fresh || {...r, draft: r.draft || {blueprint: r.blueprint, clarifications: [], publish_summary: [], warnings: []}});
+    // A template is the explicit fallback for an unsent model request. Keep
+    // that request recoverable under its old base version, but do not let its
+    // composer text make the newly created template look dirty or block the
+    // organizer's publish gate.
+    const composer = document.getElementById('chat-in');
+    if (composer) composer.value = '';
+    state.designDirty = false;
+    paintDesignInputState();
     userSay(`以「${tpl === 'class_report' ? '团课报告' : '比赛报名'}」模板开始`);
     agentSay('模板已准备好，这只是个起点，不是最终要求。', '请核对材料、时间、审核方式和数据用途，有什么要改的继续告诉我就行。');
   } catch(e) { if (epoch === state.designEpoch) agentSay('模板暂时没载入，请稍后再试。', esc(e.message)); }
@@ -2193,6 +2417,8 @@ function agentRequestForm(request) {
     blueprint_version_id: p.blueprint_version_id || "",
     base_blueprint_id: String(p.base_blueprint_id ?? 0),
     answered: JSON.stringify(p.answered || {}), instruction: p.instruction || "",
+    source_materials: JSON.stringify(p.source_materials || []),
+    source_material_ids: JSON.stringify(p.source_material_ids || []),
     execution_mode: p.execution_mode || "live"};
 }
 function agentRequestProgressHtml(request) {
@@ -2337,6 +2563,8 @@ async function submitAgentRequest(request, epoch, token) {
     template: p.template || "", blueprint_version_id: p.blueprint_version_id || "",
     base_blueprint_id: String(p.base_blueprint_id ?? 0),
     answered: JSON.stringify(p.answered || {}), instruction: p.instruction || "",
+    source_materials: JSON.stringify(p.source_materials || []),
+    source_material_ids: JSON.stringify(p.source_material_ids || []),
     execution_mode: p.execution_mode || "live",
   }});
 }
@@ -2435,8 +2663,12 @@ async function runAgent(text, answered = {}, instruction = '', source = 'compose
     : previous
     ? {kind: "revise", blueprint_version_id: previous, base_blueprint_id: previous,
        requirement: state.requirement || "", answered: {...answered}, instruction,
+       source_materials: sent.source_materials || [],
+       source_material_ids: sent.source_material_ids || sourceMaterialIds(),
        execution_mode: "live"}
     : {kind: "agent", base_blueprint_id: state.bpId || 0, requirement: text,
+       source_materials: sent.source_materials || [],
+       source_material_ids: sent.source_material_ids || sourceMaterialIds(),
        execution_mode: "live"};
   const request = resumeRequest || {requestId: newAgentRequestId(), payload,
     text, answered: {...answered}, instruction, source, previousBlueprintId: previous,
@@ -2463,7 +2695,11 @@ function retryAgent() {
   setAgentBusy(true, "正在用同一请求重试");
   return pollAgentRequest(request, state.designEpoch, orgToken(), "enqueue");
 }
-function chatSend() { const text = (document.getElementById('chat-in')?.value || '').trim(); if (text) return runAgent(text, {}, state.bpId ? text : ''); }
+function chatSend() {
+  const text = (document.getElementById('chat-in')?.value || '').trim();
+  const materials = collectSourceMaterials();
+  if (text || materials.length || sourceMaterialIds().length) return runAgent(text || '请根据来源资料包整理这次收集要求。', {}, state.bpId ? text : '');
+}
 function submitClarAnswers() {
   const answered = {}; (state.draft?.clarifications || []).forEach((c,i) => { const v = document.getElementById(`clar-${i}`)?.value.trim(); if(v) answered[c.question] = v; });
   const instruction = document.getElementById('clar-extra')?.value.trim() || '';
@@ -2520,7 +2756,7 @@ function renderDraftPanel() {
     <div id="design-tabpanel" class="draft-content" role="tabpanel" aria-labelledby="design-tab-${state.designTab}" tabindex="0">${state.designTab === 'preview' ? `<div class="form-preview"><div class="preview-banner"><span>${scope.mode === 'open' ? '开放报名' : '名册收集'}</span><span>填写预览 · 不会提交</span></div><h2>${esc(scope.name || state.task?.name || '收集任务')}</h2><p class="muted">${esc(scope.description || '请按以下要求登记信息并提交材料。')}</p>
       <div class="preview-section-title"><b>01</b> 登记信息</div>${(bp.fields || []).map(f => `<div class="preview-field"><label>${esc(f.label)}${f.required ? '<em> *</em>' : ' <small>选填</small>'}</label>${f.type === 'enum' ? `<select disabled aria-label="${esc(f.label)}"><option>请选择${esc(f.label)}</option>${(f.options || []).map(o => `<option>${esc(o)}</option>`).join('')}</select>` : `<input disabled aria-label="${esc(f.label)}" placeholder="请填写${esc(f.label)}">`}${f.required_condition ? `<p class="field-help">条件：${esc(f.required_condition)}</p>` : ''}${f.purpose ? `<p class="field-help">用途：${esc(f.purpose)}</p>` : ''}</div>`).join('') || '<p class="muted">尚未设置登记字段</p>'}
       <div class="preview-section-title"><b>02</b> 提交材料</div>${(bp.slots || []).map(sl => `<div class="upload-preview">${icon('delivery')}<div><strong>${esc(sl.label)}</strong><p>${(sl.formats || []).map(x=>esc(x.toUpperCase())).join(' / ') || '未限定格式'} · 最多 ${sl.max_count} 份${sl.max_size_mib ? ` · 每份 ≤ ${sl.max_size_mib} MiB` : ''}${sl.max_pages ? ` · ≤ ${sl.max_pages} 页` : ''}</p>${sl.required_condition ? `<p>条件：${esc(sl.required_condition)}</p>` : ''}</div><span>上传区域</span></div>`).join('') || '<p class="muted">尚未设置材料</p>'}
-      <div class="preview-section-title"><b>03</b> 时间与验收</div><dl class="kv-list"><dt>时区</dt><dd>${esc(tp.timezone || 'Asia/Shanghai')}</dd><dt>开始收集</dt><dd>${esc(fmtTimeShort(tp.open_at, tp.timezone))}</dd><dt>首次截止</dt><dd>${esc(fmtTimeShort(tp.first_deadline, tp.timezone))}</dd><dt>补正截止</dt><dd>${esc(fmtTimeShort(tp.correction_deadline, tp.timezone))}</dd><dt>最终验收</dt><dd>${bp.manual_acceptance ? '组织者人工确认' : '按规则处理'}</dd></dl></div>` : `<div class="rules-preview"><h2>每条要求，都有依据</h2><p class="muted">程序校验、语义审核与人工判断分别标注，不把不确定的结论当成通过。</p>${rules.map((r,i) => `<article class="rule-preview"><div><span class="rule-number">${String(i+1).padStart(2,'0')}</span>${CAP_BADGE[r.capability] || ''}<span class="badge">${esc(EXECUTOR_LABEL[r.executor] || r.executor)}</span></div><h3>${esc(r.statement)}</h3><blockquote>${esc(r.requirement_source || '模板预置要求，请组织者核对')}</blockquote><p class="field-help">${r.severity === 'blocking' ? '阻塞项 · 未处理时不能验收' : '提醒项'}${r.clarification_question ? ' · ' + esc(r.clarification_question) : ''}</p></article>`).join('') || '<div class="empty">尚未设置检查规则</div>'}<details><summary>原始要求与修订依据</summary><p class="source-text">${esc((viewing ? viewing.source_text : state.requirement) || '当前使用模板预置要求，尚无自然语言输入。')}</p></details><details><summary>交付与数据治理</summary><pre>${esc(JSON.stringify({delivery:bp.delivery, governance:bp.governance},null,2))}</pre></details></div>`}</div>
+      <div class="preview-section-title"><b>03</b> 时间与验收</div><dl class="kv-list"><dt>时区</dt><dd>${esc(tp.timezone || 'Asia/Shanghai')}</dd><dt>开始收集</dt><dd>${esc(fmtTimeShort(tp.open_at, tp.timezone))}</dd><dt>首次截止</dt><dd>${esc(fmtTimeShort(tp.first_deadline, tp.timezone))}</dd><dt>补正截止</dt><dd>${esc(fmtTimeShort(tp.correction_deadline, tp.timezone))}</dd><dt>最终验收</dt><dd>${bp.manual_acceptance ? '组织者人工确认' : '按规则处理'}</dd></dl></div>` : `<div class="rules-preview"><h2>每条要求，都有依据</h2><p class="muted">程序校验、语义审核与人工判断分别标注，不把不确定的结论当成通过。</p>${sourceMaterialsSummaryHtml(viewing || d)}${rules.map((r,i) => `<article class="rule-preview"><div><span class="rule-number">${String(i+1).padStart(2,'0')}</span>${CAP_BADGE[r.capability] || ''}<span class="badge">${esc(EXECUTOR_LABEL[r.executor] || r.executor)}</span></div><h3>${esc(r.statement)}</h3><blockquote>${esc(r.requirement_source || '模板预置要求，请组织者核对')}</blockquote>${r.source_material_id ? `<p class="field-help source-citation">依据资料：${esc(r.source_material_id)}${r.source_locator ? ` · ${esc(r.source_locator)}` : ' · 未标位置'}</p>` : ''}<p class="field-help">${r.severity === 'blocking' ? '阻塞项 · 未处理时不能验收' : '提醒项'}${r.clarification_question ? ' · ' + esc(r.clarification_question) : ''}</p></article>`).join('') || '<div class="empty">尚未设置检查规则</div>'}<details><summary>原始要求与修订依据</summary><p class="source-text">${esc((viewing ? viewing.source_text : state.requirement) || '当前使用模板预置要求，尚无自然语言输入。')}</p></details><details><summary>交付与数据治理</summary><pre>${esc(JSON.stringify({delivery:bp.delivery, governance:bp.governance},null,2))}</pre></details></div>`}</div>
     <div class="publish-bar"><div><strong>${viewing ? `历史版本 v${viewing.version}（只读）` : state.draftStatus === 'published' ? '当前版本已发布' : blocking.length ? '发布前还有内容必须处理' : '准备好后，由你确认发布'}</strong><span>${clar.length ? `${clar.length} 项待澄清 · ` : ''}${blocking.length ? `${blocking.length} 项阻塞 · ` : ''}${advisories.length ? `${advisories.length} 项提醒 · ` : ''}${rules.length} 条规则 · 修改将保留版本记录</span></div><button data-publish onclick="publishBp(${state.taskId})" ${!canPublishDesign() ? 'disabled' : ''}>${state.draftStatus === 'published' ? '已发布' : '核对并发布'} ${icon('arrow')}</button></div>`;
 }
 
@@ -3571,6 +3807,49 @@ function reviewRevisionHistoryHtml(history, currentRevision) {
   </section>`;
 }
 
+function reviewEvidenceMethodLabel(method) {
+  const labels = {
+    direct_model: '模型直读原件',
+    llm: '模型语义核验',
+    text: '文字解析',
+    ocr: 'OCR 降级',
+    mixed: '文字 + OCR 降级',
+    program: '程序确定性校验',
+    coverage: '读取覆盖状态',
+    manual: '人工核对',
+  };
+  return labels[method] || method || '未记录输入方式';
+}
+
+function reviewEvidenceBboxLabel(bbox) {
+  if (!Array.isArray(bbox) || bbox.length !== 4 || bbox.some(v => !Number.isFinite(Number(v)))) return '';
+  const values = bbox.map(Number);
+  const [x, y, width, height] = values;
+  if (width <= 0 || height <= 0 || x < 0 || y < 0 || x + width > 1 || y + height > 1) return '';
+  const pct = value => `${Math.round(value * 100)}%`;
+  return `区域 ${pct(x)}, ${pct(y)} · ${pct(width)} × ${pct(height)}`;
+}
+
+function reviewEvidenceMeta(evidence) {
+  const parts = [];
+  const programLabels = {
+    'roster.members': '组织者名册',
+    'field:name': '提交表单 · 姓名',
+    'field:student_id': '提交表单 · 学号',
+    'field:members': '提交表单 · 成员',
+  };
+  if (evidence?.method === 'program' && programLabels[evidence?.locator]) {
+    parts.push(programLabels[evidence.locator]);
+  }
+  if (evidence?.locator) parts.push(esc(evidence.locator));
+  if (evidence?.region) parts.push(`区域：${esc(evidence.region)}`);
+  const bbox = reviewEvidenceBboxLabel(evidence?.bbox);
+  if (bbox) parts.push(esc(bbox));
+  parts.push(`输入：${esc(reviewEvidenceMethodLabel(evidence?.method))}`);
+  if (evidence?.method === 'direct_model') parts.push('模型定位线索，需打开原件核对');
+  return parts.join(' · ') || '未标注位置';
+}
+
 function paintReview(taskId, sid) {
   const d = state.reviewData; if (!d) return;
   const rules = [...(d.rules || [])].sort((a, b) => {
@@ -3626,6 +3905,7 @@ function paintReview(taskId, sid) {
     ${run?.execution_mode === "offline_replay" ? `<div class="notice-info review-replay-note"><b>这是离线演示回放</b><p>结果由演示脚本桩沿同一 Skill、工具白名单、Harness 预算和审计链生成，不代表真实模型质量；unknown / failed 仍需组织者人工处理。</p></div>` : ""}
     ${nextAction}
     ${gap ? `<div class="notice-warn">材料共 ${gap} 页未能读取。这些页不构成「确认缺失」，相关规则按待确认处理；请让提交者补充清晰材料，或人工核对。</div>` : ""}
+     ${cov?.model_direct ? `<div class="notice-info">原始文件已交给模型直读；文件和页码是模型提供的定位线索，仍需组织者核对，不能仅凭定位线索证明原文存在。</div>` : ""}
   </section>`;
 
   const visibleRules = state.reviewFilter === "pending" ? pending : rules;
@@ -3683,8 +3963,9 @@ function paintReview(taskId, sid) {
       })() : ""}
       ${active.decision ? `<div class="notice-warn"><b>${esc(DECISION_LABEL[active.decision.decision] || active.decision.decision)}</b><p>${esc(active.decision.reason)}</p><span class="muted">人工决定不改写原始检查结果；撤销后可重新核对。</span></div>` : ""}
       ${active.explanation ? `<p class="evidence-explanation">${esc(active.explanation)}</p>` : ""}
-      ${(active.evidence || []).length ? `<div class="evidence-list">${active.evidence.map(e => { const file = e.file_id ? reviewFiles.get(e.file_id) : null; const fileLink = file?.url ? `<a class="evidence-file-link" href="${esc(file.url)}" data-file-url="${esc(file.url)}" onclick="return openReviewFile(event,this.dataset.fileUrl)" target="_blank" rel="noreferrer">${icon("delivery")} 打开原件 · ${esc(file.name || "未命名文件")}</a>` : ""; return `<blockquote class="evidence"><span class="evidence-loc">${esc(e.locator || "未标注位置")} · ${esc(e.method || "-")}</span>${fileLink}${esc(e.quote || "")}</blockquote>`; }).join("")}</div>` : `<p class="muted">这条规则没有可引用的原文证据。</p>`}
-      ${active.next_step ? `<div class="evidence-next"><b>${active.decision ? "原始检查建议" : "下一步"}</b><p>${esc(active.next_step)}</p></div>` : ""}
+      ${(active.evidence || []).length ? `<div class="evidence-list">${active.evidence.map(e => { const file = e.file_id ? reviewFiles.get(e.file_id) : null; const fileLink = file?.url ? `<a class="evidence-file-link" href="${esc(file.url)}" data-file-url="${esc(file.url)}" onclick="return openReviewFile(event,this.dataset.fileUrl)" target="_blank" rel="noreferrer">${icon("delivery")} 打开原件 · ${esc(file.name || "未命名文件")}</a>` : ""; return `<blockquote class="evidence"><span class="evidence-loc">${reviewEvidenceMeta(e)}</span>${fileLink}${esc(e.quote || "")}</blockquote>`; }).join("")}</div>` : `<p class="muted">这条规则没有可引用的原文证据。</p>`}
+      ${active.next_step ? `<div class="evidence-next"><b>${active.decision ? "提交者补正建议" : "提交者可执行动作"}</b><p>${esc(active.next_step)}</p></div>` : ""}
+      ${active.organizer_next_step ? `<div class="evidence-next organizer-next-step"><b>组织者处理建议</b><p>${esc(active.organizer_next_step)}</p></div>` : ""}
     </article>` : `<article class="evidence-detail" id="review-evidence" tabindex="-1"><p class="muted">${rules.length ? "点击左侧任意一条规则查看证据。" : "暂时没有可展示的规则证据。"}</p></article>`;
 
   const decision = `<section class="card decision-panel" id="review-decision" tabindex="-1" aria-label="人工决定">
@@ -4543,6 +4824,9 @@ async function loadMyResults() {
     if (gap) {
       html += `<div class="notice-warn"><b>有 ${gap} 页暂时没读清</b><p>这不代表材料缺失。你可以换一份更清晰的文件再提交，或请组织者一起核对。</p></div>`;
     }
+    if (cov.model_direct) {
+      html += `<div class="notice-info"><b>材料已由模型直读原件</b><p>文件和页码是模型提供的定位线索，仍需组织者核对；这不等同于程序已经验证原文存在。</p></div>`;
+    }
     // 规则明细：哪里有问题、怎么改、引用证据、剩余待办
     const done = details.filter(x => x.decision?.resolves
       || (!x.decision && ["satisfied", "not_applicable"].includes(x.result)));
@@ -4550,7 +4834,7 @@ async function loadMyResults() {
       html += `<h3>需要你补正（${todo.length}）</h3><p>组织者已确认这些项目需要修改。请补齐或更正材料后重新正式提交；当前版本不能验收。</p>` + todo.map(ruleCard).join("");
     }
     if (organizerItems.length) {
-      html += `<section class="notice-warn"><b>组织者待办（${organizerItems.length}）</b><p>这些项目需要组织者判断、核对或重新完成检查。你不需要为此重复提交材料；如上方列有需要补正的项目，请只处理那些项目。</p>${organizerItems.map(ruleCard).join("")}</section>`;
+      html += `<section class="notice-warn"><b>组织者待办（${organizerItems.length}）</b><p>这些项目需要组织者判断、核对或重新完成检查。你不需要为此重复提交材料；如上方列有需要补正的项目，请只处理那些项目。</p>${organizerItems.map(x => ruleCard(x, "organizer")).join("")}</section>`;
     }
     if (done.length) {
       html += `<p class="kv">已按要求核对完成 ${done.length} 项。</p>`;

@@ -8,11 +8,15 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass
 from typing import Optional
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from ..llm import LLMClient, LLMError, LLMUnavailable, get_client
+from ..llm import (DocumentInput, LLMClient, LLMError, LLMInputUnsupported,
+                   LLMUnavailable, get_client)
+from ..config import settings
+from ..parsing import ParseError, format_parse_text, parse_file
 from pydantic import ValidationError
 from ..schemas import (
     Blueprint,
@@ -24,17 +28,125 @@ from ..schemas import (
     FieldType,
     RuleDef,
     SlotDef,
+    SourceMaterialProvenance,
+    SourceMaterialSummary,
     TimePolicy,
 )
+
+SOURCE_MATERIAL_KINDS = {"notice", "roster", "template", "attachment", "other"}
+MAX_SOURCE_MATERIALS = 8
+MAX_SOURCE_MATERIAL_CHARS = 12_000
+MAX_SOURCE_TOTAL_CHARS = 30_000
+MAX_CLARIFICATIONS = 3
+_UNVERIFIABLE_SOURCE_MARKERS = (
+    "（原始文件尚未形成文字缓存",
+    "【文件存在未读页面】",
+    "【未读页面：",
+    "：未读】",
+    "【覆盖提示】",
+    "【文件解析失败：",
+    "【解析失败页面：",
+)
+
+
+@dataclass(frozen=True)
+class RequirementsSkillSpec:
+    """Executable contract for the requirements Agent workflow.
+
+    The prompt explains the method to the model; this contract gives the
+    application something concrete to validate and expose in the runtime
+    manifest.  The durable request queue remains the execution harness for
+    this application-owned skill.
+    """
+
+    name: str
+    description: str
+    stages: tuple[str, ...]
+    max_source_materials: int
+    max_source_material_chars: int
+    max_source_total_chars: int
+    max_clarifications: int
+    idempotency: str
+    version_conflict: str
+    human_gate: str
+
+
+REQUIREMENTS_DRAFT_SKILL = RequirementsSkillSpec(
+    name="requirements_draft",
+    description="读取并分类来源资料，整理有来源的蓝图草案，提出澄清；不自行发布。",
+    stages=(
+        "classify_sources",
+        "extract_requirements",
+        "check_conflicts",
+        "compile_blueprint",
+        "ask_clarifications",
+        "return_editable_draft",
+        "organizer_publish_gate",
+    ),
+    max_source_materials=MAX_SOURCE_MATERIALS,
+    max_source_material_chars=MAX_SOURCE_MATERIAL_CHARS,
+    max_source_total_chars=MAX_SOURCE_TOTAL_CHARS,
+    max_clarifications=MAX_CLARIFICATIONS,
+    idempotency="task_account_request_id",
+    version_conflict="fail_closed",
+    human_gate="发布前必须由组织者确认",
+)
+
+
+def requirements_skill_manifest() -> dict[str, object]:
+    """Return the non-sensitive, server-owned requirements Skill contract."""
+    return {
+        "name": REQUIREMENTS_DRAFT_SKILL.name,
+        "description": REQUIREMENTS_DRAFT_SKILL.description,
+        "stages": list(REQUIREMENTS_DRAFT_SKILL.stages),
+        "source_limits": {
+            "materials": REQUIREMENTS_DRAFT_SKILL.max_source_materials,
+            "per_material_chars": REQUIREMENTS_DRAFT_SKILL.max_source_material_chars,
+            "total_chars": REQUIREMENTS_DRAFT_SKILL.max_source_total_chars,
+        },
+        "max_clarifications": REQUIREMENTS_DRAFT_SKILL.max_clarifications,
+        "idempotency": REQUIREMENTS_DRAFT_SKILL.idempotency,
+        # Keep the explicit runtime-facing name used by older showcase clients.
+        "request_idempotency": REQUIREMENTS_DRAFT_SKILL.idempotency,
+        "version_conflict": REQUIREMENTS_DRAFT_SKILL.version_conflict,
+        "human_gate": REQUIREMENTS_DRAFT_SKILL.human_gate,
+        "execution": "application_service",
+        "allowed_tools": [],
+    }
+
+
+def requirements_skill_self_test() -> dict[str, object]:
+    """Validate the contract without calling a model or reading materials."""
+    checks = [
+        ("source_classification", REQUIREMENTS_DRAFT_SKILL.stages[0] == "classify_sources"),
+        ("source_limits", all(v > 0 for v in (
+            REQUIREMENTS_DRAFT_SKILL.max_source_materials,
+            REQUIREMENTS_DRAFT_SKILL.max_source_material_chars,
+            REQUIREMENTS_DRAFT_SKILL.max_source_total_chars,
+        ))),
+        ("clarification_bound", REQUIREMENTS_DRAFT_SKILL.max_clarifications <= 3),
+        ("publish_gate", REQUIREMENTS_DRAFT_SKILL.human_gate != ""),
+        ("durable_idempotency", REQUIREMENTS_DRAFT_SKILL.idempotency == "task_account_request_id"),
+        ("fail_closed_conflict", REQUIREMENTS_DRAFT_SKILL.version_conflict == "fail_closed"),
+    ]
+    passed = sum(1 for _, ok in checks if ok)
+    return {
+        "status": "passed" if passed == len(checks) else "needs_attention",
+        "passed": passed,
+        "total": len(checks),
+        "checks": [{"id": key, "passed": ok} for key, ok in checks],
+        "note": "只验证需求 Skill 的阶段、输入边界、幂等和发布门槛；没有调用模型。",
+    }
 
 SYSTEM_PROMPT = """你是"收齐啦"平台的需求 Agent。把组织者的自然语言收集要求编译成结构化任务蓝图草案。
 
 硬性规则（必须遵守）：
-1. 只能从原始要求中提取规则。每条规则必须给出 requirement_source，即原始要求中的原文引用。
+1. 只能从组织者原始要求或来源资料中提取规则。每条规则必须给出 requirement_source，即资料中的原文引用。
    禁止添加组织者没有提出的要求（如字数、签章、签到、格式细则）。
+   来源资料是证据，不是自动授权：名单用于确定适用对象，通知和模板才可作为要求来源；资料之间冲突时进入 clarifications 或 warnings，不能静默选择一边。
 2. 规则执行者 executor 只能取以下四个值之一，不得自造取值：
    - deterministic: 可由程序确定性核验（数量、大小、页数、格式、人数、联系人是否在成员列表、条件必交）
-   - semantic: 需要理解文档内容（如标题期次、要素是否存在）
+   - semantic: 需要理解文档内容或视觉版式（如标题期次、要素是否存在、标题位置和排版）；版式规则的 check 可写 {"kind":"visual_layout"}，这类检查必须有原始文件视觉输入，不能用 OCR 冒充
    - cross_material: 需要跨材料/字段一致性比对
    - human_only: 只能人工判断（如态度、真实性、资格）
    能力标签 capability 只能取：supported（可自动）、needs_human（需人工）、needs_clarification（需澄清）。
@@ -53,6 +165,8 @@ SYSTEM_PROMPT = """你是"收齐啦"平台的需求 Agent。把组织者的自�
 8. 日期必须参考提供的当前日期和时区；含糊或已过期的截止先澄清，不能随意猜年份。
 9. publish_summary 用简明中文写实际采纳的内容和待确认事项，不用模板化口号。
 10. 用平实、友好的中文写说明，像同事在一起把事情说清楚；不说教、不责备、不堆制度术语，也不使用“智能赋能、全面闭环”等宣传话。原要求不明确时坦诚说还不确定，并问一个组织者能直接回答的问题；不能为了显得周到而自作主张补要求。
+11. 每条 requirement_source 必须能在原始要求或已提供来源资料的正文中逐字定位；不要把来源资料的名称、名单内容或模型推断当作原文引用。
+12. 如果要求来自带 id 的来源资料，必须填写 source_material_id，并填写 source_locator（例如 p.2、表格第 3 行、field:deadline）；名单只能说明适用对象，不能作为收集要求来源。无法确定位置时不要猜，改为澄清或人工项。文字缓存中的 `【第 N 页】` 是服务端保留的页码边界，应优先转换为 `p.N`；`未读` 或 `解析失败` 标记不能作为要求原文引用。
 
 只输出 JSON，格式：
 {
@@ -60,7 +174,7 @@ SYSTEM_PROMPT = """你是"收齐啦"平台的需求 Agent。把组织者的自�
     "task_scope": {"name": "...", "description": "...", "template": "...", "mode": "roster|open", "subject_kind": "individual|team"},
     "fields": [{"id":"...","label":"...","type":"text|enum|date|number","options":[],"required":true,"required_condition":null,"purpose":"...","visibility":"organizer|submitter"}],
     "slots": [{"id":"...","label":"...","formats":["pdf"],"max_count":1,"max_size_mib":10,"max_pages":20,"required_condition":null}],
-    "rules": [{"id":"...","statement":"...","requirement_source":"原文引用","executor":"deterministic|semantic|cross_material|human_only","capability":"supported|needs_human|needs_clarification","severity":"blocking|advisory","depends_on":[],"clarification_question":null,"check":null}],
+    "rules": [{"id":"...","statement":"...","requirement_source":"原文引用","source_material_id":"notice或null","source_locator":"p.2或field:deadline","executor":"deterministic|semantic|cross_material|human_only","capability":"supported|needs_human|needs_clarification","severity":"blocking|advisory","depends_on":[],"clarification_question":null,"check":null}],
     "time_policy": {"timezone":"Asia/Shanghai","open_at":null,"first_deadline":null,"correction_deadline":null},
     "auto_scope": ["规则ID"],
     "manual_acceptance": true,
@@ -81,17 +195,18 @@ REVISION_SYSTEM_PROMPT = """你是"收齐啦"平台的需求 Agent。组织者�
    不得遗漏、不得重写、不得减少数量。
 2. 时间策略（open_at / first_deadline / correction_deadline）未被修改意见提及时必须原样保留；
    日期时间使用 ISO 8601 格式，如 2026-11-08T18:00:00。
-3. 保持字段稳定 ID 不变；不要暗加要求；修改要有据可依，引用原始要求。
-4. executor 只能取 deterministic|semantic|cross_material|human_only；
+3. 保持字段稳定 ID 不变；不要暗加要求；修改要有据可依，引用原始要求或来源资料正文。名单只用于适用对象核对，资料冲突必须进入澄清或 warning。
+4. executor 只能取 deterministic|semantic|cross_material|human_only；需要判断标题位置、对齐、页眉页脚等视觉版式时使用 semantic，并在 check 中写 {"kind":"visual_layout"}；没有明确的版式要求不要自行添加。
    capability 只能取 supported|needs_human|needs_clarification。
 5. 面向组织者解释修改与澄清时保持简洁、自然、合作的语气，不用空泛口号；只说这次改动实际影响，不暗示已经发布或已取得组织者同意。
+6. 规则若来自来源资料，保留原规则的 source_material_id 与 source_locator；修改意见没有改变来源时不得清空这两个字段。
 只输出 JSON，格式（必须带 blueprint 外壳，与首次起草相同）：
 {
   "blueprint": {
     "task_scope": {"name": "...", "description": "...", "template": "...", "mode": "roster|open", "subject_kind": "individual|team"},
     "fields": [{"id":"...","label":"...","type":"text|enum|date|number","options":[],"required":true,"required_condition":null,"purpose":"...","visibility":"organizer|submitter"}],
     "slots": [{"id":"...","label":"...","formats":["pdf"],"max_count":1,"max_size_mib":10,"max_pages":20,"required_condition":null}],
-    "rules": [{"id":"...","statement":"...","requirement_source":"原文引用","executor":"deterministic|semantic|cross_material|human_only","capability":"supported|needs_human|needs_clarification","severity":"blocking|advisory","depends_on":[],"clarification_question":null,"check":null}],
+    "rules": [{"id":"...","statement":"...","requirement_source":"原文引用","source_material_id":"notice或null","source_locator":"p.2或field:deadline","executor":"deterministic|semantic|cross_material|human_only","capability":"supported|needs_human|needs_clarification","severity":"blocking|advisory","depends_on":[],"clarification_question":null,"check":null}],
     "time_policy": {"timezone":"Asia/Shanghai","open_at":null,"first_deadline":null,"correction_deadline":null},
     "auto_scope": ["规则ID"],
     "manual_acceptance": true,
@@ -105,16 +220,139 @@ REVISION_SYSTEM_PROMPT = """你是"收齐啦"平台的需求 Agent。组织者�
 }"""
 
 
+def normalize_source_materials(source_materials: Optional[list[dict]] = None) -> list[dict]:
+    """Validate and normalize organizer-provided source material.
+
+    Source text is deliberately bounded before it reaches the model or the
+    durable request queue.  The normalized shape is also used for hashing so
+    changing a notice, roster, or template cannot silently reuse an old job.
+    """
+    if source_materials is None:
+        return []
+    if not isinstance(source_materials, list):
+        raise ValueError("来源资料必须是列表")
+    if len(source_materials) > MAX_SOURCE_MATERIALS:
+        raise ValueError(f"来源资料最多 {MAX_SOURCE_MATERIALS} 份")
+    normalized: list[dict] = []
+    seen: set[str] = set()
+    total_chars = 0
+    for index, raw in enumerate(source_materials, 1):
+        if not isinstance(raw, dict):
+            raise ValueError(f"第 {index} 份来源资料格式不正确")
+        material_id = str(raw.get("id") or "").strip()
+        name = str(raw.get("name") or "").strip()
+        kind = str(raw.get("kind") or "").strip().lower()
+        content = str(raw.get("content") or "").strip()
+        if not material_id:
+            raise ValueError(f"第 {index} 份来源资料缺少 id")
+        if material_id in seen:
+            raise ValueError(f"来源资料 id 重复：{material_id}")
+        if not name:
+            raise ValueError(f"来源资料 {material_id} 缺少名称")
+        if kind not in SOURCE_MATERIAL_KINDS:
+            allowed = "、".join(sorted(SOURCE_MATERIAL_KINDS))
+            raise ValueError(f"来源资料 {material_id} 类型无效，请使用：{allowed}")
+        if not content:
+            raise ValueError(f"来源资料 {material_id} 不能为空")
+        if len(content) > MAX_SOURCE_MATERIAL_CHARS:
+            raise ValueError(f"来源资料 {material_id} 过长，单份最多 {MAX_SOURCE_MATERIAL_CHARS} 个字符")
+        total_chars += len(content)
+        if total_chars > MAX_SOURCE_TOTAL_CHARS:
+            raise ValueError(f"来源资料总长度不能超过 {MAX_SOURCE_TOTAL_CHARS} 个字符")
+        seen.add(material_id)
+        normalized.append({"id": material_id, "name": name, "kind": kind, "content": content})
+    return normalized
+
+
+def source_material_summaries(source_materials: Optional[list[dict]] = None) -> list[SourceMaterialSummary]:
+    """Return only safe metadata for the draft response and audit context."""
+    return [SourceMaterialSummary(id=m["id"], name=m["name"], kind=m["kind"],
+                                  chars=len(m["content"]))
+            for m in normalize_source_materials(source_materials)]
+
+
+def _source_provenance(
+    source_materials: Optional[list[dict]], *, method: str = "none",
+    status: str = "not_sent", detail: str = "",
+) -> list[SourceMaterialProvenance]:
+    """Build safe per-source input metadata without retaining material content."""
+    return [SourceMaterialProvenance(id=material["id"], method=method,
+                                     status=status, detail=detail)
+            for material in normalize_source_materials(source_materials)]
+
+
+def _fallback_method_from_text(content: str) -> str:
+    """Infer only the safe display method from parser markers already in text."""
+    text = str(content or "")
+    if not text.strip() or text.startswith("（原始文件尚未"):
+        return "unread"
+    has_unread = any(marker in text for marker in ("：未读】", "【未读页面：", "【覆盖提示】"))
+    has_failed = any(marker in text for marker in ("【解析失败页面：", "【文件解析失败："))
+    if has_unread or has_failed:
+        return "mixed" if "【第 " in text else "unread"
+    return "text"
+
+
+def _fallback_inputs(
+    source_materials: list[dict], source_documents: list[DocumentInput], *,
+    allow_ocr: bool,
+) -> tuple[list[dict], list[SourceMaterialProvenance]]:
+    """Prepare text/OCR inputs only after direct input is unavailable or disabled."""
+    fallback_materials: list[dict] = []
+    provenance: list[SourceMaterialProvenance] = []
+    for material, document in zip(source_materials, source_documents):
+        content = material["content"]
+        parsed_method = ""
+        detail = ""
+        if not content or content.startswith("（原始文件尚未"):
+            try:
+                parsed = parse_file(document.path, allow_ocr=allow_ocr)
+                content = format_parse_text(parsed)
+                parsed_method = parsed.method if parsed.method in {"text", "ocr", "mixed"} else ""
+                if parsed.unread_pages or parsed.failed_pages:
+                    content += ("\n【覆盖提示】部分页面未读或解析失败，不能据此判定材料缺失"
+                                if content else "【覆盖提示】文件存在未读或解析失败页面")
+                    parsed_method = "mixed" if content and parsed.text_pages else "unread"
+            except (ParseError, OSError) as exc:
+                content = f"【文件解析失败：{str(exc)[:180]}】"
+                parsed_method = "unread"
+                detail = "文件解析失败，未据此判定材料缺失。"
+        method = parsed_method or _fallback_method_from_text(content)
+        if method == "ocr":
+            detail = detail or "使用本机 OCR 形成文字输入；未读页面仍需人工核对。"
+        elif method == "mixed":
+            detail = detail or "文字解析/OCR 仅覆盖部分页面；未读页面仍需人工核对。"
+        elif method == "unread":
+            detail = detail or "未形成完整文字输入；不能据此判定材料缺失。"
+        else:
+            detail = detail or "使用已有文字解析结果作为模型输入。"
+        fallback_materials.append({**material, "content": content})
+        provenance.append(SourceMaterialProvenance(id=material["id"], method=method,
+                                                   status="used", detail=detail))
+    return normalize_source_materials(fallback_materials), provenance
+
+
+def _source_material_prompt_parts(source_materials: Optional[list[dict]] = None) -> list[str]:
+    return [
+        f"【来源资料 {index} · {material['name']} · {material['kind']} · id={material['id']}】\n"
+        f"{material['content']}"
+        for index, material in enumerate(normalize_source_materials(source_materials), 1)
+    ]
+
+
 def _build_user_prompt(
     requirement_text: str,
     template: Optional[str],
     answered: Optional[dict],
     current_draft: Optional[Blueprint],
     instruction: str = "",
+    source_materials: Optional[list[dict]] = None,
 ) -> str:
     now = datetime.now(ZoneInfo("Asia/Shanghai"))
-    parts = [f"【当前日期与时区】{now.strftime('%Y-%m-%d %H:%M')} Asia/Shanghai",
-             f"【原始要求】\n{requirement_text.strip()}"]
+    parts = [f"【当前日期与时区】{now.strftime('%Y-%m-%d %H:%M')} Asia/Shanghai"]
+    if requirement_text.strip():
+        parts.append(f"【原始要求】\n{requirement_text.strip()}")
+    parts.extend(_source_material_prompt_parts(source_materials))
     if template:
         parts.append(f"【选用模板】{template}")
     if answered:
@@ -196,7 +434,8 @@ def _parse_rule(r: dict, warnings: list) -> RuleDef:
         r["severity"] = _norm_choice(r.get("severity"), {"blocking", "advisory"},
                                      _SEVERITY_ALIASES, "blocking", warnings,
                                      f"规则 {rid} 的 severity")
-    for key in ("statement", "requirement_source", "clarification_question"):
+    for key in ("statement", "requirement_source", "clarification_question",
+                "source_material_id", "source_locator"):
         if key in r and r[key] is not None and not isinstance(r[key], str):
             r[key] = str(r[key])
     return RuleDef(**r)
@@ -331,10 +570,13 @@ def _check_spec_errors(rule: RuleDef, field_ids: list[str],
 
 
 def build_source_text(requirement_text: str, instruction: str = "",
-                      answered: Optional[dict] = None) -> str:
-    """组织者一侧原始输入汇总：原始要求 + 修改意见 + 已回答澄清（V01 来源核对面）。"""
+                      answered: Optional[dict] = None,
+                      source_materials: Optional[list[dict]] = None) -> str:
+    """组织者一侧原始输入汇总，并保留来源资料边界供规则定位。"""
     nl = chr(10)
-    source_text = requirement_text
+    source_text = requirement_text.strip()
+    for index, material in enumerate(normalize_source_materials(source_materials), 1):
+        source_text += (nl if source_text else "") + f"【来源资料 {index} · {material['name']} · {material['kind']} · id={material['id']}】" + nl + material["content"]
     if instruction and instruction.strip():
         source_text += nl + "【组织者修改意见】" + nl + instruction.strip()
     if answered:
@@ -361,6 +603,37 @@ def blueprint_advisories(blueprint: Blueprint, source_text: str = "") -> list[st
         return ["原始要求中提到时间或截止，但蓝图尚未设置任何开放/截止时间；"
                 "关键期次与截止应先向组织者澄清确认，不猜默认值"]
     return []
+
+
+def _source_text_unverifiable(section: str) -> bool:
+    """Return whether a source section is only a direct-read/fallback marker.
+
+    A model may have received the original file even when the server has no
+    complete text layer.  In that case the citation is a locator hint for the
+    organizer, not something the server can prove by substring matching.
+    """
+    return any(marker in section for marker in _UNVERIFIABLE_SOURCE_MARKERS)
+
+
+def source_material_advisories(blueprint: Blueprint, source_text: str = "") -> list[str]:
+    """Return non-blocking reminders for source material needing human review."""
+    if not source_text.strip():
+        return []
+    sections = _source_sections(source_text)
+    ids = {
+        r.source_material_id.strip()
+        for r in blueprint.rules
+        if r.source_material_id and _source_text_unverifiable(
+            sections.get(r.source_material_id.strip(), "")
+        )
+    }
+    if not ids:
+        return []
+    names = "、".join(sorted(ids))
+    return [
+        f"来源资料 {names} 尚无可供程序复核的完整文字层；规则保留了模型定位线索，"
+        "发布前请打开原文件人工核对。"
+    ]
 
 
 def validate_blueprint(blueprint: Blueprint, source_text: str = "") -> list[str]:
@@ -430,6 +703,13 @@ def validate_blueprint(blueprint: Blueprint, source_text: str = "") -> list[str]
     for r in blueprint.rules:
         if r.check:
             errors.extend(_check_spec_errors(r, field_ids, slot_ids))
+            check_kind = str(r.check.get("kind") or "").strip().lower()
+            if check_kind in {"visual_layout", "visual", "layout"} \
+                    and r.executor is not Executor.SEMANTIC:
+                errors.append(
+                    f"规则 {r.id} 的视觉版式检查必须由 semantic 执行，"
+                    "不能交给确定性程序或跨材料工具冒充"
+                )
         elif r.executor is Executor.DETERMINISTIC:
             errors.append(f"规则 {r.id} 是确定性规则但没有 check 规格，无法自动执行")
         for d in r.depends_on:
@@ -449,15 +729,48 @@ def validate_blueprint(blueprint: Blueprint, source_text: str = "") -> list[str]
         elif r.capability is not Capability.SUPPORTED:
             errors.append(f"自动处理范围不能包含能力为 {r.capability.value} 的规则 {rid}")
 
-    # 规则来源必须能在原文定位（防暗加要求的程序校验）
+    # 规则来源必须能在原文定位（防暗加要求的程序校验）。当规则绑定了
+    # 上传资料时，再校验稳定 source_id 和位置，避免“看起来有引用”但
+    # 实际指向了名单或另一份资料。
     if source_text.strip():
+        source_sections = _source_sections(source_text)
         for r in blueprint.rules:
             src = (r.requirement_source or "").strip()
             if not src:
                 errors.append(f"规则 {r.id} 缺少要求来源")
+            elif r.source_material_id:
+                section = source_sections.get(r.source_material_id)
+                if section is None:
+                    errors.append(
+                        f"规则 {r.id} 引用了不存在的来源资料 {r.source_material_id}"
+                    )
+                else:
+                    if (not _source_text_unverifiable(section)
+                            and len(src) >= 8 and src not in section):
+                        errors.append(
+                            f"规则 {r.id} 的来源引用无法在资料 {r.source_material_id} 中定位，疑似暗加要求"
+                        )
+                    if not r.source_locator.strip():
+                        errors.append(
+                            f"规则 {r.id} 已绑定来源资料 {r.source_material_id}，但缺少 source_locator"
+                        )
             elif src not in source_text and len(src) >= 8:
                 errors.append(f"规则 {r.id} 的来源引用无法在原始要求中定位，疑似暗加要求")
     return errors
+
+
+def _source_sections(source_text: str) -> dict[str, str]:
+    """从持久化的来源文本中切出带稳定 id 的资料正文。"""
+    marker = re.compile(
+        r"【来源资料\s+\d+\s+·\s+.*?\s+·\s+.*?\s+·\s+id=([^】]+)】"
+    )
+    matches = list(marker.finditer(source_text))
+    sections: dict[str, str] = {}
+    for index, match in enumerate(matches):
+        start = match.end()
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(source_text)
+        sections[match.group(1).strip()] = source_text[start:end].strip()
+    return sections
 
 
 def _condition_refs(expr: str) -> list[str]:
@@ -485,39 +798,140 @@ def draft_blueprint(
     instruction: str = "",
     client: Optional[LLMClient] = None,
     prior_source: str = "",
+    source_materials: Optional[list[dict]] = None,
+    source_documents: Optional[list[DocumentInput]] = None,
 ) -> DraftResult:
     """需求 Agent 主入口：自然语言要求 → 蓝图草案。"""
-    if not requirement_text.strip() and current_draft is None:
+    normalized_materials = normalize_source_materials(source_materials)
+    if not requirement_text.strip() and not normalized_materials and current_draft is None:
         return DraftResult(
             blueprint=Blueprint(),
             warnings=["输入为空：不生成虚构要求，请填写原始要求或选择模板"],
         )
     client = client or get_client()
-    system = REVISION_SYSTEM_PROMPT if current_draft is not None else SYSTEM_PROMPT
-    try:
-        payload = client.chat_json(
-            [
-                {"role": "system", "content": system},
-                {"role": "user", "content": _build_user_prompt(requirement_text, template, answered, current_draft, instruction)},
-            ]
+    source_documents = list(source_documents or [])
+    effective_materials = normalized_materials
+    direct_input_succeeded = False
+    if normalized_materials and not client.configured:
+        input_provenance = _source_provenance(
+            normalized_materials,
+            status="not_configured",
+            detail="未配置模型密钥，未发送给外部模型。",
         )
+    elif normalized_materials:
+        input_provenance = _source_provenance(
+            normalized_materials, method="text", status="used",
+            detail="使用草案中的文字资料作为模型输入。",
+        )
+    else:
+        input_provenance = []
+    system = REVISION_SYSTEM_PROMPT if current_draft is not None else SYSTEM_PROMPT
+    messages = [
+        {"role": "system", "content": system},
+        {"role": "user", "content": _build_user_prompt(requirement_text, template, answered, current_draft, instruction, normalized_materials)},
+    ]
+    try:
+        if source_documents and client.direct_documents_enabled:
+            fallback_reason = "原始文件直传不可用，已进入降级。"
+            try:
+                payload = client.chat_json_documents(messages, source_documents)
+                direct_input_succeeded = True
+            except LLMInputUnsupported as exc:
+                if settings.llm_input_mode == "direct":
+                    return DraftResult(
+                        blueprint=current_draft or Blueprint(),
+                        warnings=[f"原始文件直传不可用（{exc}）；当前配置禁止文字/OCR 降级。"],
+                        source_materials=source_material_summaries(normalized_materials),
+                        input_provenance=[p.model_copy(update={
+                            "method": "direct_model", "status": "failed",
+                            "detail": "原始文件直传被 provider 拒绝，未进入文字/OCR 降级。",
+                        }) for p in _source_provenance(normalized_materials)],
+                    )
+                # auto 模式才进入本地文字解析/OCR，避免 direct 约束被偷偷绕过。
+                payload = None
+                fallback_reason = "原始文件直传不可用（provider 不支持），已进入降级。"
+            except LLMError:
+                if settings.llm_input_mode == "direct":
+                    input_provenance = [p.model_copy(update={
+                        "method": "direct_model", "status": "failed",
+                        "detail": "原始文件直传调用失败，未进入文字/OCR 降级。",
+                    }) for p in _source_provenance(normalized_materials)]
+                    raise
+                payload = None
+                fallback_reason = "原始文件直传调用失败，已进入降级。"
+            if payload is None:
+                fallback_materials, fallback_provenance = _fallback_inputs(
+                    normalized_materials, source_documents,
+                    allow_ocr=settings.llm_input_mode in {"auto", "ocr"},
+                )
+                input_provenance = [p.model_copy(update={
+                    "status": "fallback",
+                    "detail": f"{fallback_reason} {p.detail}",
+                }) for p in fallback_provenance]
+                # Preserve the text actually used by the fallback model call so
+                # source validation and the immutable blueprint snapshot do not
+                # fall back to an unread placeholder.
+                effective_materials = fallback_materials
+                fallback_messages = [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": _build_user_prompt(requirement_text, template, answered, current_draft, instruction, fallback_materials)},
+                ]
+                payload = client.chat_json(fallback_messages)
+            elif direct_input_succeeded:
+                input_provenance = _source_provenance(
+                    normalized_materials,
+                    method="direct_model",
+                    status="used",
+                    detail="已将原始文件交给配置的模型；文件/页码定位仍需人工核对。",
+                )
+        elif source_documents and client.configured:
+            # Explicit text/ocr mode (or a test/provider client without a direct
+            # input implementation) still prepares the configured local fallback.
+            effective_materials, fallback_provenance = _fallback_inputs(
+                normalized_materials, source_documents,
+                allow_ocr=settings.llm_input_mode in {"auto", "ocr"},
+            )
+            input_provenance = [p.model_copy(update={
+                "status": "used",
+                "detail": ("按当前输入模式使用本地文字/OCR 输入。 " + p.detail),
+            }) for p in fallback_provenance]
+            fallback_messages = [
+                {"role": "system", "content": system},
+                {"role": "user", "content": _build_user_prompt(requirement_text, template, answered, current_draft, instruction, effective_materials)},
+            ]
+            payload = client.chat_json(fallback_messages)
+        else:
+            payload = client.chat_json(messages)
         result = _parse_draft(payload)
     except LLMUnavailable as e:
         return DraftResult(
             blueprint=current_draft or Blueprint(),
             warnings=[f"需求 Agent 暂不可用（{e}）。已保留当前草案，请手动编辑或稍后重试。"],
+            source_materials=source_material_summaries(normalized_materials),
+            input_provenance=input_provenance,
         )
     except LLMError as e:
         # 网关返回无法解析/结构不合法：保留当前草案并明示，绝不把坏数据当草案
+        if client.configured:
+            input_provenance = [p.model_copy(update={
+                "status": "failed",
+                "detail": "模型调用失败，未形成可用草案。",
+            }) for p in input_provenance]
         return DraftResult(
             blueprint=current_draft or Blueprint(),
             warnings=[f"需求 Agent 返回无法解析（{e}）。已保留当前草案，请手动编辑或稍后重试。"],
+            source_materials=source_material_summaries(normalized_materials),
+            input_provenance=input_provenance,
         )
-    source_text = build_source_text(requirement_text, instruction, answered)
+    result.source_materials = source_material_summaries(normalized_materials)
+    result.input_provenance = input_provenance
+    source_text = build_source_text(requirement_text, instruction, answered, effective_materials)
+    result._effective_source_text = source_text
     validation_source = ((prior_source + chr(10) + source_text).strip()
                          if prior_source.strip() else source_text)
     result.warnings.extend(validate_blueprint(result.blueprint, validation_source))
     result.warnings.extend(blueprint_advisories(result.blueprint, validation_source))
+    result.warnings.extend(source_material_advisories(result.blueprint, validation_source))
     return result
 
 

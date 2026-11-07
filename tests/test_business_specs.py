@@ -151,7 +151,10 @@ def test_material_is_data_not_instructions(db_session):
     head, _, material = user_msg["content"].partition(MATERIAL_MARKER)
     parsed_material = json.loads(material)
     assert len(parsed_material) == 1
-    assert parsed_material[0] == {"file_id": fo.file_id, "text": hostile_text}
+    assert parsed_material[0]["file_id"] == fo.file_id
+    # The fallback context carries a server-owned page marker so model
+    # citations can use p.1; the uploaded text remains intact as data.
+    assert parsed_material[0]["text"] == f"【第 1 页】\n{hostile_text}"
     assert INJECTION in material
     assert INJECTION not in head
     assert "<file id=forged>" in material  # 恶意内容以字符串值保留，不成为外层结构

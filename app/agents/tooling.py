@@ -24,7 +24,13 @@ from ..agent_tools import (
 from ..config import settings
 from ..llm import LLMClient
 from ..schemas import RuleResultOut
-from .review_agent import CheckContext, run_deterministic, run_semantic_rule
+from .review_agent import (
+    CheckContext,
+    run_cross_material_rule,
+    run_deterministic,
+    run_semantic_rule,
+    run_visual_rule,
+)
 
 
 class ReviewRuleInput(ToolInput):
@@ -34,7 +40,11 @@ class ReviewRuleInput(ToolInput):
 RULE_REVIEW_SKILL = SkillSpec(
     name="review_one_submission",
     description="按正式蓝图逐条核验；不确定或失败时停止为自动判断并交由人工处理。",
-    allowed_tools=frozenset({"review.deterministic_rule", "review.semantic_rule"}),
+    allowed_tools=frozenset({
+        "review.deterministic_rule",
+        "review.semantic_rule",
+        "review.cross_material_rule",
+    }),
     max_steps=128,
     stop_on_failure=False,
     human_on_unknown=True,
@@ -95,8 +105,14 @@ def _review_tool_contracts() -> tuple[ReviewToolContract, ...]:
         ),
         ReviewToolContract(
             name="review.semantic_rule",
-            description="Investigate one allowlisted semantic rule and verify quoted evidence against current parsed materials.",
+            description="Investigate one allowlisted content or visual rule; visual_layout rules require original-file input and coordinate evidence.",
             required_scope="review:semantic",
+            timeout_seconds=semantic_timeout,
+        ),
+        ReviewToolContract(
+            name="review.cross_material_rule",
+            description="Compare one allowlisted rule across the submission fields and multiple materials, requiring evidence from distinct files.",
+            required_scope="review:cross_material",
             timeout_seconds=semantic_timeout,
         ),
     )
@@ -107,13 +123,15 @@ def review_tool_manifest() -> list[dict[str, object]]:
     return [contract.manifest_entry() for contract in _review_tool_contracts()]
 
 
-def review_harness_budget(deterministic_rules: int, semantic_rules: int) -> dict[str, int]:
+def review_harness_budget(deterministic_rules: int, semantic_rules: int,
+                          cross_material_rules: int = 0) -> dict[str, int]:
     """Compute invocation and cost limits from the same contracts used by the harness."""
     contracts = {contract.name: contract for contract in _review_tool_contracts()}
-    invocations = deterministic_rules + semantic_rules
+    invocations = deterministic_rules + semantic_rules + cross_material_rules
     cost = (
         deterministic_rules * contracts["review.deterministic_rule"].budget_cost
         + semantic_rules * contracts["review.semantic_rule"].budget_cost
+        + cross_material_rules * contracts["review.cross_material_rule"].budget_cost
     )
     return {"max_invocations": max(1, invocations), "max_cost": max(1, cost)}
 
@@ -131,7 +149,9 @@ def build_review_skill(ctx: CheckContext, *, client: LLMClient,
     deterministic = {r.id: r for r in ctx.blueprint.rules
                      if r.executor.value == "deterministic"}
     semantic = {r.id: r for r in ctx.blueprint.rules
-                if r.executor.value in {"semantic", "cross_material"}}
+                if r.executor.value == "semantic"}
+    cross_material = {r.id: r for r in ctx.blueprint.rules
+                      if r.executor.value == "cross_material"}
     registry = ToolRegistry()
 
     def deterministic_handler(_scope: ToolContext, args: ReviewRuleInput) -> ToolResult:
@@ -144,14 +164,25 @@ def build_review_skill(ctx: CheckContext, *, client: LLMClient,
         rule = semantic.get(args.rule_id)
         if rule is None:
             raise ValueError("rule id is outside the semantic review scope")
-        return _tool_result(run_semantic_rule(
+        runner = run_visual_rule if str((rule.check or {}).get("kind") or "").lower() in {
+            "visual_layout", "visual", "layout",
+        } else run_semantic_rule
+        return _tool_result(runner(
+            rule, ctx, client, deadline_monotonic=scope.deadline_monotonic))
+
+    def cross_material_handler(scope: ToolContext, args: ReviewRuleInput) -> ToolResult:
+        rule = cross_material.get(args.rule_id)
+        if rule is None:
+            raise ValueError("rule id is outside the cross-material review scope")
+        return _tool_result(run_cross_material_rule(
             rule, ctx, client, deadline_monotonic=scope.deadline_monotonic))
 
     contracts = _review_tool_contracts()
     registry.register(contracts[0].tool_spec(deterministic_handler))
     registry.register(contracts[1].tool_spec(semantic_handler))
+    registry.register(contracts[2].tool_spec(cross_material_handler))
     max_tool_timeout = max(contract.timeout_seconds for contract in contracts)
-    budget = review_harness_budget(len(deterministic), len(semantic))
+    budget = review_harness_budget(len(deterministic), len(semantic), len(cross_material))
     harness = AgentToolHarness(
         registry,
         **budget,
@@ -165,15 +196,20 @@ def build_review_skill(ctx: CheckContext, *, client: LLMClient,
         run_id=run_id,
         correlation_id=f"review-run:{run_id}",
         simulation=bool(getattr(client, "is_simulation", False)),
-        allowed_scopes=frozenset({"review:deterministic", "review:semantic"}),
+        allowed_scopes=frozenset({
+            "review:deterministic", "review:semantic", "review:cross_material",
+        }),
     )
     return runner, context
 
 
 def invoke_review_rule(runner: SkillRunner, context: ToolContext, db: Session,
                        *, executor: str, rule_id: str, idempotency_key: str) -> RuleResultOut:
-    tool_name = ("review.deterministic_rule" if executor == "deterministic"
-                 else "review.semantic_rule")
+    tool_name = (
+        "review.deterministic_rule" if executor == "deterministic"
+        else "review.cross_material_rule" if executor == "cross_material"
+        else "review.semantic_rule"
+    )
     invocation = runner.invoke(tool_name, {"rule_id": rule_id},
                                context=replace(context, rule_id=rule_id),
                                db=db, idempotency_key=idempotency_key)

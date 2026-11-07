@@ -1,9 +1,19 @@
 """LLM 客户端与预算测试（不访问网络，用假客户端）。"""
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
-from app.llm import Budget, LLMBudgetExceeded, LLMClient, LLMError, LLMUnavailable
+from app.llm import (
+    Budget,
+    DocumentInput,
+    LLMBudgetExceeded,
+    LLMClient,
+    LLMError,
+    LLMInputUnsupported,
+    LLMUnavailable,
+)
 
 
 class FakeTransport:
@@ -194,3 +204,157 @@ def test_expired_primary_deadline_skips_fallback(monkeypatch):
         c.chat([], deadline_monotonic=101.0)
 
     assert calls == [1.0]
+
+
+def test_document_parts_encode_images_and_files(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.config.settings.llm_max_file_bytes", 1024)
+    image = Path(tmp_path) / "scan.png"
+    image.write_bytes(b"png-bytes")
+    pdf = Path(tmp_path) / "report.pdf"
+    pdf.write_bytes(b"pdf-bytes")
+    c = LLMClient(api_key="k")
+
+    parts = c._document_parts([
+        DocumentInput("img", "scan.png", image, "image/png"),
+        DocumentInput("pdf", "report.pdf", pdf, "application/pdf"),
+    ])
+
+    assert [part["type"] for part in parts] == ["text", "image_url", "text", "file"]
+    assert parts[1]["image_url"]["url"].startswith("data:image/png;base64,")
+    assert parts[3]["file"]["file_data"].startswith("data:application/pdf;base64,")
+
+
+def test_document_4xx_is_input_unsupported_but_regular_4xx_is_llm_error(monkeypatch, tmp_path):
+    import httpx
+
+    class ResponseClient:
+        def __init__(self, *, timeout):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def post(self, *_args, **_kwargs):
+            return httpx.Response(
+                415,
+                text="file input is not supported",
+                request=httpx.Request("POST", "https://example.test/v1/chat/completions"),
+            )
+
+    monkeypatch.setattr("app.llm.httpx.Client", ResponseClient)
+    c = LLMClient(api_key="k", max_retries=0)
+    image = Path(tmp_path) / "scan.png"
+    image.write_bytes(b"png")
+    messages = [{"role": "user", "content": "review"}]
+
+    with pytest.raises(LLMInputUnsupported):
+        c.chat_json_documents(messages, [DocumentInput("img", "scan.png", image, "image/png")])
+    with pytest.raises(LLMError):
+        c.chat(messages)
+
+
+def test_document_size_limit_fails_before_request(monkeypatch, tmp_path):
+    monkeypatch.setattr("app.config.settings.llm_max_file_bytes", 2)
+    path = Path(tmp_path) / "report.pdf"
+    path.write_bytes(b"too-large")
+    c = LLMClient(api_key="k")
+
+    with pytest.raises(LLMInputUnsupported, match="超过直传上限"):
+        c.chat_json_documents(
+            [{"role": "user", "content": "review"}],
+            [DocumentInput("pdf", "report.pdf", path, "application/pdf")],
+        )
+
+
+def test_real_http_document_payload_keeps_key_in_header_only(monkeypatch, tmp_path):
+    """验证真实 LLMClient 的 provider 请求契约，而不是只测注入式 chat 桩。"""
+    import json
+    import httpx
+
+    image = Path(tmp_path) / "scan.png"
+    image.write_bytes(b"png-bytes")
+    pdf = Path(tmp_path) / "报名表.pdf"
+    pdf.write_bytes(b"pdf-bytes")
+    captured = {}
+
+    class CapturingClient:
+        def __init__(self, *, timeout):
+            captured["timeout"] = timeout
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def post(self, url, *, json, headers):
+            captured["url"] = url
+            captured["json"] = json
+            captured["headers"] = headers
+            return httpx.Response(
+                200,
+                json={"choices": [{"message": {"content": '{"result":"unknown"}'}}]},
+                request=httpx.Request("POST", url),
+            )
+
+    monkeypatch.setattr("app.llm.httpx.Client", CapturingClient)
+    client = LLMClient(
+        base_url="https://provider.example/v1",
+        api_key="secret-provider-key",
+        model="vision-model",
+        max_retries=0,
+    )
+    payload = client.chat_json_documents(
+        [{"role": "user", "content": "逐项核验材料"}],
+        [
+            DocumentInput("img-1", "scan.png", image, "image/png"),
+            DocumentInput("pdf-1", "报名表.pdf", pdf, "application/pdf"),
+        ],
+    )
+
+    assert payload == {"result": "unknown"}
+    assert captured["url"] == "https://provider.example/v1/chat/completions"
+    assert captured["headers"] == {"Authorization": "Bearer secret-provider-key"}
+    request_json = captured["json"]
+    assert request_json["model"] == "vision-model"
+    content = request_json["messages"][-1]["content"]
+    assert [part["type"] for part in content] == [
+        "text", "text", "image_url", "text", "file",
+    ]
+    assert content[2]["image_url"]["url"].startswith("data:image/png;base64,")
+    assert content[4]["file"]["filename"] == "报名表.pdf"
+    assert content[4]["file"]["file_data"].startswith("data:application/pdf;base64,")
+    assert "secret-provider-key" not in json.dumps(request_json, ensure_ascii=False)
+
+
+def test_provider_error_summary_redacts_api_key_and_authorization(monkeypatch):
+    import httpx
+
+    class ErrorClient:
+        def __init__(self, *, timeout):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def post(self, url, *, json, headers):
+            return httpx.Response(
+                500,
+                text="authorization=secret-provider-key api_key:secret-provider-key",
+                request=httpx.Request("POST", url),
+            )
+
+    monkeypatch.setattr("app.llm.httpx.Client", ErrorClient)
+    client = LLMClient(api_key="secret-provider-key", max_retries=0)
+
+    with pytest.raises(LLMUnavailable) as exc_info:
+        client.chat([{"role": "user", "content": "review"}])
+    message = str(exc_info.value)
+    assert "secret-provider-key" not in message
+    assert "[redacted]" in message

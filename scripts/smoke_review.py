@@ -116,7 +116,8 @@ class StubLLM(LLMClient):
     def __init__(self) -> None:
         super().__init__(api_key="smoke-stub")
 
-    def chat(self, messages, temperature=0.2):
+    def chat(self, messages, temperature=0.2, deadline_monotonic=None):
+        """Match the production client contract, including run deadlines."""
         import json
 
         user = messages[-1]["content"]

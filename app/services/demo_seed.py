@@ -35,6 +35,7 @@ from .submissions import attach_file, formal_submit, get_or_create_draft, save_d
 
 TERM = "2026 秋季第 1 期"
 DEMO_TASK_NAME = "2026 秋季第 1 期团课报告（演示）"
+DEMO_CROSS_TASK_NAME = "2026 秋季第 1 期报名材料核验（演示）"
 DEMO_USERNAME = "demo"
 
 # 脚本化桩：按规则语句关键词返回预定结论（quote 必须能在材料原文定位）
@@ -57,6 +58,62 @@ _SCRIPTS = {
     },
 }
 
+# 跨文件回放：每条语义结论都引用材料 A、B 各自独有的上下文，
+# 让证据校验能把两条引用分别定位到两个文件。
+_CROSS_SCRIPTS = {
+    "姓名在表单、报名材料 A 和报名材料 B 中一致": {
+        "张三": {
+            "result": "satisfied",
+            "explanation": "表单和两份报名材料均写作“张三”，姓名一致。",
+            "evidence": [
+                {"locator": "p.1", "quote": "材料 A\n姓名：张三"},
+                {"locator": "p.1", "quote": "材料 B\n姓名：张三"},
+            ],
+        },
+        "李四": {
+            "result": "issue",
+            "explanation": "表单和材料 A 写作“李四”，材料 B 写作“李思”，三处姓名不一致。",
+            "evidence": [
+                {"locator": "p.1", "quote": "材料 A\n姓名：李四"},
+                {"locator": "p.1", "quote": "材料 B\n姓名：李思"},
+            ],
+            "next_step": "请核对材料 B 的姓名后重新提交。",
+        },
+        "王五": {
+            "result": "satisfied",
+            "explanation": "表单和两份报名材料均写作“王五”，姓名一致。",
+            "evidence": [
+                {"locator": "p.1", "quote": "材料 A\n姓名：王五"},
+                {"locator": "p.1", "quote": "材料 B\n姓名：王五"},
+            ],
+        },
+    },
+    "学号在表单、报名材料 A 和报名材料 B 中一致": {
+        "张三": {
+            "result": "satisfied",
+            "explanation": "表单和两份报名材料均写作“FF2026001”，学号一致。",
+            "evidence": [
+                {"locator": "p.1", "quote": "材料 A\n姓名：张三\n学号：FF2026001"},
+                {"locator": "p.1", "quote": "材料 B\n姓名：张三\n学号：FF2026001"},
+            ],
+        },
+        "李四": {
+            "result": "satisfied",
+            "explanation": "表单和两份报名材料均写作“FF2026002”，学号一致。",
+            "evidence": [
+                {"locator": "p.1", "quote": "材料 A\n姓名：李四\n学号：FF2026002"},
+                {"locator": "p.1", "quote": "材料 B\n姓名：李思\n学号：FF2026002"},
+            ],
+        },
+        "王五": {
+            "result": "unknown",
+            "explanation": "材料 B 的学号区域被涂改，当前证据不足以确认是否与表单和材料 A 一致。",
+            "evidence": [],
+            "next_step": "请提供清晰、未遮挡的材料 B 后重新核对。",
+        },
+    },
+}
+
 
 class ScriptedLLM(LLMClient):
     """按【规则】语句与材料内容匹配预定响应的离线演示桩。"""
@@ -69,13 +126,23 @@ class ScriptedLLM(LLMClient):
     def chat(self, messages, temperature=0.2, deadline_monotonic=None):
         user = messages[-1]["content"]
         subject_name = ""
-        for name in ("张三", "李四", "王五", "赵六"):
+        for name in ("张三", "李四", "王五", "赵六", "孙七"):
             if name in user:
                 subject_name = name
                 break
+        for key, table in _CROSS_SCRIPTS.items():
+            if key in user or key in user.split("【规则】")[-1][:100]:
+                payload = json.loads(json.dumps(table.get(subject_name) or {
+                    "result": "unknown",
+                    "explanation": "演示材料未覆盖该主体，无法判断。",
+                    "evidence": [],
+                    "next_step": "转人工核对。",
+                }, ensure_ascii=False))
+                return json.dumps(payload, ensure_ascii=False)
         for key, table in _SCRIPTS.items():
             if f"【规则】{key}" in user or key in user.split("【规则】")[-1][:40]:
-                payload = table.get(subject_name) or table["__default__"]
+                payload = json.loads(json.dumps(table.get(subject_name) or table["__default__"],
+                                                ensure_ascii=False))
                 if payload.get("evidence"):
                     for ev in payload["evidence"]:
                         if ev["quote"].endswith("："):
@@ -169,6 +236,74 @@ def demo_blueprint() -> Blueprint:
     )
 
 
+def cross_material_blueprint() -> Blueprint:
+    """BP-C-002：姓名/学号表单与两份报名材料的跨文件核验演示。"""
+    return Blueprint(
+        task_scope={
+            "name": "报名材料核验（演示）",
+            "template": "cross_document_signup",
+            "mode": "roster",
+            "subject_kind": "individual",
+        },
+        fields=[
+            FieldDef(id="name", label="姓名", required=True, purpose="与名册及两份材料交叉核对"),
+            FieldDef(id="student_id", label="学号", required=True, purpose="与两份材料交叉核对"),
+            FieldDef(id="class_name", label="班级", required=True, purpose="组织者分组整理"),
+        ],
+        slots=[
+            SlotDef(id="signup_a", label="报名材料 A", formats=["txt", "pdf", "docx"],
+                    max_count=1, max_size_mib=10, max_pages=20),
+            SlotDef(id="signup_b", label="报名材料 B", formats=["txt", "pdf", "docx"],
+                    max_count=1, max_size_mib=10, max_pages=20),
+        ],
+        rules=[
+            RuleDef(id="x_fields_name", statement="姓名字段已填写",
+                    requirement_source="通知要求：提交本人姓名",
+                    executor="deterministic", check={"kind": "field_required", "field": "name"}),
+            RuleDef(id="x_fields_student_id", statement="学号字段已填写",
+                    requirement_source="通知要求：提交本人学号",
+                    executor="deterministic", check={"kind": "field_required", "field": "student_id"}),
+            RuleDef(id="x_signup_a_presence", statement="已提交报名材料 A",
+                    requirement_source="通知要求：提交报名材料 A",
+                    executor="deterministic", check={"kind": "slot_presence", "slot": "signup_a"}),
+            RuleDef(id="x_signup_b_presence", statement="已提交报名材料 B",
+                    requirement_source="通知要求：提交报名材料 B",
+                    executor="deterministic", check={"kind": "slot_presence", "slot": "signup_b"}),
+            RuleDef(id="x_signup_a_constraints", statement="报名材料 A 的数量、格式、大小和页数符合要求",
+                    requirement_source="通知要求：材料 A 接受 PDF/DOCX，最多 1 份、10 MiB、20 页",
+                    executor="deterministic", check={"kind": "slot_constraints", "slot": "signup_a"}),
+            RuleDef(id="x_signup_b_constraints", statement="报名材料 B 的数量、格式、大小和页数符合要求",
+                    requirement_source="通知要求：材料 B 接受 PDF/DOCX，最多 1 份、10 MiB、20 页",
+                    executor="deterministic", check={"kind": "slot_constraints", "slot": "signup_b"}),
+            RuleDef(id="x_name_consistency", statement="姓名在表单、报名材料 A 和报名材料 B 中一致",
+                    requirement_source="通知要求：所有材料中的姓名必须与表单一致",
+                    executor="cross_material"),
+            RuleDef(id="x_student_id_consistency", statement="学号在表单、报名材料 A 和报名材料 B 中一致",
+                    requirement_source="通知要求：所有材料中的学号必须与表单一致",
+                    executor="cross_material"),
+            RuleDef(id="x_content_quality", statement="两份报名材料均包含报名动机和个人经历",
+                    requirement_source="附件说明：报名材料需包含报名动机和个人经历",
+                    executor="human_only", capability="needs_human"),
+        ],
+        time_policy=TimePolicy(
+            timezone="Asia/Shanghai",
+            open_at=utcnow() - timedelta(days=1),
+            first_deadline=utcnow() + timedelta(days=6),
+            correction_deadline=utcnow() + timedelta(days=13),
+        ),
+        delivery={"group_by": "class_name", "naming": "{subject_id}_{field:name}_材料核验"},
+    )
+
+
+def _cross_material_text(name: str, student_id: str, *, material: str,
+                         material_name: str | None = None) -> str:
+    """生成可被离线回放桩引用的文本材料。"""
+    label = material_name or ("材料 A" if material == "a" else "材料 B")
+    return (f"{label}\n姓名：{name}\n学号：{student_id}\n"
+            "报名动机：希望参与校园项目并提升实践能力。\n"
+            "个人经历：曾参加校内志愿服务和课程项目。")
+
+
 def reset_demo(db: Session, *, task_name: str = DEMO_TASK_NAME,
                username: str = DEMO_USERNAME) -> int:
     """删除历史演示数据（按外键图传递闭包），让种子可重复执行。
@@ -231,6 +366,74 @@ def reset_demo(db: Session, *, task_name: str = DEMO_TASK_NAME,
                 db.execute(table.delete().where(table.c.id.in_(ids)))
     db.commit()
     return len(task_ids)
+
+
+def _seed_cross_material_task(db: Session, account: Account) -> tuple[int, dict[str, str]]:
+    """写入第二条主展示路径：三种跨文件核验结果可回放。"""
+    from ..models import BlueprintVersion
+
+    task = task_service.create_task(
+        db, name=DEMO_CROSS_TASK_NAME, mode="roster", subject_kind="individual",
+        timezone_="Asia/Shanghai", created_by=account.id,
+    )
+    blueprint = cross_material_blueprint()
+    task.open_at = blueprint.time_policy.open_at
+    task.first_deadline = blueprint.time_policy.first_deadline
+    task.correction_deadline = blueprint.time_policy.correction_deadline
+    task.timezone = blueprint.time_policy.timezone
+    version = BlueprintVersion(
+        task_id=task.id, version=1, blueprint_json=blueprint.model_dump_json(),
+        status="published",
+    )
+    db.add(version)
+    db.flush()
+    task.current_blueprint_id = version.id
+    task.status = "collecting"
+
+    people = {
+        "张三": "FF2026001",
+        "李四": "FF2026002",
+        "王五": "FF2026003",
+    }
+    entries = task_service.add_roster(
+        db, task, [{"name": name, "ref": student_id} for name, student_id in people.items()]
+    )
+    entries_by_name = {entry.name: entry for entry in entries}
+    credentials: dict[str, str] = {}
+    for name in people:
+        subject = task_service.ensure_subject(db, task, name)
+        entries_by_name[name].subject_id = subject.id
+        credentials[name] = task_service.issue_grant(db, task, subject)
+    db.flush()
+
+    stub = ScriptedLLM()
+    for name, student_id in people.items():
+        subject = task_service.ensure_subject(db, task, name)
+        submission = get_or_create_draft(db, task, subject.id)
+        material_b_name = "李思" if name == "李四" else name
+        material_b_id = "FF999999" if name == "王五" else student_id
+        file_a = attach_file(
+            db, submission, slot="signup_a",
+            original_name=f"{name}_报名材料A.txt",
+            content=_cross_material_text(name, student_id, material="a").encode("utf-8"),
+            sha256="", mime="text/plain",
+        )
+        file_b = attach_file(
+            db, submission, slot="signup_b",
+            original_name=f"{name}_报名材料B.txt",
+            content=_cross_material_text(material_b_name, material_b_id, material="b").encode("utf-8"),
+            sha256="", mime="text/plain",
+        )
+        revision = formal_submit(
+            db, task, submission,
+            fields={"name": name, "student_id": student_id,
+                    "class_name": "一班" if name != "王五" else "二班"},
+            slot_file_ids={"signup_a": [file_a.file_id], "signup_b": [file_b.file_id]},
+            idempotency_key=f"cross-seed-{name}",
+        )
+        run = create_run(db, task, revision)
+        execute_run(db, run, stub)
+    return task.id, credentials
 
 
 def seed_demo(db: Session, *, username: str = "demo", password: str = "demo1234") -> dict:
@@ -315,9 +518,13 @@ def seed_demo(db: Session, *, username: str = "demo", password: str = "demo1234"
     record_decision(db, task, zhangsan, decision="accept_current",
                     reason="材料齐全、规则通过、人工终验完成（演示数据）", operator_id=acct.id)
 
+    cross_task_id, cross_credentials = _seed_cross_material_task(db, acct)
+
     db.commit()
     return {
         "account": {"username": username, "password": password},
         "task_id": task.id,
         "credentials": credentials,
+        "cross_task_id": cross_task_id,
+        "cross_credentials": cross_credentials,
     }

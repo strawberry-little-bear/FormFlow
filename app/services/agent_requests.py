@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from ..db import SessionLocal
 from ..config import settings
 from ..models import Account, AgentDraftRequest, BlueprintVersion, Task
-from ..agents.requirements_agent import draft_blueprint
+from ..agents.requirements_agent import build_source_text, draft_blueprint, normalize_source_materials
 from ..security import utcnow
 from . import tasks as task_service
 
@@ -23,7 +23,9 @@ REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{16,80}$")
 LLM_WORST_CASE_SECONDS = (settings.llm_timeout_seconds * (settings.llm_max_retries + 1)
                           + (90 if settings.llm_fallback_model else 0) + 600)
 RUNNING_LEASE = timedelta(seconds=max(1800, LLM_WORST_CASE_SECONDS))
-MAX_PAYLOAD_BYTES = 32_768
+# Source packs are intentionally bounded, but a notice plus roster/template can
+# be larger than the old chat-only payload limit.
+MAX_PAYLOAD_BYTES = 128 * 1024
 EXECUTION_MODES = {"live", "offline_replay"}
 
 
@@ -50,9 +52,16 @@ def normalize_payload(raw: dict) -> dict:
             raise AgentRequestError("草案版本无效，请刷新后再试") from exc
         if base_id < 0:
             raise AgentRequestError("草案版本无效，请刷新后再试")
+        try:
+            source_materials = normalize_source_materials(raw.get("source_materials") or [])
+        except ValueError as exc:
+            raise AgentRequestError(str(exc)) from exc
+        source_material_ids = _normalize_source_ids(raw.get("source_material_ids") or [])
         payload = {"kind": "agent", "requirement": requirement,
                    "template": str(raw.get("template") or ""),
                    "base_blueprint_id": base_id,
+                   "source_materials": source_materials,
+                   "source_material_ids": source_material_ids,
                    "execution_mode": execution_mode}
     elif kind == "revise":
         try:
@@ -66,9 +75,16 @@ def normalize_payload(raw: dict) -> dict:
         answered = raw.get("answered") or {}
         if not isinstance(answered, dict):
             raise AgentRequestError("澄清回答格式不正确，请刷新后重试")
+        try:
+            source_materials = normalize_source_materials(raw.get("source_materials") or [])
+        except ValueError as exc:
+            raise AgentRequestError(str(exc)) from exc
+        source_material_ids = _normalize_source_ids(raw.get("source_material_ids") or [])
         payload = {"kind": "revise", "blueprint_version_id": bp_id,
                    "base_blueprint_id": bp_id, "requirement": requirement,
                    "answered": answered, "instruction": instruction,
+                   "source_materials": source_materials,
+                   "source_material_ids": source_material_ids,
                    "execution_mode": execution_mode}
     else:
         raise AgentRequestError("不支持的需求处理方式")
@@ -77,6 +93,17 @@ def normalize_payload(raw: dict) -> dict:
     if len(encoded) > MAX_PAYLOAD_BYTES:
         raise AgentRequestError("这段修改内容比较长，请分成两次说明")
     return payload
+
+
+def _normalize_source_ids(raw) -> list[str]:
+    if not isinstance(raw, list):
+        raise AgentRequestError("source_material_ids 必须是列表")
+    ids = [str(item).strip() for item in raw if str(item).strip()]
+    if len(ids) > 8:
+        raise AgentRequestError("来源资料最多 8 份")
+    if len(ids) != len(set(ids)):
+        raise AgentRequestError("来源资料 id 不能重复")
+    return ids
 
 
 def validate_request_id(request_id: str) -> str:
@@ -161,6 +188,21 @@ def _model_failed(result) -> bool:
     return any(str(w).startswith(markers) for w in result.warnings)
 
 
+def _draft_with_optional_sources(requirement: str, *, template: str | None = None,
+                                 source_materials: list[dict] | None = None,
+                                 source_documents: list | None = None,
+                                 client=None):
+    """Keep the legacy call shape for integrations that do not send source materials."""
+    kwargs = {"template": template or None}
+    if source_materials:
+        kwargs["source_materials"] = source_materials
+    if source_documents:
+        kwargs["source_documents"] = source_documents
+    if client is not None:
+        kwargs["client"] = client
+    return draft_blueprint(requirement, **kwargs)
+
+
 def _execute_request(db: Session, job: AgentDraftRequest, task: Task, payload: dict) -> dict:
     base_id = int(payload.get("base_blueprint_id") or 0)
     latest_id = _latest_blueprint_id(db, task.id)
@@ -172,11 +214,19 @@ def _execute_request(db: Session, job: AgentDraftRequest, task: Task, payload: d
         if payload.get("execution_mode") == "offline_replay":
             from .demo_seed import ScriptedRequirementsLLM
             client = ScriptedRequirementsLLM()
-        if client is None:
-            result = draft_blueprint(payload["requirement"], template=payload.get("template") or None)
-        else:
-            result = draft_blueprint(payload["requirement"], template=payload.get("template") or None,
-                                     client=client)
+        source_materials = payload.get("source_materials") or []
+        source_documents = []
+        if payload.get("source_material_ids"):
+            from .source_materials import load_inputs
+            try:
+                source_materials, source_documents = load_inputs(
+                    db, task, payload["source_material_ids"])
+            except ValueError as exc:
+                raise AgentRequestError(str(exc)) from exc
+        result = _draft_with_optional_sources(
+            payload["requirement"], template=payload.get("template") or None,
+            source_materials=source_materials,
+            source_documents=source_documents, client=client)
         if _model_failed(result):
             # 区分"没配密钥"和"这次没回好"：前者重试也不会成功，必须如实说
             unavailable = next((str(w) for w in result.warnings
@@ -187,7 +237,10 @@ def _execute_request(db: Session, job: AgentDraftRequest, task: Task, payload: d
                     "可以先用模板开始，或手动编辑右侧草案；配好密钥后同一段话再发一次即可。")
             raise AgentRequestError("小齐这次没有收到完整回复，原草案没有更改。你的原文仍保留，可以重试或先选模板继续。")
         blueprint = task_service.save_draft(
-            db, task, result, source_text=payload["requirement"])
+            db, task, result,
+            source_text=(getattr(result, "_effective_source_text", "")
+                         or build_source_text(payload["requirement"],
+                                               source_materials=source_materials)))
         blocking, advisories = task_service.split_publish_checks(result.blueprint, blueprint, result)
         return {"blueprint_version_id": blueprint.id, "version": blueprint.version,
                 "status": blueprint.status, "draft": result.model_dump(mode="json"),
@@ -197,11 +250,22 @@ def _execute_request(db: Session, job: AgentDraftRequest, task: Task, payload: d
                 "runtime_label": ("离线脚本回放 · 不调用外部模型"
                                   if payload.get("execution_mode") == "offline_replay" else "")}
 
+    source_materials = payload.get("source_materials") or []
+    source_documents = []
+    if payload.get("source_material_ids"):
+        from .source_materials import load_inputs
+        try:
+            source_materials, source_documents = load_inputs(
+                db, task, payload["source_material_ids"])
+        except ValueError as exc:
+            raise AgentRequestError(str(exc)) from exc
     result, blueprint, impact = task_service.revise_draft(
         db, task, payload["blueprint_version_id"],
         requirement=payload.get("requirement", ""),
         answered=payload.get("answered") or {},
-        instruction=payload.get("instruction", ""))
+        instruction=payload.get("instruction", ""),
+        source_materials=source_materials,
+        source_documents=source_documents)
     if _model_failed(result):
         unavailable = next((str(w) for w in result.warnings
                             if str(w).startswith("需求 Agent 暂不可用")), "")

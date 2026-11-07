@@ -37,6 +37,7 @@ from ..models import (
     Exemption,
     ExportJob,
     FileObject,
+    RequirementSourceMaterial,
     ManualDecision,
     NotificationIntent,
     RosterEntry,
@@ -84,6 +85,7 @@ from ..services import notifications as notif_service
 from ..services import export as export_service
 from ..services import submissions as sub_service
 from ..services import tasks as task_service
+from ..services import source_materials as source_service
 from ..services.checks import (create_run, current_details, current_summary,
                                execute_run, retry_run, rule_details, review_rule_details,
                                run_coverage)
@@ -253,6 +255,61 @@ def get_design_view(task_id: int, db: Session = Depends(get_db),
     return task_service.get_design(db, _owned_task(db, acct, task_id))
 
 
+@router.post("/tasks/{task_id}/source-materials")
+async def upload_source_material(task_id: int, kind: str = Form("other"),
+                                 file: UploadFile = File(...),
+                                 db: Session = Depends(get_db),
+                                 acct: Account = Depends(current_account)):
+    """上传需求 Agent 的私有来源资料；只返回元数据和解析状态。"""
+    task = _owned_task(db, acct, task_id)
+    try:
+        task_service.ensure_task_writable(task)
+        content = await file.read()
+        row = source_service.create(
+            db, task, acct, kind=kind, original_name=file.filename or "unnamed",
+            mime=file.content_type or "application/octet-stream", content=content)
+    except task_service.TaskNotWritable as exc:
+        raise HTTPException(409, str(exc))
+    except source_service.SourceMaterialError as exc:
+        raise HTTPException(422, str(exc))
+    db.commit()
+    return source_service._metadata(row)
+
+
+@router.get("/tasks/{task_id}/source-materials")
+def list_source_materials(task_id: int, db: Session = Depends(get_db),
+                          acct: Account = Depends(current_account)):
+    task = _owned_task(db, acct, task_id)
+    return {"items": source_service.list_for_task(db, task)}
+
+
+@router.delete("/tasks/{task_id}/source-materials/{source_id}")
+def delete_source_material(task_id: int, source_id: str,
+                           db: Session = Depends(get_db),
+                           acct: Account = Depends(current_account)):
+    task = _owned_task(db, acct, task_id)
+    try:
+        task_service.ensure_task_writable(task)
+        row = db.scalar(select(RequirementSourceMaterial).where(
+            RequirementSourceMaterial.task_id == task.id,
+            RequirementSourceMaterial.source_id == source_id))
+        if row is None:
+            raise source_service.SourceMaterialError("来源资料不存在或不属于当前任务")
+        referenced = db.scalar(select(BlueprintVersion.id).where(
+            BlueprintVersion.task_id == task.id,
+            BlueprintVersion.source_text.contains(source_id)).limit(1))
+        if referenced is not None:
+            raise source_service.SourceMaterialError("来源资料已被草案引用，不能删除；请保留它以便追溯")
+        source_service.delete(db, task, source_id)
+    except task_service.TaskNotWritable as exc:
+        raise HTTPException(409, str(exc))
+    except source_service.SourceMaterialError as exc:
+        raise HTTPException(409, str(exc))
+    db.commit()
+    source_service.remove_original(row)
+    return {"deleted": source_id}
+
+
 @router.get("/tasks/{task_id}/blueprints/{bp_id}")
 def get_blueprint_version(task_id: int, bp_id: int, db: Session = Depends(get_db),
                           acct: Account = Depends(current_account)):
@@ -265,13 +322,36 @@ def get_blueprint_version(task_id: int, bp_id: int, db: Session = Depends(get_db
 
 
 @router.post("/tasks/{task_id}/draft/agent")
-def draft_by_agent(task_id: int, requirement: str = Form(...), template: str = Form(None),
+def draft_by_agent(task_id: int, requirement: str = Form(""), template: str = Form(None),
+                   source_materials: str = Form(""),
+                   source_material_ids: str = Form(""),
                    db: Session = Depends(get_db), acct: Account = Depends(current_account)):
     task = _owned_task(db, acct, task_id)
     try:
-        result, bp = task_service.draft_from_requirement(db, task, requirement, template)
+        source_materials_map = json.loads(source_materials) if source_materials.strip() else []
+    except json.JSONDecodeError as e:
+        raise HTTPException(422, f"来源资料格式不正确：{e}")
+    try:
+        source_ids = json.loads(source_material_ids) if source_material_ids.strip() else []
+    except json.JSONDecodeError as e:
+        raise HTTPException(422, f"来源资料编号格式不正确：{e}")
+    if not isinstance(source_ids, list):
+        raise HTTPException(422, "来源资料编号必须是列表")
+    source_documents = []
+    if source_ids:
+        try:
+            source_materials_map, source_documents = source_service.load_inputs(
+                db, task, source_ids)
+        except source_service.SourceMaterialError as exc:
+            raise HTTPException(422, str(exc))
+    try:
+        result, bp = task_service.draft_from_requirement(
+        db, task, requirement, template, source_materials=source_materials_map,
+        source_documents=source_documents)
     except task_service.TaskNotWritable as e:
         raise HTTPException(409, str(e))
+    except ValueError as e:
+        raise HTTPException(422, str(e))
     db.commit()
     blocking, advisories = task_service.split_publish_checks(result.blueprint, bp, result)
     return {"blueprint_version_id": bp.id, "version": bp.version, "status": bp.status,
@@ -318,7 +398,8 @@ def update_draft_time_policy(task_id: int, blueprint_version_id: int = Form(...)
 @router.post("/tasks/{task_id}/draft/revise")
 def revise_draft_view(task_id: int, blueprint_version_id: int = Form(...),
                       requirement: str = Form(""), answered: str = Form(""),
-                      instruction: str = Form(""),
+                      instruction: str = Form(""), source_materials: str = Form(""),
+                      source_material_ids: str = Form(""),
                       db: Session = Depends(get_db), acct: Account = Depends(current_account)):
     """澄清轮次闭环：回答澄清/提出修改意见，基于当前草案修订，返回新草案与修改影响。"""
     task = _owned_task(db, acct, task_id)
@@ -329,9 +410,26 @@ def revise_draft_view(task_id: int, blueprint_version_id: int = Form(...),
     if not isinstance(answered_map, dict):
         raise HTTPException(422, "answered 必须是 JSON 对象（问题 -> 回答）")
     try:
+        source_materials_map = json.loads(source_materials) if source_materials.strip() else []
+    except json.JSONDecodeError as e:
+        raise HTTPException(422, f"来源资料格式不正确：{e}")
+    try:
+        source_ids = json.loads(source_material_ids) if source_material_ids.strip() else []
+    except json.JSONDecodeError as e:
+        raise HTTPException(422, f"来源资料编号格式不正确：{e}")
+    source_documents = []
+    if source_ids:
+        try:
+            source_materials_map, source_documents = source_service.load_inputs(
+                db, task, source_ids)
+        except source_service.SourceMaterialError as exc:
+            raise HTTPException(422, str(exc))
+    try:
         result, bp, impact = task_service.revise_draft(
             db, task, blueprint_version_id, requirement=requirement,
-            answered=answered_map, instruction=instruction)
+            answered=answered_map, instruction=instruction,
+            source_materials=source_materials_map,
+            source_documents=source_documents)
     except task_service.TaskNotWritable as e:
         raise HTTPException(409, str(e))
     except ValueError as e:
@@ -350,6 +448,8 @@ def enqueue_agent_draft(task_id: int, background_tasks: BackgroundTasks,
                         blueprint_version_id: Optional[int] = Form(None),
                         base_blueprint_id: int = Form(0),
                         answered: str = Form(""), instruction: str = Form(""),
+                        source_materials: str = Form(""),
+                        source_material_ids: str = Form(""),
                         execution_mode: str = Form("live"),
                         db: Session = Depends(get_db), acct: Account = Depends(current_account)):
     """Queue a long design-Agent request so the editor can recover after disconnects."""
@@ -368,10 +468,22 @@ def enqueue_agent_draft(task_id: int, background_tasks: BackgroundTasks,
         raise HTTPException(422, "澄清回答格式不正确，请刷新后重试")
     if not isinstance(answered_map, dict):
         raise HTTPException(422, "澄清回答格式不正确，请刷新后重试")
+    try:
+        source_materials_map = json.loads(source_materials) if source_materials.strip() else []
+    except json.JSONDecodeError:
+        raise HTTPException(422, "来源资料格式不正确，请刷新后重试")
+    try:
+        source_ids = json.loads(source_material_ids) if source_material_ids.strip() else []
+    except json.JSONDecodeError:
+        raise HTTPException(422, "来源资料编号格式不正确，请刷新后重试")
+    if not isinstance(source_ids, list):
+        raise HTTPException(422, "来源资料编号必须是列表")
     payload = {"kind": kind, "requirement": requirement, "template": template,
                "blueprint_version_id": blueprint_version_id,
                "base_blueprint_id": base_blueprint_id,
                "answered": answered_map, "instruction": instruction,
+               "source_materials": source_materials_map,
+               "source_material_ids": source_ids,
                "execution_mode": execution_mode}
     from ..services import agent_requests
     try:
