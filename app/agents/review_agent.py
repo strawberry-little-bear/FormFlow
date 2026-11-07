@@ -162,6 +162,19 @@ def _cross_material_field(rule: RuleDef) -> Optional[str]:
     return None
 
 
+def _requires_visual_input(rule: RuleDef) -> bool:
+    """Return whether a semantic rule depends on the original page image.
+
+    Text extraction can support content checks, but it cannot establish layout
+    facts such as title placement, alignment, or visual hierarchy.  Blueprints
+    opt into this stricter path with ``check.kind = visual_layout``.
+    """
+    check = rule.check or {}
+    return str(check.get("kind") or "").strip().lower() in {
+        "visual_layout", "visual", "layout",
+    }
+
+
 def _cross_material_program_evidence(rule: RuleDef, ctx: CheckContext) -> list[EvidenceOut]:
     """Attach the non-document inputs used by a cross-material comparison.
 
@@ -478,6 +491,7 @@ def run_semantic_rule(
     rule: RuleDef, ctx: CheckContext, client: Optional[LLMClient] = None,
     *, deadline_monotonic: float | None = None,
     cross_material: bool = False,
+    visual_only: bool = False,
 ) -> RuleResultOut:
     client = client or get_client()
     direct_documents = [
@@ -492,6 +506,15 @@ def run_semantic_rule(
     direct_attempted = bool(direct_documents and getattr(client, "direct_documents_enabled", False))
     direct_used = False
 
+    if visual_only and not direct_attempted:
+        return RuleResultOut(
+            rule_id=rule.id,
+            result=RESULT_FAILED,
+            explanation="视觉版式检查需要模型读取原始文件；当前没有可用的原始文件直传输入，检查未完成",
+            next_step="改用支持 PDF/图片输入的模型后重试，或交由组织者打开原件人工核对",
+            organizer_next_step="确认模型支持原始文件输入；在此之前不要把文字层或 OCR 当作版式结论",
+        )
+
     # 先准备已有文本层，但不在直传候选路径触发 OCR。
     file_texts: dict[str, str] = {
         f.file_id: format_parse_text(f.parse)
@@ -504,6 +527,13 @@ def run_semantic_rule(
         separators=(",", ":"),
     )
     material_scope = ""
+    visual_scope = ""
+    if visual_only:
+        visual_scope = (
+            "【视觉版式核验】请检查原始页面的版式事实，例如标题位置、对齐、页数布局、"
+            "页眉页脚或要求中明确提到的排版条件。只依据原始文件视觉内容，不要用文字层推断版式。"
+            "每条 satisfied 或 issue 证据都必须带 bbox 归一化坐标，供组织者打开原件核对。\n"
+        )
     if cross_material:
         material_scope = (
             "【跨材料核验范围】这是跨文件一致性规则。请同时比较登记字段、名单和所有相关材料；"
@@ -518,6 +548,7 @@ def run_semantic_rule(
         f"【规则】{rule.statement}\n"
         f"【要求来源】{rule.requirement_source}\n"
         f"【登记字段】{ctx.fields}\n"
+        + visual_scope
         + (f"【组织者名册】{ctx.members}\n" if cross_material else "")
         + material_scope
         + (f"【历史问题】{ctx.history_issues}\n" if ctx.history_issues else "")
@@ -573,6 +604,13 @@ def run_semantic_rule(
                              ensure_ascii=False, separators=(",", ":"))
             )}], deadline_monotonic=deadline_monotonic)
     except LLMInputUnsupported:
+        if visual_only:
+            return RuleResultOut(
+                rule_id=rule.id, result=RESULT_FAILED,
+                explanation="当前模型不支持原始文件输入，视觉版式检查未完成",
+                next_step="改用支持 PDF/图片输入的模型后重试，或交由组织者人工核对",
+                organizer_next_step="不要用文字解析或 OCR 代替版式判断；请核对 provider 的视觉输入能力",
+            )
         if not direct_attempted:
             return RuleResultOut(
                 rule_id=rule.id, result=RESULT_FAILED,
@@ -681,6 +719,16 @@ def run_semantic_rule(
             if item is not None:
                 evidence.append(item)
     program_evidence = _cross_material_program_evidence(rule, ctx) if cross_material else []
+    if visual_only and result in {RESULT_SATISFIED, RESULT_ISSUE} \
+            and not any(item.bbox is not None for item in evidence):
+        return RuleResultOut(
+            rule_id=rule.id,
+            result=RESULT_UNKNOWN,
+            explanation="模型没有提供可核对的页面区域坐标，视觉版式结论按规则降级为 unknown",
+            next_step="请补充带页面区域坐标的视觉证据，或交由组织者打开原件人工核对",
+            organizer_next_step="打开原件核对对应页面区域；没有 bbox 时不要把模型文字描述当作版式证据",
+            evidence=evidence + program_evidence,
+        )
     if result in {RESULT_SATISFIED, RESULT_ISSUE} and not evidence:
         return RuleResultOut(
             rule_id=rule.id, result=RESULT_UNKNOWN,
@@ -722,6 +770,17 @@ def run_cross_material_rule(
     )
 
 
+def run_visual_rule(
+    rule: RuleDef, ctx: CheckContext, client: Optional[LLMClient] = None,
+    *, deadline_monotonic: float | None = None,
+) -> RuleResultOut:
+    """Run a layout rule only when the original file can be sent to a model."""
+    return run_semantic_rule(
+        rule, ctx, client, deadline_monotonic=deadline_monotonic,
+        visual_only=True,
+    )
+
+
 # ---------------------------------------------------------------- 主编排
 def run_checks(ctx: CheckContext, client: Optional[LLMClient] = None,
                tool_executor: Optional[Callable[[RuleDef], RuleResultOut]] = None) -> CheckOutcome:
@@ -743,6 +802,9 @@ def run_checks(ctx: CheckContext, client: Optional[LLMClient] = None,
             if rule.executor.value == "cross_material":
                 executor = (tool_executor(rule) if tool_executor else
                             run_cross_material_rule(rule, ctx, client))
+            elif _requires_visual_input(rule):
+                executor = (tool_executor(rule) if tool_executor else
+                            run_visual_rule(rule, ctx, client))
             else:
                 executor = (tool_executor(rule) if tool_executor else
                             run_semantic_rule(rule, ctx, client))

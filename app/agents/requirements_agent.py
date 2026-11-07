@@ -146,7 +146,7 @@ SYSTEM_PROMPT = """你是"收齐啦"平台的需求 Agent。把组织者的自�
    来源资料是证据，不是自动授权：名单用于确定适用对象，通知和模板才可作为要求来源；资料之间冲突时进入 clarifications 或 warnings，不能静默选择一边。
 2. 规则执行者 executor 只能取以下四个值之一，不得自造取值：
    - deterministic: 可由程序确定性核验（数量、大小、页数、格式、人数、联系人是否在成员列表、条件必交）
-   - semantic: 需要理解文档内容（如标题期次、要素是否存在）
+   - semantic: 需要理解文档内容或视觉版式（如标题期次、要素是否存在、标题位置和排版）；版式规则的 check 可写 {"kind":"visual_layout"}，这类检查必须有原始文件视觉输入，不能用 OCR 冒充
    - cross_material: 需要跨材料/字段一致性比对
    - human_only: 只能人工判断（如态度、真实性、资格）
    能力标签 capability 只能取：supported（可自动）、needs_human（需人工）、needs_clarification（需澄清）。
@@ -196,7 +196,7 @@ REVISION_SYSTEM_PROMPT = """你是"收齐啦"平台的需求 Agent。组织者�
 2. 时间策略（open_at / first_deadline / correction_deadline）未被修改意见提及时必须原样保留；
    日期时间使用 ISO 8601 格式，如 2026-11-08T18:00:00。
 3. 保持字段稳定 ID 不变；不要暗加要求；修改要有据可依，引用原始要求或来源资料正文。名单只用于适用对象核对，资料冲突必须进入澄清或 warning。
-4. executor 只能取 deterministic|semantic|cross_material|human_only；
+4. executor 只能取 deterministic|semantic|cross_material|human_only；需要判断标题位置、对齐、页眉页脚等视觉版式时使用 semantic，并在 check 中写 {"kind":"visual_layout"}；没有明确的版式要求不要自行添加。
    capability 只能取 supported|needs_human|needs_clarification。
 5. 面向组织者解释修改与澄清时保持简洁、自然、合作的语气，不用空泛口号；只说这次改动实际影响，不暗示已经发布或已取得组织者同意。
 6. 规则若来自来源资料，保留原规则的 source_material_id 与 source_locator；修改意见没有改变来源时不得清空这两个字段。
@@ -703,6 +703,13 @@ def validate_blueprint(blueprint: Blueprint, source_text: str = "") -> list[str]
     for r in blueprint.rules:
         if r.check:
             errors.extend(_check_spec_errors(r, field_ids, slot_ids))
+            check_kind = str(r.check.get("kind") or "").strip().lower()
+            if check_kind in {"visual_layout", "visual", "layout"} \
+                    and r.executor is not Executor.SEMANTIC:
+                errors.append(
+                    f"规则 {r.id} 的视觉版式检查必须由 semantic 执行，"
+                    "不能交给确定性程序或跨材料工具冒充"
+                )
         elif r.executor is Executor.DETERMINISTIC:
             errors.append(f"规则 {r.id} 是确定性规则但没有 check 规格，无法自动执行")
         for d in r.depends_on:

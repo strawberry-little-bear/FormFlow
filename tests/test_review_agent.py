@@ -14,6 +14,7 @@ from app.agents.review_agent import (
     run_checks,
     run_deterministic,
     run_semantic_rule,
+    run_visual_rule,
 )
 from app.llm import LLMBudgetExceeded, LLMInputUnsupported, LLMUnavailable
 from app.models import (
@@ -341,6 +342,51 @@ def test_semantic_invalid_bbox_downgrades_to_unknown(stub_llm):
     result = run_semantic_rule(_bp().rules[4], _ctx(), client=stub_llm)
     assert result.result == RESULT_UNKNOWN
     assert "缺少可在原文定位的证据" in result.explanation
+
+
+def test_visual_rule_requires_original_file_input(tmp_path, stub_llm, monkeypatch):
+    """文字层/OCR 不能被包装成版式检查结果。"""
+    monkeypatch.setattr("app.config.settings.llm_input_mode", "auto")
+    rule = RuleDef(
+        id="V-LAYOUT", statement="标题位于页面顶部并保持居中",
+        requirement_source="模板要求：标题位于页面顶部并保持居中",
+        executor="semantic", check={"kind": "visual_layout"},
+    )
+    result = run_visual_rule(rule, _ctx(), client=stub_llm)
+    assert result.result == RESULT_FAILED
+    assert "视觉版式检查" in result.explanation
+    assert stub_llm.calls == 0
+
+
+def test_visual_rule_requires_bbox_evidence(tmp_path, monkeypatch):
+    """直传模型没有页面区域坐标时，版式结论必须降级为 unknown。"""
+    monkeypatch.setattr("app.config.settings.llm_input_mode", "auto")
+    path = Path(tmp_path) / "layout.pdf"
+    path.write_bytes(b"%PDF-1.4 fake")
+
+    class DirectStub:
+        configured = True
+        direct_documents_enabled = True
+
+        def chat_json_documents(self, messages, documents, temperature=0.1,
+                                deadline_monotonic=None):
+            return {
+                "result": "satisfied",
+                "explanation": "标题看起来居中",
+                "evidence": [{"file_id": "f1", "locator": "p.1",
+                              "quote": "标题", "region": "页首"}],
+            }
+
+    rule = RuleDef(
+        id="V-LAYOUT", statement="标题位于页面顶部并保持居中",
+        requirement_source="模板要求：标题位于页面顶部并保持居中",
+        executor="semantic", check={"kind": "visual_layout"},
+    )
+    file = FileInfo(file_id="f1", slot="report", original_name="layout.pdf",
+                    size=12, path=path, parse=ParseResult(method="visual", unread_pages=1))
+    result = run_visual_rule(rule, _ctx(files=[file]), client=DirectStub())
+    assert result.result == RESULT_UNKNOWN
+    assert "坐标" in result.explanation
 
 def test_verify_quote_tolerates_ocr_punctuation_noise():
     """OCR 把全角标点识别成半角、文字加空格碎片时，合理引用仍应通过验证（V07）。"""

@@ -415,6 +415,15 @@ def test_legacy_rule_without_source_material_fields_remains_compatible():
     assert validate_blueprint(bp, "提交 PDF 报告") == []
 
 
+def test_visual_layout_check_must_use_semantic_executor():
+    bp = Blueprint(rules=[RuleDef(
+        id="V-LAYOUT", statement="标题居中", requirement_source="标题居中",
+        executor="deterministic", check={"kind": "visual_layout"},
+    )])
+    errors = validate_blueprint(bp, "标题居中")
+    assert any("视觉版式检查必须由 semantic 执行" in e for e in errors)
+
+
 def test_validate_catches_dependency_cycle():
     bp = Blueprint(rules=[
         RuleDef(id="A", statement="a", requirement_source="a", executor="semantic", depends_on=["B"]),

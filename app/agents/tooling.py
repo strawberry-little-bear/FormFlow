@@ -29,6 +29,7 @@ from .review_agent import (
     run_cross_material_rule,
     run_deterministic,
     run_semantic_rule,
+    run_visual_rule,
 )
 
 
@@ -104,7 +105,7 @@ def _review_tool_contracts() -> tuple[ReviewToolContract, ...]:
         ),
         ReviewToolContract(
             name="review.semantic_rule",
-            description="Investigate one allowlisted semantic rule and verify quoted evidence against current parsed materials.",
+            description="Investigate one allowlisted content or visual rule; visual_layout rules require original-file input and coordinate evidence.",
             required_scope="review:semantic",
             timeout_seconds=semantic_timeout,
         ),
@@ -163,7 +164,10 @@ def build_review_skill(ctx: CheckContext, *, client: LLMClient,
         rule = semantic.get(args.rule_id)
         if rule is None:
             raise ValueError("rule id is outside the semantic review scope")
-        return _tool_result(run_semantic_rule(
+        runner = run_visual_rule if str((rule.check or {}).get("kind") or "").lower() in {
+            "visual_layout", "visual", "layout",
+        } else run_semantic_rule
+        return _tool_result(runner(
             rule, ctx, client, deadline_monotonic=scope.deadline_monotonic))
 
     def cross_material_handler(scope: ToolContext, args: ReviewRuleInput) -> ToolResult:

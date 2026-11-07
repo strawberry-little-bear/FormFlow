@@ -37,6 +37,8 @@ FORMFLOW_LLM_INPUT_MODE=auto
 
 当前客户端使用 OpenAI-compatible `/chat/completions` 的 `file` 与 `image_url` 内容块。不同 provider 的文件格式可能不同；第一次接入应使用授权的脱敏样本验证文件输入、页码证据和失败响应。验证失败时保留 `auto`，让系统按规则降级，或改用 `text`/`ocr`。
 
+如果蓝图声明了 `check.kind=visual_layout`，这条规则只接受原始 PDF/图片直传。没有直传能力时，系统会标记“检查未完成”并转人工，不会用 OCR 或文字层推断标题位置、对齐、页眉页脚等版式事实；模型返回的版式结论还必须带页面 `bbox` 区域，供组织者打开原件核对。
+
 ## 3. Skill、Harness 与 MCP 的职责
 
 审核 Skill 是服务端固定的 `review_one_submission`，只允许调用确定性规则和语义规则两个工具。Harness 负责任务/账号范围、工具白名单、调用预算、页数上限、幂等键、超时、结果大小和失败后的人工接手。模型不能自行选择 SQL、文件路径、规则 ID、用户权限或发布动作。
