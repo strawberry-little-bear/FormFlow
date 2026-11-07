@@ -1,0 +1,46 @@
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    env_file:
+      - ../.env
+    environment:
+      FORMFLOW_ENV: production
+      FORMFLOW_ALLOW_REGISTRATION: "false"
+      FORMFLOW_DATABASE_URL: sqlite:////srv/formflow/data/formflow.db
+      FORMFLOW_STORAGE_DIR: /srv/formflow/data/storage
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - formflow_data:/srv/formflow/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/ready', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    env_file:
+      - ../.env
+    environment:
+      FORMFLOW_ENV: production
+      FORMFLOW_ALLOW_REGISTRATION: "false"
+      FORMFLOW_DATABASE_URL: sqlite:////srv/formflow/data/formflow.db
+      FORMFLOW_STORAGE_DIR: /srv/formflow/data/storage
+    command: ["python", "-m", "app.worker"]
+    volumes:
+      - formflow_data:/srv/formflow/data
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  formflow_data:

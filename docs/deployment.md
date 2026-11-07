@@ -7,6 +7,8 @@
 复制 `.env.example` 为 `.env`，只在部署主机上填写：
 
 ```dotenv
+FORMFLOW_ENV=production
+FORMFLOW_ALLOW_REGISTRATION=false
 FORMFLOW_DATABASE_URL=sqlite:////srv/formflow/data/formflow.db
 FORMFLOW_STORAGE_DIR=/srv/formflow/data/storage
 FORMFLOW_LLM_BASE_URL=https://your-provider.example/v1
@@ -18,6 +20,9 @@ FORMFLOW_LLM_INPUT_MODE=auto
 `.env` 已被 Git 忽略。FormFlow 只在进程启动时读取本机 `.env`、进程环境或部署平台 Secret；不会把 `FORMFLOW_LLM_API_KEY` 写入数据库、审计事件、日志、浏览器响应、Skill 提示词或 MCP 配置。`/api/health` 只返回 provider、模型、输入模式和 `api_key_exposed: false`。
 
 这代表“FormFlow 不代管密钥”，不代表材料不会离开本机。启用真实模型后，原始材料或解析文本可能发送到用户选择的 provider；留存、跨境、计费和训练政策由 provider 决定。正式部署前应由组织者确认 provider 的文件输入政策和数据处理条款。
+
+生产环境默认关闭公开注册。组织者账号应通过受控初始化流程创建；演示和本地开发可使用
+`development`/`demo` 保持注册入口。
 
 ## 2. 审核输入链路
 
@@ -52,7 +57,9 @@ python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --require-hashes -r requirements.lock
 cp .env.example .env
-# 编辑 .env，填写数据库、附件目录和模型配置
+# 编辑 .env，填写数据库、附件目录和模型配置；生产环境保持公开注册关闭
+
+python scripts/create_account.py --username organizer
 
 uvicorn app.main:app --host 127.0.0.1 --port 8000
 # 另开终端，使用同一 .env、数据库和附件目录
@@ -63,11 +70,40 @@ Windows PowerShell 使用 `.venv\Scripts\Activate.ps1`，其余命令相同。�
 
 ```bash
 curl http://127.0.0.1:8000/api/health
+curl http://127.0.0.1:8000/api/ready
 ```
+
+`/health` 只表示进程还活着；`/api/ready` 会检查数据库连接和附件目录，失败时返回 HTTP 503，
+适合反向代理、容器或进程管理器的就绪探针。Worker 仍需由独立进程管理器保持运行。
 
 公网访问时，将 Uvicorn 绑定在 `127.0.0.1`，前面放 Caddy、Nginx 或云负载均衡，终止 HTTPS 并转发到 8000。API 和 Worker 必须使用同一份配置；不要使用 `--reload`、演示种子、演示账号或共享的开发数据库。
 
 SQLite 文件和 `FORMFLOW_STORAGE_DIR` 必须位于持久磁盘。备份应同时覆盖数据库和附件，并定期在新目录做恢复演练。需要多 Worker 或多 API 实例前，先把 SQLite 换成受支持的共享数据库，并为队列任务增加领取锁/租约；当前执行模型按单 Worker 设计。
+
+### Docker Compose（可选）
+
+仓库提供 `deploy/docker-compose.yml`，用于把 API 和 Worker 固定在同一份配置、数据库和附件卷中：
+
+```bash
+cp .env.example .env
+# 编辑 .env，至少填写 FORMFLOW_LLM_BASE_URL、FORMFLOW_LLM_MODEL 和密钥
+docker compose -f deploy/docker-compose.yml up -d --build
+curl http://127.0.0.1:8000/api/ready
+docker compose -f deploy/docker-compose.yml logs -f api worker
+```
+
+Compose 只把 API 绑定到本机回环地址，公网访问仍应由 Caddy、Nginx 或云负载均衡终止 HTTPS 后转发。
+`formflow_data` 卷同时保存 SQLite 和附件；升级前先停服务并完成备份，不能把演示数据库挂到生产卷。
+
+Compose 首次创建账号时，在 API 容器启动前执行一次：
+
+```bash
+docker compose -f deploy/docker-compose.yml run --rm api \
+  python scripts/create_account.py --username organizer
+docker compose -f deploy/docker-compose.yml up -d --build
+```
+
+脚本通过交互式输入读取密码，不会把密码写进命令行参数或日志。
 
 ## 5. 上线前检查
 

@@ -934,9 +934,9 @@ function viewLogin(initialTab = "org", notice = "") {
           autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
         <div class="row" style="margin-top:12px">
           <button onclick="doLogin()" style="flex:2">登录</button>
-          <button class="ghost" onclick="doRegister()">注册并登录</button>
+          <button id="register-btn" class="ghost" onclick="doRegister()">注册并登录</button>
         </div>
-        <p class="kv" style="margin-top:10px">第一次使用？直接点「注册并登录」就好，数据只存在你本机。</p>
+        <p id="register-note" class="kv" style="margin-top:10px">第一次使用？直接点「注册并登录」就好，数据只存在你本机。</p>
       </div>
       <div id="pane-sub" role="tabpanel" aria-labelledby="tab-sub"${submitterTab ? "" : " hidden"}>
         <label for="lg-cred">提交凭证</label>
@@ -950,6 +950,7 @@ function viewLogin(initialTab = "org", notice = "") {
   </div>`;
   if (notice) loginErr(notice);
   checkDemoUser();
+  checkRegistrationStatus();
 }
 function switchLoginTab(which) {
   const org = which === "org";
@@ -986,6 +987,21 @@ async function checkDemoUser() {
     const r = await api("/api/auth/check-demo");
     if (r.exists) document.getElementById("demo-hint")?.style.setProperty("display", "");
   } catch (e) { /* endpoint may not exist; silently skip */ }
+}
+async function checkRegistrationStatus() {
+  try {
+    const r = await api("/api/config/status");
+    const button = document.getElementById("register-btn");
+    const note = document.getElementById("register-note");
+    if (r.registration_open === false) {
+      if (button) {
+        button.disabled = true;
+        button.title = "当前部署已关闭公开注册";
+        button.textContent = "注册已关闭";
+      }
+      if (note) note.textContent = "当前部署由组织者管理账号，请联系管理员创建登录账号。";
+    }
+  } catch (e) { /* older servers keep the local registration affordance */ }
 }
 async function doLogin() {
   const username = document.getElementById("lg-user").value.trim();

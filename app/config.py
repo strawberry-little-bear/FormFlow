@@ -19,6 +19,14 @@ class Settings:
     """运行配置。密钥仅从环境读取。"""
 
     def __init__(self) -> None:
+        self.environment: str = os.environ.get("FORMFLOW_ENV", "development").strip().lower()
+        if self.environment not in {"development", "demo", "production", "test"}:
+            self.environment = "development"
+        # Public account creation is convenient for a local demo, but should be
+        # explicitly disabled on an internet-facing deployment.
+        self.allow_registration: bool = _env_bool(
+            "FORMFLOW_ALLOW_REGISTRATION", self.environment != "production"
+        )
         # 大模型网关（OpenAI 兼容接口）
         self.llm_base_url: str = os.environ.get(
             "FORMFLOW_LLM_BASE_URL", "https://aigw.saurlax.com/v1"
@@ -57,6 +65,19 @@ class Settings:
     @property
     def llm_configured(self) -> bool:
         return bool(self.llm_api_key)
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    """Parse a boolean environment value without treating arbitrary text as true."""
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    value = raw.strip().lower()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+    return default
 
 
 settings = Settings()

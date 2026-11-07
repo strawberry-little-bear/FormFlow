@@ -2,15 +2,18 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+import os
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import text
 
 from .api.routes import router
-from .db import init_db
+from .db import SessionLocal, init_db
 from .config import settings
+from . import storage
 from .services.agent_runtime import AGENT_RUNTIME_CONTRACT_VERSION
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -48,6 +51,29 @@ def demo_health() -> dict:
             "api_key_exposed": False,
         },
     }
+
+
+@app.get("/api/ready")
+def readiness(response: Response) -> dict:
+    """Return 200 only when the API can reach its database and storage root."""
+    checks = {"database": False, "storage": False}
+    try:
+        with SessionLocal() as db:
+            db.execute(text("SELECT 1"))
+        checks["database"] = True
+    except Exception:
+        # The endpoint is used by a proxy/container health check; do not expose
+        # connection details or exception text to an unauthenticated caller.
+        pass
+    try:
+        storage_root = storage.ensure_storage()
+        checks["storage"] = storage_root.is_dir() and os.access(storage_root, os.W_OK)
+    except OSError:
+        pass
+    ready = all(checks.values())
+    if not ready:
+        response.status_code = 503
+    return {"status": "ready" if ready else "not_ready", "checks": checks}
 
 
 @app.get("/")

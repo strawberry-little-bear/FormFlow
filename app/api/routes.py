@@ -206,6 +206,8 @@ def current_subject(
 @router.post("/accounts")
 def create_account(username: str = Form(...), password: str = Form(...),
                    db: Session = Depends(get_db)):
+    if not settings.allow_registration:
+        raise HTTPException(403, "当前部署已关闭公开注册，请联系组织者创建账号")
     if db.scalar(select(Account).where(Account.username == username)):
         raise HTTPException(409, "用户名已存在")
     salt = new_salt()
@@ -235,7 +237,11 @@ def check_demo(db: Session = Depends(get_db)):
 def config_status():
     """Public endpoint: report whether LLM is configured, for UI hints."""
     from ..config import settings
-    return {"llm_configured": settings.llm_configured}
+    return {
+        "llm_configured": settings.llm_configured,
+        "registration_open": settings.allow_registration,
+        "environment": settings.environment,
+    }
 
 # ---------------------------------------------------------------- 任务与蓝图
 @router.post("/tasks")
