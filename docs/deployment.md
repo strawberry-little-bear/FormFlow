@@ -48,6 +48,8 @@ FORMFLOW_LLM_INPUT_MODE=auto
 
 审核 Skill 是服务端固定的 `review_one_submission`，只允许调用确定性规则和语义规则两个工具。Harness 负责任务/账号范围、工具白名单、调用预算、页数上限、幂等键、超时、结果大小和失败后的人工接手。模型不能自行选择 SQL、文件路径、规则 ID、用户权限或发布动作。
 
+需求整理的 Harness 把调用路径拆开记录：正常路径最多 1 次直传模型调用；只有直传被 provider 拒绝或失败时，`auto` 才最多追加 1 次文字/OCR 降级调用。这里的 2 次是整个请求的上限，不是每次请求都会调用两次。
+
 MCP 是可选的只读 sidecar，提供任务列表、收集汇总、下一步路线和 Agent runtime 合同查询。它复用组织者会话并由 API 再做任务所有权校验；不读取逐人名单、材料正文，也不提供写入工具。MCP 不持有模型 API Key，也不绕过审核 Skill 的 provider 权限。网页内置 Agent 不直接启动外部 MCP sidecar。
 
 ## 4. 单机部署

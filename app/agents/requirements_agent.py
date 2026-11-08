@@ -77,13 +77,16 @@ class RequirementsHarnessSpec:
 
     The requirements Agent is wrapped by the durable request queue. In auto
     input mode it may use one direct-file call followed by one fallback call;
-    keeping that upper bound explicit makes the workflow inspectable and gives
-    the service a place to fail closed before persisting a draft.
+    a successful direct call, or a text-only request, stops after the first
+    call. Keeping this upper bound explicit makes the workflow inspectable and
+    gives the service a place to fail closed before persisting a draft.
     """
 
     name: str
     # auto input mode may use one direct-file call plus one fallback call.
     max_model_calls: int
+    max_direct_model_calls: int
+    max_fallback_model_calls: int
     max_clarifications: int
     max_request_bytes: int
     max_output_clarification_options: int
@@ -94,6 +97,8 @@ class RequirementsHarnessSpec:
 REQUIREMENTS_HARNESS = RequirementsHarnessSpec(
     name="requirements_draft_harness",
     max_model_calls=2,
+    max_direct_model_calls=1,
+    max_fallback_model_calls=1,
     max_clarifications=MAX_CLARIFICATIONS,
     max_request_bytes=128 * 1024,
     max_output_clarification_options=4,
@@ -151,6 +156,8 @@ def requirements_harness_manifest() -> dict[str, object]:
     return {
         "name": REQUIREMENTS_HARNESS.name,
         "max_model_calls": REQUIREMENTS_HARNESS.max_model_calls,
+        "max_direct_model_calls": REQUIREMENTS_HARNESS.max_direct_model_calls,
+        "max_fallback_model_calls": REQUIREMENTS_HARNESS.max_fallback_model_calls,
         "max_clarifications": REQUIREMENTS_HARNESS.max_clarifications,
         "max_request_bytes": REQUIREMENTS_HARNESS.max_request_bytes,
         "max_output_clarification_options": REQUIREMENTS_HARNESS.max_output_clarification_options,
@@ -188,6 +195,9 @@ def requirements_harness_self_test() -> dict[str, object]:
     """Validate the requirements Harness contract without calling a model."""
     checks = [
         ("direct_then_fallback_bound", REQUIREMENTS_HARNESS.max_model_calls == 2),
+        ("direct_call_bound", REQUIREMENTS_HARNESS.max_direct_model_calls == 1),
+        ("fallback_call_bound", REQUIREMENTS_HARNESS.max_fallback_model_calls == 1),
+        ("total_matches_paths", REQUIREMENTS_HARNESS.max_model_calls == REQUIREMENTS_HARNESS.max_direct_model_calls + REQUIREMENTS_HARNESS.max_fallback_model_calls),
         ("clarification_bound", REQUIREMENTS_HARNESS.max_clarifications == MAX_CLARIFICATIONS),
         ("request_payload_bound", REQUIREMENTS_HARNESS.max_request_bytes > 0),
         ("choice_bound", REQUIREMENTS_HARNESS.max_output_clarification_options == 4),

@@ -19,6 +19,9 @@ data/
 dist/
 build/
 *.log
+formflow-showcase.webm
+docs/*-captioned.webm
+docs/pages-*.png
 
 # 系统文件
 Thumbs.db

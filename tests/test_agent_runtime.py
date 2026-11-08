@@ -92,6 +92,8 @@ def test_agent_runtime_manifest_is_owner_scoped_and_descriptive(db_session):
         requirements_harness = payload["requirements_harness"]
         assert requirements_harness["name"] == "requirements_draft_harness"
         assert requirements_harness["max_model_calls"] == 2
+        assert requirements_harness["max_direct_model_calls"] == 1
+        assert requirements_harness["max_fallback_model_calls"] == 1
         assert requirements_harness["max_clarifications"] == 3
         assert requirements_harness["max_request_bytes"] == 131072
         assert requirements_harness["max_output_clarification_options"] == 4

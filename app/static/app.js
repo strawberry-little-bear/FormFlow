@@ -1217,6 +1217,8 @@ function agentTourRuntimeHtml(runtime = null) {
   const reviewSkill = runtimeReviewSkill(runtime);
   const requirements = (runtime?.skills || []).find(skill => skill.name === "requirements_draft") || {};
   const requirementsHarness = runtime?.requirements_harness || {};
+  const directModelCalls = Number(requirementsHarness.max_direct_model_calls ?? 1);
+  const fallbackModelCalls = Number(requirementsHarness.max_fallback_model_calls ?? 1);
   const harness = runtime?.harness;
   const tools = runtimeToolNames(runtime, reviewSkill);
   const budget = harness
@@ -1226,7 +1228,7 @@ function agentTourRuntimeHtml(runtime = null) {
     ? `由应用服务处理，按 ${requirements.request_idempotency === "task_account_request_id" ? "任务、账号和请求编号" : requirements.request_idempotency} 恢复；版本冲突 ${requirements.version_conflict === "fail_closed" ? "拒绝写入" : "按服务端策略处理"}，${requirements.human_gate || "由组织者确认后生效"}`
     : "由应用服务处理并等待组织者确认，不直接发布规则或时间策略";
   const requirementsBudget = requirementsHarness.max_model_calls
-    ? `需求 Harness：每次最多 ${requirementsHarness.max_model_calls} 次模型调用、${requirementsHarness.max_clarifications} 项澄清、${requirementsHarness.max_output_clarification_options} 个选项`
+    ? `需求 Harness：正常 ${directModelCalls} 次模型调用；直传失败时最多再试 ${fallbackModelCalls} 次降级 · 澄清 ${requirementsHarness.max_clarifications} 项 · 选项 ${requirementsHarness.max_output_clarification_options} 个`
     : "需求 Harness：单次请求受输入、澄清和失败边界约束";
   const mcp = runtime?.mcp;
   const mcpTools = (mcp?.adapters || []).flatMap(adapter => adapter.tools || []);
@@ -1270,13 +1272,15 @@ function designRuntimeHtml(runtime = null) {
   const mode = runtime?.model?.label || "受限运行时";
   const skill = (runtime?.skills || []).find(item => item.name === "requirements_draft") || {};
   const requirementsHarness = runtime?.requirements_harness || {};
+  const directModelCalls = Number(requirementsHarness.max_direct_model_calls ?? 1);
+  const fallbackModelCalls = Number(requirementsHarness.max_fallback_model_calls ?? 1);
   const tools = runtimeToolNames(runtime, skill);
   const mcp = runtime?.mcp?.boundary || "网页内置 Agent 不调用外部 MCP；只读 sidecar 提供任务列表、收集汇总、流程下一步和 Agent runtime，不读取逐人名单或材料。";
   const execution = skill.request_idempotency
     ? "持久请求队列 · 同请求幂等恢复 · 版本冲突拒绝"
     : "scope、预算、幂等键、结果上限与审计在边界内检查";
   const requirementsBudget = requirementsHarness.max_model_calls
-    ? `需求 Harness：模型 ${requirementsHarness.max_model_calls} 次 · 澄清 ${requirementsHarness.max_clarifications} 项 · 选项 ${requirementsHarness.max_output_clarification_options} 个`
+    ? `需求 Harness：正常 ${directModelCalls} 次模型调用；直传失败时最多再试 ${fallbackModelCalls} 次降级 · 澄清 ${requirementsHarness.max_clarifications} 项 · 选项 ${requirementsHarness.max_output_clarification_options} 个`
     : "需求 Harness：输入、澄清和失败边界由服务端检查";
   return `<details id="design-agent-runtime" class="agent-runtime-card" aria-label="智能协作边界">
     <summary class="runtime-card-summary">

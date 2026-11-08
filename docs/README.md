@@ -4,6 +4,8 @@ FormFlow 将“整理收集要求”和“核验提交材料”放在同一条�
 
 ## 先体验
 
+项目介绍页：[strawberry-little-bear.github.io/FormFlow](https://strawberry-little-bear.github.io/FormFlow/)。它把双 Agent 主线、Skill/Harness/MCP 边界和真实产品截图放在一个适合评审者快速浏览的页面里。
+
 | 文档 | 适合了解 |
 | --- | --- |
 | [体验指南](demo-guide.md) | 组织者与提交者如何完成一次从建任务到归档的流程 |

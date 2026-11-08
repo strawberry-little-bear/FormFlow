@@ -96,7 +96,7 @@ python scripts/demo_mcp.py --non-interactive --task-id 1
 
 ## 观看与录制演示
 
-无需本地安装即可观看 [42 秒演示录像](https://github.com/user-attachments/assets/6863ce54-7200-4b48-8165-ab0b7f1cf460)。录像只使用虚构种子数据和离线审核回放，不展示真实模型审核质量。
+无需本地安装即可观看 [42 秒演示录像](https://github.com/user-attachments/assets/6863ce54-7200-4b48-8165-ab0b7f1cf460)。录像只使用虚构种子数据和离线审核回放，不展示真实模型审核质量。新版录制器会把中文字幕、阶段进度、Agent 提示卡和当前区域高亮直接录进 WebM，不依赖额外视频后处理工具。
 
 需要重新录制时，先在隔离演示数据库中写入种子数据，再依次运行 `scripts/ux_requirements_materials_walkthrough.cjs` 和 `scripts/ux_first_task_submitter_entry_walkthrough.cjs`。这会创建任务 3（需求资料设计）与任务 4（已验收并导出）；种子任务 2 提供跨材料复核。随后设置本次种子生成的虚构提交者凭证和输出路径：
 
@@ -107,7 +107,7 @@ $env:FORMFLOW_VIDEO_OUT = "$env:TEMP\formflow-showcase.webm"
 node scripts/ux_record_showcase.cjs
 ```
 
-录制器会依次展示需求设计、收集工作台、跨材料复核、提交者回执和交付归档。不要对真实任务或真实提交者凭证录制。
+录制器会依次展示需求设计、收集工作台、跨材料复核、提交者回执和交付归档。输出文件本身已经包含字幕和重点标注；默认写入当前目录的 `formflow-showcase.webm`，建议用 `FORMFLOW_VIDEO_OUT` 指向 `docs/formflow-showcase-captioned.webm`。不要对真实任务或真实提交者凭证录制。
 
 ## 自动化检查
 

@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="FormFlow 收齐啦：把通知、名单和材料变成可执行、可核验的收集流程。">
+  <meta name="theme-color" content="#17151f">
+  <title>FormFlow · 收齐啦</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%237b5ce1'/%3E%3Ctext x='32' y='43' text-anchor='middle' font-size='34' font-family='sans-serif' fill='white'%3E齐%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="site.css">
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="#top" aria-label="FormFlow 首页"><span class="brand-mark">齐</span><span>FormFlow</span></a>
+    <nav aria-label="主导航">
+      <a href="#workflow">流程</a>
+      <a href="#agents">Agent 边界</a>
+      <a href="#evidence">产品实拍</a>
+      <a href="deployment.md">部署说明</a>
+    </nav>
+    <a class="header-action" href="https://github.com/strawberry-little-bear/FormFlow">查看 GitHub <span aria-hidden="true">↗</span></a>
+  </header>
+
+  <main id="top">
+    <section class="hero">
+      <div class="hero-backdrop" aria-hidden="true"></div>
+      <div class="hero-inner">
+        <div class="hero-copy" data-reveal>
+          <p class="eyebrow">FORMFLOW / 收齐啦</p>
+          <h1>把一份通知，变成可执行、可核验的材料流程。</h1>
+          <p class="hero-lede">从通知、名单和模板开始，FormFlow 帮组织者生成收集蓝图，再把提交者的表单与多份材料变成带证据的逐项核验结果。</p>
+          <div class="hero-actions">
+            <a class="button button-primary" href="#workflow">看懂一次收集 <span aria-hidden="true">↓</span></a>
+            <a class="button button-quiet" href="demo-guide.md">打开体验指南 <span aria-hidden="true">↗</span></a>
+          </div>
+          <p class="hero-note"><span class="status-dot"></span> 虚构种子可离线体验；真实模型由部署者自行配置</p>
+        </div>
+        <div class="hero-proof" data-reveal>
+          <div class="proof-top"><span>当前展示任务</span><b>2026 秋季第 1 期团课报告</b></div>
+          <div class="proof-row"><span class="proof-index">01</span><div><b>需求 Agent</b><small>通知 → 字段、材料、规则</small></div><span class="proof-state">已整理</span></div>
+          <div class="proof-row"><span class="proof-index">02</span><div><b>审核 Agent</b><small>表单 + 多份文件 → 证据</small></div><span class="proof-state">可复核</span></div>
+          <div class="proof-row"><span class="proof-index">03</span><div><b>组织者</b><small>处理不确定项，确认最终交付</small></div><span class="proof-state proof-state-warm">最后决定</span></div>
+        </div>
+      </div>
+      <div class="hero-scroll" aria-hidden="true"><span></span>向下查看产品路径</div>
+    </section>
+
+    <section class="signal-band" aria-label="产品概览">
+      <div><strong>2</strong><span>个分工明确的 Agent</span></div>
+      <div><strong>4</strong><span>段可追溯运行阶段</span></div>
+      <div><strong>1</strong><span>条从要求到交付的证据链</span></div>
+      <p>Skill 固定方法，Harness 限制执行，MCP 提供只读状态，人保留发布与验收权。</p>
+    </section>
+
+    <section class="section workflow" id="workflow">
+      <div class="section-heading" data-reveal>
+        <p class="eyebrow">ONE COLLECTION, FOUR STOPS</p>
+        <h2>从“我要收什么”到“这份交付为什么可信”。</h2>
+        <p>FormFlow 把容易散落在聊天记录、表格和附件里的工作，放进一条能被组织者检查、被提交者理解的路径。</p>
+      </div>
+      <div class="workflow-grid">
+        <article class="workflow-step" data-reveal><span>01</span><div><h3>聊清要求</h3><p>上传通知、名单、模板，补充自然语言要求。需求 Agent 生成可编辑蓝图，冲突和疑问会留给你确认。</p><a href="interaction-optimization.md">看交互说明 <span>↗</span></a></div></article>
+        <article class="workflow-step" data-reveal><span>02</span><div><h3>发布收集</h3><p>确认字段、材料槽位、时间策略和核验规则后再发布。未确认的草案不会悄悄变成正式门槛。</p><a href="demo-guide.md">看体验指南 <span>↗</span></a></div></article>
+        <article class="workflow-step" data-reveal><span>03</span><div><h3>逐条取证</h3><p>审核 Agent 对照已发布规则比较表单和多份文件，输出满足、问题、待确认或未完成，并保留定位线索。</p><a href="review-agent-evaluation.md">看评估边界 <span>↗</span></a></div></article>
+        <article class="workflow-step" data-reveal><span>04</span><div><h3>确认交付</h3><p>组织者处理人工事项后固定快照，生成 CSV 与 ZIP。交付范围和排除原因都可以回到原始状态。</p><a href="ux-review-index.md">看产品证据 <span>↗</span></a></div></article>
+      </div>
+    </section>
+
+    <section class="section agents" id="agents">
+      <div class="section-heading" data-reveal>
+        <p class="eyebrow">AGENT CONTROL PLANE</p>
+        <h2>AI 负责理解，人负责决定。</h2>
+        <p>FormFlow 把模型放进明确的工具和责任边界里，让“能做什么”和“应该停在哪里”都能被展示。</p>
+      </div>
+      <div class="agent-layout">
+        <div class="agent-stack" data-reveal>
+          <div class="agent-node node-skill"><span class="node-num">01</span><div><b>Skill · 需求整理</b><p>分类资料、抽取要求、检查冲突、提出澄清、返回可编辑草案。</p></div></div>
+          <div class="agent-connector" aria-hidden="true"></div>
+          <div class="agent-node node-harness"><span class="node-num">02</span><div><b>Harness · 执行护栏</b><p>任务范围、工具白名单、调用预算、幂等恢复、失败关闭。</p></div></div>
+          <div class="agent-connector" aria-hidden="true"></div>
+          <div class="agent-node node-mcp"><span class="node-num">03</span><div><b>MCP · 只读状态</b><p>提供任务列表、收集汇总和运行时合同，不读取材料正文，不写业务数据。</p></div></div>
+        </div>
+        <div class="human-panel" data-reveal>
+          <p class="eyebrow">HUMAN GATE</p>
+          <h3>不确定，就停在待确认。</h3>
+          <p>模型给出的文件、页码和区域是定位线索。组织者可以打开原文核对，处理人工判断，最后确认发布、补正和验收。</p>
+          <div class="human-list"><span><i>✓</i> 规则来源可追溯</span><span><i>✓</i> unknown 不伪装成通过</span><span><i>✓</i> API Key 只留在部署者本地</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section evidence" id="evidence">
+      <div class="section-heading" data-reveal>
+        <p class="eyebrow">PRODUCT EVIDENCE</p>
+        <h2>不是概念图，是已经跑过的产品路径。</h2>
+        <p>下面的画面来自虚构种子和真实浏览器走查，展示状态、证据、责任分工和交付结果。</p>
+      </div>
+      <div class="evidence-grid">
+        <figure class="evidence-feature" data-reveal><img src="ux-review-2026-10-30/showcase-home-current.png" alt="FormFlow 展示路线与 Agent 控制面板"><figcaption><b>展示路线</b><span>从当前焦点到下一步动作，四站串起来。</span></figcaption></figure>
+        <figure data-reveal><img src="ux-review-2026-10-23/design.png" alt="需求设计聊天与收集表预览"><figcaption><b>需求设计</b><span>聊天整理，右侧实时预览。</span></figcaption></figure>
+        <figure data-reveal><img src="ux-review-2026-10-23/review-s2.png" alt="证据复核页面"><figcaption><b>证据复核</b><span>按规则查看结论与原文位置。</span></figcaption></figure>
+        <figure data-reveal><img src="ux-review-2026-10-23/delivery.png" alt="交付与归档页面"><figcaption><b>交付归档</b><span>固定快照，导出 CSV 与 ZIP。</span></figcaption></figure>
+      </div>
+    </section>
+
+    <section class="deploy-cta" data-reveal>
+      <div><p class="eyebrow">READY TO TRY</p><h2>先用虚构数据看懂，再接入自己的模型。</h2><p>本地启动不需要 API Key；接入真实 provider 时，密钥由部署者保存在本地环境或 Secret 文件中。</p></div>
+      <div class="cta-actions"><a class="button button-primary" href="demo-guide.md">开始体验 <span>↗</span></a><a class="button button-outline" href="deployment.md">部署与模型接入 <span>↗</span></a></div>
+    </section>
+  </main>
+
+  <footer class="site-footer"><span>FormFlow · 收齐啦</span><span>虚构种子展示 · MIT License</span><a href="https://github.com/strawberry-little-bear/FormFlow">GitHub <span>↗</span></a></footer>
+  <script src="site.js"></script>
+</body>
+</html>
