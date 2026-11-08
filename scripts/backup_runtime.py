@@ -28,6 +28,13 @@ from scripts.backup_demo import (
 )
 
 
+def configure_output_encoding() -> None:
+    """Keep Chinese CLI diagnostics safe when stdout/stderr are redirected."""
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="backslashreplace")
+
+
 def runtime_data_dir() -> Path:
     """Return the configured data directory, rejecting unsupported layouts."""
     url = settings.database_url
@@ -50,6 +57,7 @@ def default_output(data_dir: Path) -> Path:
 
 
 def main(argv: list[str] | None = None) -> int:
+    configure_output_encoding()
     parser = argparse.ArgumentParser(description="备份、校验和恢复 FormFlow 生产 SQLite 数据")
     subparsers = parser.add_subparsers(dest="command", required=True)
     create = subparsers.add_parser("create", help="在线备份数据库与附件")

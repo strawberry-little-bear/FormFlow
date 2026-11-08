@@ -18,6 +18,8 @@ def test_backup_runtime_script_runs_from_repository_root():
         cwd=root,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
     )
 
