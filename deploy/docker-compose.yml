@@ -3,13 +3,23 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile
-    env_file:
-      - ../.env
     environment:
-      FORMFLOW_ENV: production
-      FORMFLOW_ALLOW_REGISTRATION: "false"
-      FORMFLOW_DATABASE_URL: sqlite:////srv/formflow/data/formflow.db
-      FORMFLOW_STORAGE_DIR: /srv/formflow/data/storage
+      FORMFLOW_ENV: ${FORMFLOW_ENV:-production}
+      FORMFLOW_ALLOW_REGISTRATION: ${FORMFLOW_ALLOW_REGISTRATION:-false}
+      FORMFLOW_DATABASE_URL: ${FORMFLOW_DATABASE_URL:-sqlite:////srv/formflow/data/formflow.db}
+      FORMFLOW_STORAGE_DIR: ${FORMFLOW_STORAGE_DIR:-/srv/formflow/data/storage}
+      FORMFLOW_LLM_BASE_URL: ${FORMFLOW_LLM_BASE_URL:-https://aigw.saurlax.com/v1}
+      FORMFLOW_LLM_MODEL: ${FORMFLOW_LLM_MODEL:-glm-5.3}
+      FORMFLOW_LLM_INPUT_MODE: ${FORMFLOW_LLM_INPUT_MODE:-auto}
+      FORMFLOW_LLM_FALLBACK_MODEL: ${FORMFLOW_LLM_FALLBACK_MODEL:-}
+      FORMFLOW_LLM_MAX_FILE_BYTES: ${FORMFLOW_LLM_MAX_FILE_BYTES:-20971520}
+      FORMFLOW_MAX_PAGES_PER_RUN: ${FORMFLOW_MAX_PAGES_PER_RUN:-40}
+      FORMFLOW_MAX_LLM_CALLS_PER_RUN: ${FORMFLOW_MAX_LLM_CALLS_PER_RUN:-30}
+      FORMFLOW_LLM_TIMEOUT_SECONDS: ${FORMFLOW_LLM_TIMEOUT_SECONDS:-300}
+      FORMFLOW_LLM_MAX_RETRIES: ${FORMFLOW_LLM_MAX_RETRIES:-2}
+      FORMFLOW_MAX_OCR_PAGES_PER_FILE: ${FORMFLOW_MAX_OCR_PAGES_PER_FILE:-20}
+      FORMFLOW_OCR_TIME_BUDGET_SECONDS: ${FORMFLOW_OCR_TIME_BUDGET_SECONDS:-120}
+      FORMFLOW_LLM_API_KEY_FILE: /run/secrets/formflow_llm_api_key
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
     ports:
       - "127.0.0.1:8000:8000"
@@ -22,18 +32,30 @@ services:
       retries: 5
       start_period: 20s
     restart: unless-stopped
+    secrets:
+      - formflow_llm_api_key
 
   worker:
     build:
       context: ..
       dockerfile: deploy/Dockerfile
-    env_file:
-      - ../.env
     environment:
-      FORMFLOW_ENV: production
-      FORMFLOW_ALLOW_REGISTRATION: "false"
-      FORMFLOW_DATABASE_URL: sqlite:////srv/formflow/data/formflow.db
-      FORMFLOW_STORAGE_DIR: /srv/formflow/data/storage
+      FORMFLOW_ENV: ${FORMFLOW_ENV:-production}
+      FORMFLOW_ALLOW_REGISTRATION: ${FORMFLOW_ALLOW_REGISTRATION:-false}
+      FORMFLOW_DATABASE_URL: ${FORMFLOW_DATABASE_URL:-sqlite:////srv/formflow/data/formflow.db}
+      FORMFLOW_STORAGE_DIR: ${FORMFLOW_STORAGE_DIR:-/srv/formflow/data/storage}
+      FORMFLOW_LLM_BASE_URL: ${FORMFLOW_LLM_BASE_URL:-https://aigw.saurlax.com/v1}
+      FORMFLOW_LLM_MODEL: ${FORMFLOW_LLM_MODEL:-glm-5.3}
+      FORMFLOW_LLM_INPUT_MODE: ${FORMFLOW_LLM_INPUT_MODE:-auto}
+      FORMFLOW_LLM_FALLBACK_MODEL: ${FORMFLOW_LLM_FALLBACK_MODEL:-}
+      FORMFLOW_LLM_MAX_FILE_BYTES: ${FORMFLOW_LLM_MAX_FILE_BYTES:-20971520}
+      FORMFLOW_MAX_PAGES_PER_RUN: ${FORMFLOW_MAX_PAGES_PER_RUN:-40}
+      FORMFLOW_MAX_LLM_CALLS_PER_RUN: ${FORMFLOW_MAX_LLM_CALLS_PER_RUN:-30}
+      FORMFLOW_LLM_TIMEOUT_SECONDS: ${FORMFLOW_LLM_TIMEOUT_SECONDS:-300}
+      FORMFLOW_LLM_MAX_RETRIES: ${FORMFLOW_LLM_MAX_RETRIES:-2}
+      FORMFLOW_MAX_OCR_PAGES_PER_FILE: ${FORMFLOW_MAX_OCR_PAGES_PER_FILE:-20}
+      FORMFLOW_OCR_TIME_BUDGET_SECONDS: ${FORMFLOW_OCR_TIME_BUDGET_SECONDS:-120}
+      FORMFLOW_LLM_API_KEY_FILE: /run/secrets/formflow_llm_api_key
     command: ["python", "-m", "app.worker"]
     volumes:
       - formflow_data:/srv/formflow/data
@@ -41,6 +63,12 @@ services:
       api:
         condition: service_healthy
     restart: unless-stopped
+    secrets:
+      - formflow_llm_api_key
+
+secrets:
+  formflow_llm_api_key:
+    file: ../.formflow_llm_api_key
 
 volumes:
   formflow_data:

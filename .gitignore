@@ -10,6 +10,7 @@ venv/
 .env.*
 !.env.example
 *.local
+.formflow_llm_api_key
 
 # 本地数据（数据库与私有文件存储）
 data/

@@ -105,13 +105,16 @@ Docker 构建上下文通过根目录 `.dockerignore` 排除本地 `.env`、数�
 
 ```bash
 cp .env.example .env
-# 编辑 .env，至少填写 FORMFLOW_LLM_BASE_URL、FORMFLOW_LLM_MODEL 和密钥
+# 编辑 .env，填写 provider、模型和非敏感运行配置
+# 有真实模型时，把密钥单独放到仓库外文件；没有密钥时创建空文件，仍可运行离线/人工流程
+touch .formflow_llm_api_key
+# 将 API Key 写入 .formflow_llm_api_key，并限制文件权限（Linux：chmod 600 .formflow_llm_api_key）
 docker compose -f deploy/docker-compose.yml up -d --build
 curl http://127.0.0.1:8000/api/ready
 docker compose -f deploy/docker-compose.yml logs -f api worker
 ```
 
-Compose 只把 API 绑定到本机回环地址，公网访问仍应由 Caddy、Nginx 或云负载均衡终止 HTTPS 后转发。
+Compose 通过文件型 Secret 把 `.formflow_llm_api_key` 只读挂载到 API 和 Worker；密钥不会进入容器环境变量，也不会出现在 `docker compose config` 的展开结果中。Compose 只把 API 绑定到本机回环地址，公网访问仍应由 Caddy、Nginx 或云负载均衡终止 HTTPS 后转发。
 `formflow_data` 卷同时保存 SQLite 和附件；升级前先停服务并完成备份，不能把演示数据库挂到生产卷。
 
 Compose 首次创建账号时，在 API 容器启动前执行一次：

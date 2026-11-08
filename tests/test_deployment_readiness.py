@@ -15,6 +15,16 @@ def test_docker_build_context_excludes_secrets_and_local_data():
     assert {".env", ".env.*", "!.env.example", "data", "**/data", ".git"} <= patterns
 
 
+def test_compose_uses_file_secret_instead_of_api_key_environment_value():
+    compose = (Path(__file__).resolve().parents[1] / "deploy" / "docker-compose.yml").read_text(
+        encoding="utf-8"
+    )
+    assert "env_file:" not in compose
+    assert "FORMFLOW_LLM_API_KEY_FILE: /run/secrets/formflow_llm_api_key" in compose
+    assert "FORMFLOW_LLM_API_KEY:" not in compose
+    assert "file: ../.formflow_llm_api_key" in compose
+
+
 def test_readiness_reports_database_and_storage():
     with TestClient(app) as client:
         response = client.get("/api/ready")
@@ -47,3 +57,16 @@ def test_config_status_exposes_only_non_secret_deployment_flags():
     assert payload["registration_open"] is settings.allow_registration
     assert payload["environment"] == settings.environment
     assert "api_key" not in payload
+
+
+def test_config_can_read_api_key_from_local_secret_file(tmp_path, monkeypatch):
+    secret = tmp_path / "llm-key"
+    secret.write_text("file-secret\n", encoding="utf-8")
+    monkeypatch.delenv("FORMFLOW_LLM_API_KEY", raising=False)
+    monkeypatch.setenv("FORMFLOW_LLM_API_KEY_FILE", str(secret))
+
+    from app.config import Settings
+
+    configured = Settings()
+    assert configured.llm_api_key == "file-secret"
+    assert configured.llm_configured is True

@@ -31,7 +31,13 @@ class Settings:
         self.llm_base_url: str = os.environ.get(
             "FORMFLOW_LLM_BASE_URL", "https://aigw.saurlax.com/v1"
         ).rstrip("/")
-        self.llm_api_key: str = os.environ.get("FORMFLOW_LLM_API_KEY", "")
+        # Direct process deployments can use the environment variable. Docker
+        # deployments can mount a file secret so compose config never expands
+        # the key into its output.
+        self.llm_api_key_file: Path | None = _env_path("FORMFLOW_LLM_API_KEY_FILE")
+        self.llm_api_key: str = os.environ.get("FORMFLOW_LLM_API_KEY", "").strip()
+        if not self.llm_api_key and self.llm_api_key_file:
+            self.llm_api_key = _read_secret_file(self.llm_api_key_file)
         self.llm_model: str = os.environ.get("FORMFLOW_LLM_MODEL", "glm-5.3")
         # auto 优先把原始文件交给支持文件输入的模型；不支持时回退到文本解析/OCR。
         # text/ocr 可用于明确禁止原始材料离开本机，direct 则在不支持时直接报未完成。
@@ -78,6 +84,19 @@ def _env_bool(name: str, default: bool) -> bool:
     if value in {"0", "false", "no", "off"}:
         return False
     return default
+
+
+def _env_path(name: str) -> Path | None:
+    raw = os.environ.get(name, "").strip()
+    return Path(raw) if raw else None
+
+
+def _read_secret_file(path: Path) -> str:
+    """Read a local secret without including its value in errors."""
+    try:
+        return path.read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeError):
+        return ""
 
 
 settings = Settings()

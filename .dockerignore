@@ -15,6 +15,7 @@ tests
 .env
 .env.*
 !.env.example
+.formflow_llm_api_key
 *.log
 *.db
 *.db-*
