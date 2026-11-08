@@ -6,7 +6,7 @@
   --accent:#6250d5;
   --bg:#f7f8fa;
   --ink:#242731;
-  --muted:#7b808d;
+  --muted:#626775;
   --line:#e8e9ee;
   --line-soft:#f0f1f4;
   --ok:#246b4b;
@@ -588,6 +588,7 @@ dialog.wide { width:min(720px,calc(100vw - 32px)); }
   overflow-y:auto;
   scroll-behavior:smooth;
 }
+.chat-scroll:focus-visible { outline:2px solid #7962c9; outline-offset:-2px; }
 .msg {
   display:flex;
   gap:9px;
@@ -2171,14 +2172,16 @@ dialog p {
 .source-pack { margin:0 0 10px; padding:12px; border:1px solid #e8e3f2; border-radius:8px; background:#faf9fd; }
 .source-pack-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; margin-bottom:9px; }
 .source-pack-heading b { display:block; color:#3f3a50; font-size:11px; }
-.source-pack-heading span:not(.source-pack-badge) { display:block; margin-top:3px; color:#777384; font-size:9px; line-height:1.6; }
+.source-pack-heading span:not(.source-pack-badge) { display:block; margin-top:3px; color:#6f697a; font-size:9px; line-height:1.6; }
 .source-pack-badge { display:inline-flex; align-items:center; flex:0 0 auto; min-height:20px; padding:2px 7px; border:1px solid #ddd6ef; border-radius:999px; background:#f0ecfb; color:#68558f; font-size:9px; line-height:1.2; white-space:nowrap; }
 .source-pack-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
-.source-pack-grid label { min-width:0; color:#5e596a; font-size:10px; }
+.source-pack-grid label, .source-pack-entry { min-width:0; color:#5e596a; font-size:10px; }
 .source-pack-entry { display:block; min-width:0; }
 .source-pack-label { display:block; color:#4f495d; font-weight:600; }
-.source-file-picker { display:block; width:100%; min-height:30px; margin-top:5px; padding:5px 6px; border:1px dashed #d8d1e7; border-radius:6px; background:#fff; color:#6c6678; font-size:9px; }
-.source-file-picker:focus-visible { outline:2px solid #9a84ce; outline-offset:1px; }
+.source-file-button { display:flex; align-items:center; justify-content:center; gap:6px; width:100%; min-height:44px; margin-top:5px; padding:8px 10px; border:1px dashed #d8d1e7; border-radius:6px; background:#fff; color:#4f3e73; font-size:11px; line-height:1.4; cursor:pointer; }
+.source-file-button:hover { border-color:#b9a9df; background:#f7f4fe; }
+.source-file-button:focus-within, .source-pack-entry:focus-within .source-file-button { outline:2px solid #9a84ce; outline-offset:1px; }
+.source-file-button svg { width:14px; height:14px; }
 .source-pack-grid textarea { display:block; width:100%; min-height:58px; max-height:88px; margin-top:4px; padding:7px 8px; border-color:#e4dfed; background:#fff; font-size:10px; line-height:1.55; }
 .source-pack > .field-help { margin:8px 0 0; font-size:9px; }
 .source-files { min-width:0; margin-top:5px; }
@@ -2191,7 +2194,7 @@ dialog p {
 .source-material-main small { margin-top:3px; color:#777181; font-size:9px; line-height:1.45; white-space:normal; overflow-wrap:anywhere; }
 .source-material-delete { flex:0 0 auto; width:26px; min-height:26px; padding:4px; }
 .source-material-delete svg { width:14px; height:14px; }
-.source-material-empty, .source-materials-state { margin:5px 0 0; color:#96909f; font-size:9px; line-height:1.55; }
+.source-material-empty, .source-materials-state { margin:5px 0 0; color:#6f697a; font-size:9px; line-height:1.55; }
 .source-materials-state { display:flex; flex-wrap:wrap; gap:2px 9px; }
 .source-material-error { color:#9a4f57; }
 .link-button { padding:0; border:0; background:none; color:#65518b; font:inherit; text-decoration:underline; cursor:pointer; }

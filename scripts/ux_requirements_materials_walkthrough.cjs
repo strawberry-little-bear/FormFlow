@@ -115,7 +115,7 @@ async function main() {
     ];
     for (const [label, file, listId] of uploads) {
       const input = page.locator(`input[aria-label="${label}"]`);
-      await input.waitFor({ state: 'visible' });
+      await input.waitFor({ state: 'attached' });
       await input.setInputFiles(file);
       await page.waitForFunction(id => {
         const text = document.getElementById(id)?.innerText || '';
