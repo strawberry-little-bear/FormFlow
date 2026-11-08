@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
+import sys
 
 from fastapi.testclient import TestClient
 
@@ -23,6 +25,18 @@ def test_compose_uses_file_secret_instead_of_api_key_environment_value():
     assert "FORMFLOW_LLM_API_KEY_FILE: /run/secrets/formflow_llm_api_key" in compose
     assert "FORMFLOW_LLM_API_KEY:" not in compose
     assert "file: ../.formflow_llm_api_key" in compose
+
+
+def test_create_account_script_runs_outside_repository_cwd(tmp_path):
+    script = Path(__file__).resolve().parents[1] / "scripts" / "create_account.py"
+    result = subprocess.run(
+        [sys.executable, str(script), "--help"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    assert "创建一个 FormFlow 组织者账号" in result.stdout
 
 
 def test_readiness_reports_database_and_storage():
