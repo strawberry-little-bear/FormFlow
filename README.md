@@ -10,6 +10,8 @@ FormFlow 是面向报名、征集和评审场景的材料工作台。它把通�
 
 </div>
 
+[![CI](https://github.com/strawberry-little-bear/FormFlow/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/strawberry-little-bear/FormFlow/actions/workflows/ci.yml) [![GitHub Pages](https://github.com/strawberry-little-bear/FormFlow/actions/workflows/pages.yml/badge.svg?branch=main)](https://github.com/strawberry-little-bear/FormFlow/actions/workflows/pages.yml)
+
 ![FormFlow 展示视图](docs/ux-review-2026-10-30/showcase-home-current.png)
 
 ## 一条任务，从要求走到交付
