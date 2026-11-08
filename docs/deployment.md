@@ -150,6 +150,12 @@ python scripts/backup_runtime.py create
 python scripts/backup_runtime.py verify /srv/formflow/backups/formflow-20261107T120000Z.zip
 ```
 
+如果生产配置不在当前目录，也可以显式指定同一份环境文件：
+
+```bash
+python scripts/backup_runtime.py --env-file /etc/formflow/formflow.env create
+```
+
 恢复不会覆盖现有目录，只能恢复到新目录，校验通过后再按部署平台切换数据目录：
 
 ```bash

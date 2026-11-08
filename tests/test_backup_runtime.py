@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -25,6 +26,7 @@ def test_backup_runtime_script_runs_from_repository_root():
 
     assert result.returncode == 0
     assert "备份、校验和恢复" in result.stdout
+    assert "env-file" in result.stdout
 
 
 def test_runtime_data_dir_accepts_configured_sqlite_layout(tmp_path, monkeypatch):
@@ -33,6 +35,28 @@ def test_runtime_data_dir_accepts_configured_sqlite_layout(tmp_path, monkeypatch
     monkeypatch.setattr(settings, "storage_dir", data / "storage")
 
     assert backup_runtime.runtime_data_dir() == data.resolve()
+
+
+def test_runtime_data_dir_accepts_an_explicit_settings_object(tmp_path):
+    data = tmp_path / "data"
+    from app.config import Settings
+
+    old = {
+        "FORMFLOW_DATABASE_URL": os.environ.get("FORMFLOW_DATABASE_URL"),
+        "FORMFLOW_STORAGE_DIR": os.environ.get("FORMFLOW_STORAGE_DIR"),
+    }
+    try:
+        os.environ["FORMFLOW_DATABASE_URL"] = f"sqlite:///{data / 'formflow.db'}"
+        os.environ["FORMFLOW_STORAGE_DIR"] = str(data / "storage")
+        config = Settings()
+    finally:
+        for key, value in old.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+    assert backup_runtime.runtime_data_dir(config) == data.resolve()
 
 
 def test_runtime_data_dir_rejects_non_sqlite(monkeypatch):
