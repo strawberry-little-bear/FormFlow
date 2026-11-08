@@ -1,0 +1,5 @@
+# Replace example.com with the public hostname for this deployment.
+example.com {
+    encode gzip
+    reverse_proxy 127.0.0.1:8000
+}

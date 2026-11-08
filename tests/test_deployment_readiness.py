@@ -17,6 +17,16 @@ def test_docker_build_context_excludes_secrets_and_local_data():
     assert {".env", ".env.*", "!.env.example", "data", "**/data", ".git"} <= patterns
 
 
+def test_caddy_example_keeps_api_on_loopback():
+    root = Path(__file__).resolve().parents[1]
+    caddy = (root / "deploy" / "Caddyfile.example").read_text(encoding="utf-8")
+    deployment = (root / "docs" / "deployment.md").read_text(encoding="utf-8")
+
+    assert "example.com" in caddy
+    assert "reverse_proxy 127.0.0.1:8000" in caddy
+    assert "Caddyfile.example" in deployment
+
+
 def test_compose_uses_file_secret_instead_of_api_key_environment_value():
     compose = (Path(__file__).resolve().parents[1] / "deploy" / "docker-compose.yml").read_text(
         encoding="utf-8"

@@ -86,7 +86,15 @@ curl http://127.0.0.1:8000/api/ready
 
 组织者退出时，浏览器会清理本地凭证，并请求服务端撤销当前登录会话；网络暂时不可用时仍会先退出当前浏览器，恢复网络后不要继续使用旧页面。
 
-公网访问时，将 Uvicorn 绑定在 `127.0.0.1`，前面放 Caddy、Nginx 或云负载均衡，终止 HTTPS 并转发到 8000。API 和 Worker 必须使用同一份配置；不要使用 `--reload`、演示种子、演示账号或共享的开发数据库。
+公网访问时，将 Uvicorn 绑定在 `127.0.0.1`，前面放 Caddy、Nginx 或云负载均衡，终止 HTTPS 并转发到 8000。仓库提供了可直接修改域名的 [Caddy 示例](../deploy/Caddyfile.example)：
+
+```bash
+sudo cp deploy/Caddyfile.example /etc/caddy/Caddyfile
+# 编辑 /etc/caddy/Caddyfile，把 example.com 换成真实域名
+sudo systemctl reload caddy
+```
+
+Caddy 会负责证书申请和 HTTPS，FormFlow 仍只监听本机回环地址。API 和 Worker 必须使用同一份配置；不要使用 `--reload`、演示种子、演示账号或共享的开发数据库。
 
 SQLite 文件和 `FORMFLOW_STORAGE_DIR` 必须位于持久磁盘。备份应同时覆盖数据库和附件，并定期在新目录做恢复演练。需要多 Worker 或多 API 实例前，先把 SQLite 换成受支持的共享数据库，并为队列任务增加领取锁/租约；当前执行模型按单 Worker 设计。
 
