@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -223,7 +223,11 @@ def login(username: str = Form(...), password: str = Form(...), db: Session = De
     if acct is None or not verify_password(password, acct.password_salt, acct.password_hash):
         raise HTTPException(401, "用户名或密码错误")
     token = secrets.token_urlsafe(32)
-    db.add(AuthSession(token_hash=hash_credential(token), account_id=acct.id))
+    db.add(AuthSession(
+        token_hash=hash_credential(token),
+        account_id=acct.id,
+        expires_at=utcnow() + timedelta(seconds=settings.session_ttl_seconds),
+    ))
     db.commit()
     return {"token": token, "account_id": acct.id}
 

@@ -66,6 +66,10 @@ class Settings:
         # 默认 300s；主模型较慢且无降级时可按 provider 能力调大。
         self.llm_timeout_seconds: float = float(os.environ.get("FORMFLOW_LLM_TIMEOUT_SECONDS", "300"))
         self.llm_max_retries: int = int(os.environ.get("FORMFLOW_LLM_MAX_RETRIES", "2"))
+        # 组织者会话默认保留 7 天；显式设置可缩短公网部署的 token 有效期。
+        self.session_ttl_seconds: int = max(
+            300, int(os.environ.get("FORMFLOW_SESSION_TTL_SECONDS", str(7 * 24 * 60 * 60)))
+        )
 
     @property
     def llm_configured(self) -> bool:

@@ -73,6 +73,18 @@ def test_session_persisted_in_db(client, db_session):
     assert r.status_code == 200
 
 
+def test_login_session_has_configured_expiry(client, db_session):
+    _register(client, "expiring-org")
+    s = Session(engine)
+    sess = s.scalars(select(AuthSession)).one()
+    assert sess.expires_at is not None
+    expires_at = sess.expires_at
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=utcnow().tzinfo)
+    assert expires_at > utcnow()
+    s.close()
+
+
 def test_logout_revokes_current_session_and_is_idempotent(client, db_session):
     headers = _register(client, "logout-user")
     assert client.post("/api/auth/logout", headers=headers).json() == {"revoked": True}

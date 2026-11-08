@@ -15,6 +15,7 @@ FORMFLOW_LLM_BASE_URL=https://your-provider.example/v1
 FORMFLOW_LLM_API_KEY=由用户自行填写
 FORMFLOW_LLM_MODEL=your-model
 FORMFLOW_LLM_INPUT_MODE=auto
+FORMFLOW_SESSION_TTL_SECONDS=604800
 ```
 
 `.env` 已被 Git 忽略。FormFlow 只在进程启动时读取本机 `.env`、进程环境或部署平台 Secret；不会把 `FORMFLOW_LLM_API_KEY` 写入数据库、审计事件、日志、浏览器响应、Skill 提示词或 MCP 配置。`/api/health` 只返回 provider、模型、输入模式和 `api_key_exposed: false`。
@@ -25,6 +26,8 @@ FORMFLOW_LLM_INPUT_MODE=auto
 
 生产环境默认关闭公开注册。组织者账号应通过受控初始化流程创建；演示和本地开发可使用
 `development`/`demo` 保持注册入口。
+
+组织者登录会话默认有效 7 天，服务重启不会丢失；公网部署可以通过 `FORMFLOW_SESSION_TTL_SECONDS` 缩短有效期。会话只存哈希和过期时间，退出登录会立即撤销当前会话。
 
 ## 2. 审核输入链路
 
