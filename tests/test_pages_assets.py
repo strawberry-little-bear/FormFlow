@@ -37,3 +37,5 @@ def test_pages_index_references_only_existing_local_assets():
     assert not missing, f"GitHub Pages has missing local assets: {missing}"
     assert (docs / "robots.txt").is_file()
     assert (docs / "sitemap.xml").is_file()
+    assert 'class="video-transcript"' in html
+    assert html.count('loading="lazy"') == 3
