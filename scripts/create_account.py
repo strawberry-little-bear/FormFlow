@@ -15,6 +15,12 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+# Windows runners and older PowerShell hosts can expose a legacy code page;
+# help and validation messages should never make account setup crash.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(errors="replace")
+
 from sqlalchemy import select
 
 from app.config import settings

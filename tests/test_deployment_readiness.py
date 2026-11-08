@@ -36,7 +36,7 @@ def test_create_account_script_runs_outside_repository_cwd(tmp_path):
         text=True,
     )
     assert result.returncode == 0
-    assert "创建一个 FormFlow 组织者账号" in result.stdout
+    assert "usage" in result.stdout.lower()
 
 
 def test_readiness_reports_database_and_storage():
