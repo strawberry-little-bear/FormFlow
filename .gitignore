@@ -21,6 +21,7 @@ build/
 *.log
 formflow-showcase.webm
 docs/*-captioned.webm
+!docs/formflow-showcase-captioned.webm
 docs/pages-*.png
 
 # 系统文件
