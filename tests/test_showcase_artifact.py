@@ -4,7 +4,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-from scripts.prepare_showcase import SHOWCASE_FILES
+from scripts.prepare_showcase import SHOWCASE_FILES, referenced_assets
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -30,6 +30,10 @@ def test_showcase_builder_publishes_only_allowlisted_files(tmp_path):
     assert published == tuple(sorted(SHOWCASE_FILES))
     assert not (output / "deployment.md").exists()
     assert not (output / "收齐啦产品设计方案_v0.3.docx").exists()
+
+
+def test_showcase_manifest_covers_html_and_css_asset_references():
+    assert referenced_assets(ROOT / "docs") <= set(SHOWCASE_FILES)
 
 
 def test_pages_workflow_uploads_curated_output():
