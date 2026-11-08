@@ -47,6 +47,11 @@ class Settings:
         self.llm_max_file_bytes: int = int(
             os.environ.get("FORMFLOW_LLM_MAX_FILE_BYTES", str(20 * 1024 * 1024))
         )
+        # Bound multipart uploads before they are copied into memory. Blueprint
+        # limits may be stricter; this is the deployment-wide safety ceiling.
+        self.max_upload_bytes: int = max(
+            1, int(os.environ.get("FORMFLOW_MAX_UPLOAD_BYTES", str(50 * 1024 * 1024)))
+        )
         # 主模型不可用时的降级模型（如 step-3.7-flash）；留空则不降级。
         self.llm_fallback_model: str = os.environ.get("FORMFLOW_LLM_FALLBACK_MODEL", "")
 

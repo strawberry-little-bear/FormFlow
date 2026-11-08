@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 from pathlib import Path
+import asyncio
+import io
 import subprocess
 import sys
 
+import pytest
 from fastapi.testclient import TestClient
+from starlette.datastructures import UploadFile
 
 from app.config import settings
+from app.api.routes import UploadTooLargeError, _read_upload_content
 from app.main import app
 
 
@@ -135,3 +140,14 @@ def test_worker_heartbeat_path_can_be_configured(tmp_path, monkeypatch):
 
     configured = Settings()
     assert configured.worker_heartbeat_file == marker
+
+
+def test_upload_reader_enforces_global_limit_in_chunks(monkeypatch):
+    monkeypatch.setattr(settings, "max_upload_bytes", 4)
+
+    exact = UploadFile(file=io.BytesIO(b"1234"), filename="exact.txt")
+    assert asyncio.run(_read_upload_content(exact)) == b"1234"
+
+    oversized = UploadFile(file=io.BytesIO(b"12345"), filename="large.txt")
+    with pytest.raises(UploadTooLargeError, match="上传上限"):
+        asyncio.run(_read_upload_content(oversized))

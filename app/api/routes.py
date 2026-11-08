@@ -97,6 +97,31 @@ from fastapi import APIRouter
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
 
+
+class UploadTooLargeError(ValueError):
+    """Raised before an upload is copied into memory beyond the global cap."""
+
+
+async def _read_upload_content(file: UploadFile) -> bytes:
+    """Read an upload in bounded chunks so oversized requests fail predictably."""
+    max_bytes = settings.max_upload_bytes
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        # Ask for one extra byte to distinguish an exact-limit file from an
+        # oversized one without reading the whole multipart body at once.
+        chunk = await file.read(min(1024 * 1024, max_bytes - total + 1))
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_bytes:
+            limit_mib = max_bytes / 1024 / 1024
+            raise UploadTooLargeError(
+                f"文件超过服务器上传上限（{limit_mib:g} MiB），请压缩文件或联系组织者调整限制"
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
+
 def _iso(dt) -> str:
     return iso_utc(dt) or ""
 
@@ -288,7 +313,7 @@ async def upload_source_material(task_id: int, kind: str = Form("other"),
     task = _owned_task(db, acct, task_id)
     try:
         task_service.ensure_task_writable(task)
-        content = await file.read()
+        content = await _read_upload_content(file)
         row = source_service.create(
             db, task, acct, kind=kind, original_name=file.filename or "unnamed",
             mime=file.content_type or "application/octet-stream", content=content)
@@ -296,6 +321,12 @@ async def upload_source_material(task_id: int, kind: str = Form("other"),
         raise HTTPException(409, str(exc))
     except source_service.SourceMaterialError as exc:
         raise HTTPException(422, str(exc))
+    except UploadTooLargeError as exc:
+        raise HTTPException(413, detail={
+            "code": "upload_too_large",
+            "message": str(exc),
+            "max_bytes": settings.max_upload_bytes,
+        })
     db.commit()
     return source_service._metadata(row)
 
@@ -890,7 +921,14 @@ async def upload_file(slot: str = Form(...), file: UploadFile = File(...),
     grant, subject = grant_and_subject
     task = db.get(Task, grant.task_id)
     submission = sub_service.get_or_create_draft(db, task, subject.id)
-    content = await file.read()
+    try:
+        content = await _read_upload_content(file)
+    except UploadTooLargeError as exc:
+        raise HTTPException(413, detail={
+            "code": "upload_too_large",
+            "message": str(exc),
+            "max_bytes": settings.max_upload_bytes,
+        })
     bp = db.get(BlueprintVersion, task.current_blueprint_id) if task.current_blueprint_id else None
     blueprint = Blueprint.model_validate_json(bp.blueprint_json) if bp else None
     try:

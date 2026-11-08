@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
 from app.main import app
+from app.config import settings
 from app.models import BlueprintVersion, CheckRun, Revision, Subject
 from app.schemas import Blueprint, FieldDef, SlotDef
 from app.security import utcnow
@@ -198,6 +199,24 @@ def test_api_errors_locate_items_partial_draft_and_retry_share_contract(scenario
         recovered = client.post('/api/me/submit', headers=headers, json=payload)
         assert recovered.status_code == 200, recovered.text
         assert recovered.json() == r.json()
+
+
+def test_api_upload_rejects_global_size_limit_before_business_validation(scenario, monkeypatch):
+    db, task, subject, _ = scenario
+    token = tasks.issue_grant(db, task, subject)
+    db.commit()
+    monkeypatch.setattr(settings, "max_upload_bytes", 4)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/me/files",
+            headers={"Authorization": "Bearer " + token},
+            data={"slot": "report"},
+            files={"file": ("report.txt", b"12345", "text/plain")},
+        )
+
+    assert response.status_code == 413
+    assert response.json()["detail"]["code"] == "upload_too_large"
 
 
 @pytest.mark.parametrize('invalid', ['其他', ['实物'], {'track': '实物'}, 123])

@@ -16,10 +16,13 @@ FORMFLOW_LLM_BASE_URL=https://your-provider.example/v1
 FORMFLOW_LLM_API_KEY=由用户自行填写
 FORMFLOW_LLM_MODEL=your-model
 FORMFLOW_LLM_INPUT_MODE=auto
+FORMFLOW_MAX_UPLOAD_BYTES=52428800
 FORMFLOW_SESSION_TTL_SECONDS=604800
 ```
 
 `.env` 已被 Git 忽略。FormFlow 只在进程启动时读取本机 `.env`、进程环境或部署平台 Secret；不会把 `FORMFLOW_LLM_API_KEY` 写入数据库、审计事件、日志、浏览器响应、Skill 提示词或 MCP 配置。`/api/health` 只返回 provider、模型、输入模式和 `api_key_exposed: false`。
+
+服务端还会在读取 multipart 内容时执行 `FORMFLOW_MAX_UPLOAD_BYTES` 总上限，默认 50 MiB；超过上限直接返回 413，不会把完整请求一次性读入内存。发布蓝图中的材料槽位可以继续设置更小的单文件大小。
 
 仓库示例和 Compose 默认值只使用占位 provider 与模型，不会把材料指向某个预设网关；只有部署者主动填写地址、模型和密钥后，系统才会尝试调用外部模型。
 
