@@ -1216,6 +1216,7 @@ function agentTourRuntimeHtml(runtime = null) {
   if (!runtime) return `<div id="agent-tour-runtime-contract"><div class="agent-tour-guardrail"><b>审核 Agent · Harness 工具护栏</b><span><code>review_one_submission</code> 的工具调用受白名单、任务范围、运行预算、幂等键和结果上限约束；<code>requirements_draft</code> 由应用服务处理，按任务、账号和请求编号恢复，并在版本冲突时拒绝写入。</span></div>${runtimeSelfTestHtml()}<div class="agent-tour-boundary" aria-label="工具、MCP 与人工决策边界"><div class="agent-boundary-tools"><b>网页内工具</b><span><code>review.deterministic_rule</code><code>review.semantic_rule</code><br>网页 Agent 只通过当前任务白名单访问工具。</span></div><div class="agent-boundary-mcp"><b>独立只读 MCP sidecar</b><span><code>list_my_tasks</code><code>get_task_collection_progress</code><code>get_task_next_step</code><code>get_task_agent_runtime</code><br>需组织者会话授权；仅返回任务导航、适用的收集阶段聚合计数和 Agent runtime，不读取逐人名单、材料正文或审核结果，也不供网页 Agent 调用。</span></div><div class="agent-boundary-human"><b>组织者确认</b><span>蓝图发布、补正处理和最终验收由组织者决定；证据不足时 Agent 停在待确认。</span></div></div>${mcpSnapshotPanelHtml()}</div>`;
   const reviewSkill = runtimeReviewSkill(runtime);
   const requirements = (runtime?.skills || []).find(skill => skill.name === "requirements_draft") || {};
+  const requirementsHarness = runtime?.requirements_harness || {};
   const harness = runtime?.harness;
   const tools = runtimeToolNames(runtime, reviewSkill);
   const budget = harness
@@ -1224,12 +1225,15 @@ function agentTourRuntimeHtml(runtime = null) {
   const requirementBoundary = requirements.request_idempotency
     ? `由应用服务处理，按 ${requirements.request_idempotency === "task_account_request_id" ? "任务、账号和请求编号" : requirements.request_idempotency} 恢复；版本冲突 ${requirements.version_conflict === "fail_closed" ? "拒绝写入" : "按服务端策略处理"}，${requirements.human_gate || "由组织者确认后生效"}`
     : "由应用服务处理并等待组织者确认，不直接发布规则或时间策略";
+  const requirementsBudget = requirementsHarness.max_model_calls
+    ? `需求 Harness：每次最多 ${requirementsHarness.max_model_calls} 次模型调用、${requirementsHarness.max_clarifications} 项澄清、${requirementsHarness.max_output_clarification_options} 个选项`
+    : "需求 Harness：单次请求受输入、澄清和失败边界约束";
   const mcp = runtime?.mcp;
   const mcpTools = (mcp?.adapters || []).flatMap(adapter => adapter.tools || []);
   const mcpBoundary = mcp?.boundary || "网页内置 Agent 不调用外部 MCP；独立 sidecar 仅提供组织者只读能力。";
   const mcpToolList = mcpTools.map(name => `<code>${esc(name)}</code>`).join("");
   const human = (runtime?.human_control || []).map(item => esc(item)).join("；") || "蓝图发布、补正处理和最终验收由组织者决定";
-  return `<div id="agent-tour-runtime-contract"><div class="agent-tour-guardrail"><b>审核 Agent · Harness 工具护栏</b><span><code>${esc(reviewSkill.name || "review_one_submission")}</code> · ${esc(budget)}；需求 Agent ${esc(requirementBoundary)}。</span></div>${runtimeSelfTestHtml(runtime)}<div class="agent-tour-boundary" aria-label="工具、MCP 与人工决策边界"><div class="agent-boundary-tools"><b>网页内工具白名单</b><span>${tools}</span></div><div class="agent-boundary-mcp"><b>独立只读 MCP sidecar</b><span>${mcpToolList}${mcpToolList ? "<br>" : ""}${esc(mcpBoundary)}</span></div><div class="agent-boundary-human"><b>组织者最终决定</b><span>${human}</span></div></div>${mcpSnapshotPanelHtml()}</div>`;
+  return `<div id="agent-tour-runtime-contract"><div class="agent-tour-guardrail"><b>审核 Agent · Harness 工具护栏</b><span><code>${esc(reviewSkill.name || "review_one_submission")}</code> · ${esc(budget)}；需求 Agent ${esc(requirementBoundary)}。${esc(requirementsBudget)}。</span></div>${runtimeSelfTestHtml(runtime)}<div class="agent-tour-boundary" aria-label="工具、MCP 与人工决策边界"><div class="agent-boundary-tools"><b>网页内工具白名单</b><span>${tools}</span></div><div class="agent-boundary-mcp"><b>独立只读 MCP sidecar</b><span>${mcpToolList}${mcpToolList ? "<br>" : ""}${esc(mcpBoundary)}</span></div><div class="agent-boundary-human"><b>组织者最终决定</b><span>${human}</span></div></div>${mcpSnapshotPanelHtml()}</div>`;
 }
 function mcpSnapshotPanelHtml() {
   return `<section class="mcp-snapshot" aria-label="MCP 只读快照"><div class="mcp-snapshot-head"><div><span class="eyebrow">LIVE MCP EVIDENCE</span><b>Agent → MCP 只读导览</b><small>由服务端桥接执行四个白名单读取；浏览器不会接触 MCP 会话 token。</small></div><span class="badge brand">4 个工具</span></div><div id="mcp-snapshot-body">${mcpSnapshotHtml()}</div></section>`;
@@ -1265,11 +1269,15 @@ function taskRuntimeHtml(runtime = null) {
 function designRuntimeHtml(runtime = null) {
   const mode = runtime?.model?.label || "受限运行时";
   const skill = (runtime?.skills || []).find(item => item.name === "requirements_draft") || {};
+  const requirementsHarness = runtime?.requirements_harness || {};
   const tools = runtimeToolNames(runtime, skill);
   const mcp = runtime?.mcp?.boundary || "网页内置 Agent 不调用外部 MCP；只读 sidecar 提供任务列表、收集汇总、流程下一步和 Agent runtime，不读取逐人名单或材料。";
   const execution = skill.request_idempotency
     ? "持久请求队列 · 同请求幂等恢复 · 版本冲突拒绝"
     : "scope、预算、幂等键、结果上限与审计在边界内检查";
+  const requirementsBudget = requirementsHarness.max_model_calls
+    ? `需求 Harness：模型 ${requirementsHarness.max_model_calls} 次 · 澄清 ${requirementsHarness.max_clarifications} 项 · 选项 ${requirementsHarness.max_output_clarification_options} 个`
+    : "需求 Harness：输入、澄清和失败边界由服务端检查";
   return `<details id="design-agent-runtime" class="agent-runtime-card" aria-label="智能协作边界">
     <summary class="runtime-card-summary">
       <span class="runtime-card-summary-main"><span class="eyebrow">AGENT RUNTIME</span><b>小齐的协作边界</b><small>Skill 需求整理 · 受限工具与预算 · 发布由组织者确认</small></span>
@@ -1280,7 +1288,7 @@ function designRuntimeHtml(runtime = null) {
       <div class="runtime-card-grid">
         <div class="runtime-card-item runtime-skill"><span class="runtime-card-icon">${icon("sparkle")}</span><div><b>Skill · 需求整理</b><span><code>${esc(skill.name || "requirements_draft")}</code> ${esc(skill.description || "把原始要求整理成待确认草案")}</span></div></div>
         <div class="runtime-card-item runtime-tools"><span class="runtime-card-icon">${icon("tasks")}</span><div><b>工具边界</b><span>${tools}</span></div></div>
-        <div class="runtime-card-item runtime-harness"><span class="runtime-card-icon">${icon("review")}</span><div><b>执行与恢复</b><span>${execution} · 发布需组织者确认</span>${runtimeSelfTestHtml(runtime)}</div></div>
+        <div class="runtime-card-item runtime-harness"><span class="runtime-card-icon">${icon("review")}</span><div><b>执行与恢复</b><span>${execution} · ${requirementsBudget} · 发布需组织者确认</span>${runtimeSelfTestHtml(runtime)}</div></div>
         <div class="runtime-card-item runtime-mcp"><span class="runtime-card-icon">${icon("expand")}</span><div><b>MCP 边界</b><span>${esc(mcp)}</span></div></div>
         <div class="runtime-card-item runtime-human"><span class="runtime-card-icon">${icon("workbench")}</span><div><b>人工确认</b><span>${esc((runtime?.human_control || ["不确定内容、材料门槛和最终发布由组织者决定"])[2] || "发布前必须由组织者确认")}</span></div></div>
       </div>

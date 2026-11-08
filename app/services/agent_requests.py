@@ -13,7 +13,12 @@ from sqlalchemy.orm import Session
 from ..db import SessionLocal
 from ..config import settings
 from ..models import Account, AgentDraftRequest, BlueprintVersion, Task
-from ..agents.requirements_agent import build_source_text, draft_blueprint, normalize_source_materials
+from ..agents.requirements_agent import (
+    REQUIREMENTS_HARNESS,
+    build_source_text,
+    draft_blueprint,
+    normalize_source_materials,
+)
 from ..security import utcnow
 from . import tasks as task_service
 
@@ -25,7 +30,7 @@ LLM_WORST_CASE_SECONDS = (settings.llm_timeout_seconds * (settings.llm_max_retri
 RUNNING_LEASE = timedelta(seconds=max(1800, LLM_WORST_CASE_SECONDS))
 # Source packs are intentionally bounded, but a notice plus roster/template can
 # be larger than the old chat-only payload limit.
-MAX_PAYLOAD_BYTES = 128 * 1024
+MAX_PAYLOAD_BYTES = REQUIREMENTS_HARNESS.max_request_bytes
 EXECUTION_MODES = {"live", "offline_replay"}
 
 

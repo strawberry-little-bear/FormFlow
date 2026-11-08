@@ -67,7 +67,7 @@ def test_agent_runtime_manifest_is_owner_scoped_and_descriptive(db_session):
         assert payload["harness"]["semantic_model_calls_per_run"] == settings.max_llm_calls_per_run
         assert payload["harness"]["parsed_pages_per_run"] == settings.max_pages_per_run
         assert payload["contract_self_test"]["status"] == "passed"
-        assert payload["contract_self_test"]["passed"] == payload["contract_self_test"]["total"] == 6
+        assert payload["contract_self_test"]["passed"] == payload["contract_self_test"]["total"] == 7
         assert "没有调用模型" in payload["contract_self_test"]["note"]
         assert {tool["name"] for tool in payload["tools"]} == {
                 "review.deterministic_rule", "review.semantic_rule",
@@ -89,6 +89,16 @@ def test_agent_runtime_manifest_is_owner_scoped_and_descriptive(db_session):
         assert requirements["version_conflict"] == "fail_closed"
         assert requirements["human_gate"]
         assert requirements["self_test"]["status"] == "passed"
+        requirements_harness = payload["requirements_harness"]
+        assert requirements_harness["name"] == "requirements_draft_harness"
+        assert requirements_harness["max_model_calls"] == 2
+        assert requirements_harness["max_clarifications"] == 3
+        assert requirements_harness["max_request_bytes"] == 131072
+        assert requirements_harness["max_output_clarification_options"] == 4
+        assert requirements_harness["stop_on_invalid_output"] is True
+        assert requirements_harness["idempotency"] == "task_account_request_id"
+        assert requirements_harness["execution"] == "durable_request_queue"
+        assert requirements_harness["self_test"]["status"] == "passed"
 
 
 def test_mcp_snapshot_is_owner_scoped_and_redacted(db_session):

@@ -71,6 +71,37 @@ class RequirementsSkillSpec:
     human_gate: str
 
 
+@dataclass(frozen=True)
+class RequirementsHarnessSpec:
+    """Execution limits for one requirements-drafting request.
+
+    The requirements Agent is wrapped by the durable request queue. In auto
+    input mode it may use one direct-file call followed by one fallback call;
+    keeping that upper bound explicit makes the workflow inspectable and gives
+    the service a place to fail closed before persisting a draft.
+    """
+
+    name: str
+    # auto input mode may use one direct-file call plus one fallback call.
+    max_model_calls: int
+    max_clarifications: int
+    max_request_bytes: int
+    max_output_clarification_options: int
+    stop_on_invalid_output: bool
+    idempotency: str
+
+
+REQUIREMENTS_HARNESS = RequirementsHarnessSpec(
+    name="requirements_draft_harness",
+    max_model_calls=2,
+    max_clarifications=MAX_CLARIFICATIONS,
+    max_request_bytes=128 * 1024,
+    max_output_clarification_options=4,
+    stop_on_invalid_output=True,
+    idempotency="task_account_request_id",
+)
+
+
 REQUIREMENTS_DRAFT_SKILL = RequirementsSkillSpec(
     name="requirements_draft",
     description="读取并分类来源资料，整理有来源的蓝图草案，提出澄清；不自行发布。",
@@ -115,6 +146,20 @@ def requirements_skill_manifest() -> dict[str, object]:
     }
 
 
+def requirements_harness_manifest() -> dict[str, object]:
+    """Return the server-owned execution contract for requirements drafting."""
+    return {
+        "name": REQUIREMENTS_HARNESS.name,
+        "max_model_calls": REQUIREMENTS_HARNESS.max_model_calls,
+        "max_clarifications": REQUIREMENTS_HARNESS.max_clarifications,
+        "max_request_bytes": REQUIREMENTS_HARNESS.max_request_bytes,
+        "max_output_clarification_options": REQUIREMENTS_HARNESS.max_output_clarification_options,
+        "stop_on_invalid_output": REQUIREMENTS_HARNESS.stop_on_invalid_output,
+        "idempotency": REQUIREMENTS_HARNESS.idempotency,
+        "execution": "durable_request_queue",
+    }
+
+
 def requirements_skill_self_test() -> dict[str, object]:
     """Validate the contract without calling a model or reading materials."""
     checks = [
@@ -136,6 +181,26 @@ def requirements_skill_self_test() -> dict[str, object]:
         "total": len(checks),
         "checks": [{"id": key, "passed": ok} for key, ok in checks],
         "note": "只验证需求 Skill 的阶段、输入边界、幂等和发布门槛；没有调用模型。",
+    }
+
+
+def requirements_harness_self_test() -> dict[str, object]:
+    """Validate the requirements Harness contract without calling a model."""
+    checks = [
+        ("direct_then_fallback_bound", REQUIREMENTS_HARNESS.max_model_calls == 2),
+        ("clarification_bound", REQUIREMENTS_HARNESS.max_clarifications == MAX_CLARIFICATIONS),
+        ("request_payload_bound", REQUIREMENTS_HARNESS.max_request_bytes > 0),
+        ("choice_bound", REQUIREMENTS_HARNESS.max_output_clarification_options == 4),
+        ("fail_closed", REQUIREMENTS_HARNESS.stop_on_invalid_output is True),
+        ("durable_idempotency", REQUIREMENTS_HARNESS.idempotency == "task_account_request_id"),
+    ]
+    passed = sum(1 for _, ok in checks if ok)
+    return {
+        "status": "passed" if passed == len(checks) else "needs_attention",
+        "passed": passed,
+        "total": len(checks),
+        "checks": [{"id": key, "passed": ok} for key, ok in checks],
+        "note": "只验证需求 Harness 的调用、输入、澄清和失败边界；没有调用模型。",
     }
 
 SYSTEM_PROMPT = """你是"收齐啦"平台的需求 Agent。把组织者的自然语言收集要求编译成结构化任务蓝图草案。
@@ -474,7 +539,14 @@ def _as_str_list(value) -> list:
 def _parse_clarifications(raw, warnings: list) -> list:
     """澄清项偶尔被模型写成纯字符串或结构不全：容错而非崩溃。"""
     out = []
-    for c in raw if isinstance(raw, list) else []:
+    items = raw if isinstance(raw, list) else []
+    if len(items) > REQUIREMENTS_HARNESS.max_clarifications:
+        warnings.append(
+            f"澄清项超过 {REQUIREMENTS_HARNESS.max_clarifications} 项，已保留前 "
+            f"{REQUIREMENTS_HARNESS.max_clarifications} 项"
+        )
+        items = items[:REQUIREMENTS_HARNESS.max_clarifications]
+    for c in items:
         if isinstance(c, str) and c.strip():
             out.append(Clarification(question=c.strip()))
             warnings.append(f"澄清项不是对象，已按问题文本处理：{c.strip()[:40]}")
@@ -488,9 +560,12 @@ def _parse_clarifications(raw, warnings: list) -> list:
                     warnings.append(f"澄清项 options 不是列表，已忽略：{str(c)[:60]}")
                     raw_options = []
                 options = list(dict.fromkeys(str(option).strip() for option in raw_options if str(option).strip()))
-                if len(options) > 4:
-                    warnings.append("澄清项选项超过 4 个，已截取前 4 个")
-                    options = options[:4]
+                if len(options) > REQUIREMENTS_HARNESS.max_output_clarification_options:
+                    warnings.append(
+                        f"澄清项选项超过 {REQUIREMENTS_HARNESS.max_output_clarification_options} 个，已截取前 "
+                        f"{REQUIREMENTS_HARNESS.max_output_clarification_options} 个"
+                    )
+                    options = options[:REQUIREMENTS_HARNESS.max_output_clarification_options]
                 normalized["options"] = options
                 out.append(Clarification(**normalized))
             except ValidationError:

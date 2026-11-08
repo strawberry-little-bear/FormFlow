@@ -585,3 +585,12 @@ def test_clarification_options_are_bounded_and_deduplicated(stub_llm):
     result = draft_blueprint(REQUIREMENT, client=stub_llm)
     assert result.clarifications[0].options == ["只收 PDF", "PDF 或 DOCX", "允许图片", "再问一次"]
     assert any("超过 4 个" in warning for warning in result.warnings)
+
+
+def test_clarifications_are_capped_by_the_requirements_harness(stub_llm):
+    payload = _draft_payload()
+    payload["clarifications"] = [{"question": f"问题 {index}"} for index in range(5)]
+    stub_llm.responses = [payload]
+    result = draft_blueprint(REQUIREMENT, client=stub_llm)
+    assert [item.question for item in result.clarifications] == ["问题 0", "问题 1", "问题 2"]
+    assert any("超过 3 项" in warning for warning in result.warnings)
