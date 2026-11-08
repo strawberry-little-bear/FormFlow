@@ -107,6 +107,20 @@ def test_create_account_script_runs_outside_repository_cwd(tmp_path):
     assert "usage" in result.stdout.lower()
 
 
+def test_deployment_preflight_script_has_help_and_offline_flag(tmp_path):
+    script = Path(__file__).resolve().parents[1] / "scripts" / "check_deployment.py"
+    result = subprocess.run(
+        [sys.executable, str(script), "--help"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    assert result.returncode == 0
+    assert "allow-offline" in result.stdout
+    assert "只读检查" in result.stdout
+
+
 def test_readiness_reports_database_and_storage():
     with TestClient(app) as client:
         response = client.get("/api/ready")

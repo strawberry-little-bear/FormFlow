@@ -87,6 +87,14 @@ curl http://127.0.0.1:8000/api/ready
 `/health` 只表示进程还活着；`/api/ready` 会检查数据库连接和附件目录，失败时返回 HTTP 503，
 适合反向代理、容器或进程管理器的就绪探针。Worker 会独立于队列处理每 10 秒在共享存储中刷新一次心跳文件，因此长模型调用不会让它停止更新；Compose 的 Worker healthcheck 会在心跳超过 30 秒未更新时标记服务异常。
 
+启动前可以运行只读预检，把生产边界和目录配置一次检查出来：
+
+```bash
+python scripts/check_deployment.py --allow-offline
+```
+
+配置真实模型时去掉 `--allow-offline`；服务启动后再加 `--url http://127.0.0.1:8000`，预检会同时确认 `/api/health` 和 `/api/ready` 返回 200。预检不会创建文件、发送模型请求或打印 API Key。
+
 组织者退出时，浏览器会清理本地凭证，并请求服务端撤销当前登录会话；网络暂时不可用时仍会先退出当前浏览器，恢复网络后不要继续使用旧页面。
 
 公网访问时，将 Uvicorn 绑定在 `127.0.0.1`，前面放 Caddy、Nginx 或云负载均衡，终止 HTTPS 并转发到 8000。仓库提供了可直接修改域名的 [Caddy 示例](../deploy/Caddyfile.example)：
