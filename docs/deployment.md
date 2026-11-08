@@ -101,7 +101,7 @@ Docker Compose 使用仓库外的文件型 Secret 时，在宿主机执行：
 python scripts/check_deployment.py --secret-file .formflow_llm_api_key
 ```
 
-该参数只检查文件存在且非空，不读取或输出 Secret 内容。
+该参数只检查文件存在、非空且在 Linux 上权限不超过 `600`，不读取或输出 Secret 内容。
 
 组织者退出时，浏览器会清理本地凭证，并请求服务端撤销当前登录会话；网络暂时不可用时仍会先退出当前浏览器，恢复网络后不要继续使用旧页面。
 

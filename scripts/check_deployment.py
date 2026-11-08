@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import os
 from pathlib import Path
+import stat
 import sys
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -54,6 +55,10 @@ def deployment_issues(*, allow_offline: bool, secret_file: Path | None = None) -
     if secret_file is not None:
         try:
             file_secret_configured = secret_file.is_file() and secret_file.stat().st_size > 0
+            if file_secret_configured and os.name != "nt":
+                mode = stat.S_IMODE(secret_file.stat().st_mode)
+                if mode & 0o077:
+                    errors.append(f"模型 Secret 文件权限过宽（应为 600）：{secret_file}")
         except OSError:
             errors.append(f"模型 Secret 文件无法读取：{secret_file}")
 
