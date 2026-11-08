@@ -44,6 +44,16 @@ def test_compose_uses_file_secret_instead_of_api_key_environment_value():
     assert "os.environ['FORMFLOW_WORKER_HEARTBEAT_FILE']" in compose
 
 
+def test_compose_services_use_ephemeral_root_filesystems():
+    compose = (Path(__file__).resolve().parents[1] / "deploy" / "docker-compose.yml").read_text(
+        encoding="utf-8"
+    )
+    assert compose.count("read_only: true") == 2
+    assert compose.count("- /tmp") == 2
+    assert compose.count("no-new-privileges:true") == 2
+    assert compose.count("init: true") == 2
+
+
 def test_public_model_defaults_are_neutral_and_require_explicit_provider():
     root = Path(__file__).resolve().parents[1]
     example = (root / ".env.example").read_text(encoding="utf-8")

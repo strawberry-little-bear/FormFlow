@@ -144,7 +144,7 @@ Invoke-WebRequest http://127.0.0.1:8000/api/ready
 docker compose -f deploy/docker-compose.yml logs -f api worker
 ```
 
-Compose 通过文件型 Secret 把 `.formflow_llm_api_key` 只读挂载到 API 和 Worker；密钥不会进入容器环境变量，也不会出现在 `docker compose config` 的展开结果中。Compose 只把 API 绑定到本机回环地址，公网访问仍应由 Caddy、Nginx 或云负载均衡终止 HTTPS 后转发。
+Compose 通过文件型 Secret 把 `.formflow_llm_api_key` 只读挂载到 API 和 Worker；密钥不会进入容器环境变量，也不会出现在 `docker compose config` 的展开结果中。两个容器使用非 root 用户、只读根文件系统和独立的 `/tmp` 临时目录，数据卷只保留数据库、附件和 Worker 心跳；Compose 只把 API 绑定到本机回环地址，公网访问仍应由 Caddy、Nginx 或云负载均衡终止 HTTPS 后转发。
 `formflow_data` 卷同时保存 SQLite 和附件；升级前先停服务并完成备份，不能把演示数据库挂到生产卷。
 
 Compose 首次创建账号时，在 API 容器启动前执行一次：
