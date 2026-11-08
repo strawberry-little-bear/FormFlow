@@ -6,7 +6,7 @@
 
 FormFlow 是面向报名、征集和评审场景的材料工作台。它把通知、名单、模板和附件要求整理成收集任务，再把表单与多份材料变成带证据的逐项审核结果。
 
-[观看 42 秒演示](https://github.com/strawberry-little-bear/FormFlow/issues/1#issuecomment-6719421762) · [评审快照 v0.1.0](https://github.com/strawberry-little-bear/FormFlow/releases/tag/v0.1.0) · [开始体验](#开始体验) · [产品文档](docs/README.md) · [部署与模型接入](docs/deployment.md) · [产品证据](docs/ux-review-index.md)
+[观看 42 秒演示](https://github.com/user-attachments/assets/6863ce54-7200-4b48-8165-ab0b7f1cf460) · [评审快照 v0.1.0](https://github.com/strawberry-little-bear/FormFlow/releases/tag/v0.1.0) · [开始体验](#开始体验) · [产品文档](docs/README.md) · [部署与模型接入](docs/deployment.md) · [产品证据](docs/ux-review-index.md)
 
 </div>
 
