@@ -64,6 +64,12 @@ services:
     depends_on:
       api:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "from pathlib import Path; import time; p=Path('/srv/formflow/data/storage/.worker-heartbeat'); raise SystemExit(0 if p.exists() and time.time() - p.stat().st_mtime < 30 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     restart: unless-stopped
     secrets:
       - formflow_llm_api_key

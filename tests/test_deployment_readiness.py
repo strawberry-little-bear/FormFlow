@@ -25,6 +25,7 @@ def test_compose_uses_file_secret_instead_of_api_key_environment_value():
     assert "FORMFLOW_LLM_API_KEY_FILE: /run/secrets/formflow_llm_api_key" in compose
     assert "FORMFLOW_LLM_API_KEY:" not in compose
     assert "file: ../.formflow_llm_api_key" in compose
+    assert ".worker-heartbeat" in compose
 
 
 def test_public_model_defaults_are_neutral_and_require_explicit_provider():

@@ -11,6 +11,7 @@ V20（队列失败、服务重启）恢复语义：
 from __future__ import annotations
 
 import time
+from pathlib import Path
 
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
@@ -28,9 +29,24 @@ from .models import (
 from .services import tasks as task_service
 from .services.checks import execute_run
 from .services.agent_requests import requeue_stale_requests, run_task_queues_once
+from .config import settings
 
 # 中断未完成态：重启后需要恢复接管的运行状态（成功/失败/被取代都是历史，绝不动）
 _INTERRUPTED_STATUSES = (RUN_RUNNING, RUN_RETRY_WAIT)
+
+
+def write_worker_heartbeat() -> bool:
+    """Write a fresh marker for container/process supervisors to inspect."""
+    path = settings.worker_heartbeat_file
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = Path(f"{path}.tmp")
+        tmp.write_text(str(time.time()), encoding="ascii")
+        tmp.replace(path)
+        return True
+    except OSError as exc:
+        print(f"[worker] 无法写入心跳文件（继续运行）: {exc}", flush=True)
+        return False
 
 
 def _clear_partial_results(db: Session, run_id: int) -> None:
@@ -93,6 +109,7 @@ def main(poll_interval: float = 2.0) -> None:
             print(f"[worker] 恢复 {recovered_design} 个卡住的需求 Agent 请求（重新排队）")
     finally:
         db.close()
+    write_worker_heartbeat()
     print("[worker] ready", flush=True)
     while True:
         db = SessionLocal()
@@ -111,6 +128,7 @@ def main(poll_interval: float = 2.0) -> None:
             print(f"[worker] 运行出错（将重试）: {e}")
         finally:
             db.close()
+            write_worker_heartbeat()
         time.sleep(poll_interval)
 
 

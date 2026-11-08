@@ -15,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db import engine
+from app.config import settings
 from app.models import (
     RUN_FAILED,
     RUN_QUEUED,
@@ -29,11 +30,21 @@ from app.schemas import Blueprint, FieldDef, RuleDef, SlotDef
 from app.services.checks import create_run, execute_run
 from app.services.progress import _review_run_trace
 from app.services.submissions import attach_file, formal_submit, get_or_create_draft
-from app.worker import recover_interrupted_runs, run_pending_once
+from app.worker import recover_interrupted_runs, run_pending_once, write_worker_heartbeat
 from tests.conftest import StubLLM, make_task, publish_blueprint
 
 SATISFIED = {"result": "satisfied", "explanation": "期次一致",
              "evidence": [{"file_id": "", "locator": "p.1", "quote": "本人姓名：张三"}]}
+
+
+def test_worker_heartbeat_is_written_atomically(tmp_path, monkeypatch):
+    marker = tmp_path / "storage" / ".worker-heartbeat"
+    monkeypatch.setattr(settings, "worker_heartbeat_file", marker)
+
+    assert write_worker_heartbeat() is True
+    assert marker.exists()
+    assert marker.read_text(encoding="ascii").strip()
+    assert not marker.with_name(".worker-heartbeat.tmp").exists()
 
 
 def _setup(db):

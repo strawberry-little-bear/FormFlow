@@ -56,6 +56,9 @@ class Settings:
         self.storage_dir: Path = Path(
             os.environ.get("FORMFLOW_STORAGE_DIR", str(BASE_DIR / "data" / "storage"))
         )
+        self.worker_heartbeat_file: Path = Path(
+            os.environ.get("FORMFLOW_WORKER_HEARTBEAT_FILE", str(self.storage_dir / ".worker-heartbeat"))
+        )
 
         # 解析预算（第 16 节：限制页数、资源与解析时间）
         self.max_ocr_pages_per_file: int = int(os.environ.get("FORMFLOW_MAX_OCR_PAGES_PER_FILE", "20"))
