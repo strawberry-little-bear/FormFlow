@@ -19,6 +19,8 @@ FORMFLOW_LLM_INPUT_MODE=auto
 
 `.env` 已被 Git 忽略。FormFlow 只在进程启动时读取本机 `.env`、进程环境或部署平台 Secret；不会把 `FORMFLOW_LLM_API_KEY` 写入数据库、审计事件、日志、浏览器响应、Skill 提示词或 MCP 配置。`/api/health` 只返回 provider、模型、输入模式和 `api_key_exposed: false`。
 
+仓库示例和 Compose 默认值只使用占位 provider 与模型，不会把材料指向某个预设网关；只有部署者主动填写地址、模型和密钥后，系统才会尝试调用外部模型。
+
 这代表“FormFlow 不代管密钥”，不代表材料不会离开本机。启用真实模型后，原始材料或解析文本可能发送到用户选择的 provider；留存、跨境、计费和训练政策由 provider 决定。正式部署前应由组织者确认 provider 的文件输入政策和数据处理条款。
 
 生产环境默认关闭公开注册。组织者账号应通过受控初始化流程创建；演示和本地开发可使用

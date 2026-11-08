@@ -27,6 +27,18 @@ def test_compose_uses_file_secret_instead_of_api_key_environment_value():
     assert "file: ../.formflow_llm_api_key" in compose
 
 
+def test_public_model_defaults_are_neutral_and_require_explicit_provider():
+    root = Path(__file__).resolve().parents[1]
+    example = (root / ".env.example").read_text(encoding="utf-8")
+    compose = (root / "deploy" / "docker-compose.yml").read_text(encoding="utf-8")
+
+    for content in (example, compose):
+        assert "aigw.saurlax.com" not in content
+        assert "your-provider.example/v1" in content
+    assert "FORMFLOW_LLM_API_KEY=sk-" not in example
+    assert "FORMFLOW_LLM_MODEL=your-model" in example
+
+
 def test_create_account_script_runs_outside_repository_cwd(tmp_path):
     script = Path(__file__).resolve().parents[1] / "scripts" / "create_account.py"
     result = subprocess.run(

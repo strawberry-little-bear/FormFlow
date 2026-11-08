@@ -27,9 +27,9 @@ class Settings:
         self.allow_registration: bool = _env_bool(
             "FORMFLOW_ALLOW_REGISTRATION", self.environment != "production"
         )
-        # 大模型网关（OpenAI 兼容接口）
+        # 大模型网关（OpenAI 兼容接口）；公开默认值只使用占位 provider。
         self.llm_base_url: str = os.environ.get(
-            "FORMFLOW_LLM_BASE_URL", "https://aigw.saurlax.com/v1"
+            "FORMFLOW_LLM_BASE_URL", "https://your-provider.example/v1"
         ).rstrip("/")
         # Direct process deployments can use the environment variable. Docker
         # deployments can mount a file secret so compose config never expands
@@ -38,7 +38,7 @@ class Settings:
         self.llm_api_key: str = os.environ.get("FORMFLOW_LLM_API_KEY", "").strip()
         if not self.llm_api_key and self.llm_api_key_file:
             self.llm_api_key = _read_secret_file(self.llm_api_key_file)
-        self.llm_model: str = os.environ.get("FORMFLOW_LLM_MODEL", "glm-5.3")
+        self.llm_model: str = os.environ.get("FORMFLOW_LLM_MODEL", "your-model")
         # auto 优先把原始文件交给支持文件输入的模型；不支持时回退到文本解析/OCR。
         # text/ocr 可用于明确禁止原始材料离开本机，direct 则在不支持时直接报未完成。
         self.llm_input_mode: str = os.environ.get("FORMFLOW_LLM_INPUT_MODE", "auto").strip().lower()
@@ -48,7 +48,6 @@ class Settings:
             os.environ.get("FORMFLOW_LLM_MAX_FILE_BYTES", str(20 * 1024 * 1024))
         )
         # 主模型不可用时的降级模型（如 step-3.7-flash）；留空则不降级。
-        # 背景：glm-5.3 经当前网关单次调用约需 6 分钟，超时/限流时可由快模型兜底。
         self.llm_fallback_model: str = os.environ.get("FORMFLOW_LLM_FALLBACK_MODEL", "")
 
         self.database_url: str = os.environ.get(
@@ -64,7 +63,7 @@ class Settings:
         # 审核预算（方案第 4 节：每次审核需有页数/OCR/调用/重试/费用预算）
         self.max_pages_per_run: int = int(os.environ.get("FORMFLOW_MAX_PAGES_PER_RUN", "40"))
         self.max_llm_calls_per_run: int = int(os.environ.get("FORMFLOW_MAX_LLM_CALLS_PER_RUN", "30"))
-        # glm-5.3 经当前网关单次调用可达 6 分钟，默认 300s；主模型 alone 且无降级时建议调大
+        # 默认 300s；主模型较慢且无降级时可按 provider 能力调大。
         self.llm_timeout_seconds: float = float(os.environ.get("FORMFLOW_LLM_TIMEOUT_SECONDS", "300"))
         self.llm_max_retries: int = int(os.environ.get("FORMFLOW_LLM_MAX_RETRIES", "2"))
 
