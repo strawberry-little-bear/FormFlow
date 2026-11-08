@@ -14,6 +14,7 @@
 """
 from __future__ import annotations
 
+import argparse
 import shutil
 import sys
 import tempfile
@@ -168,9 +169,17 @@ def _show(title: str, outcome) -> None:
               f"unread={cov['unread']} failed={cov['failed']}")
 
 
-def main() -> int:
-    sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
-    live = "--stub" not in sys.argv
+def main(argv: list[str] | None = None) -> int:
+    sys.stdout.reconfigure(encoding="utf-8", errors="backslashreplace", line_buffering=True)
+    sys.stderr.reconfigure(encoding="utf-8", errors="backslashreplace")
+    parser = argparse.ArgumentParser(
+        description="运行 FormFlow 审核链路冒烟；默认调用真实网关"
+    )
+    parser.add_argument(
+        "--stub", action="store_true", help="只使用本地脚本桩，不调用模型网关"
+    )
+    args = parser.parse_args(argv)
+    live = not args.stub
     tmp = Path(tempfile.mkdtemp(prefix="formflow_smoke_"))
     print("模式:", "真实网关" if live else "本地桩", "| 样本目录:", tmp)
 

@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import argparse
 import sys
 import time
 from pathlib import Path
@@ -31,8 +32,13 @@ REQUIREMENT = (
 )
 
 
-def main() -> int:
-    sys.stdout.reconfigure(line_buffering=True)
+def main(argv: list[str] | None = None) -> int:
+    sys.stdout.reconfigure(encoding="utf-8", errors="backslashreplace", line_buffering=True)
+    sys.stderr.reconfigure(encoding="utf-8", errors="backslashreplace")
+    parser = argparse.ArgumentParser(
+        description="使用当前本地模型配置运行需求 Agent 真实网关冒烟"
+    )
+    parser.parse_args(argv)
     if not settings.llm_configured:
         print("未配置 FORMFLOW_LLM_API_KEY（.env），终止")
         return 2
