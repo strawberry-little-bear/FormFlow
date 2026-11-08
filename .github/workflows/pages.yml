@@ -45,7 +45,9 @@ jobs:
             "" \
             "ux-review-2026-10-30/showcase-home-current.png" \
             "demo-guide.md" \
-            "deployment.md"; do
+            "deployment.md" \
+            "robots.txt" \
+            "sitemap.xml"; do
             curl --fail --silent --show-error --location \
               "${base}${path}" > /dev/null
           done
