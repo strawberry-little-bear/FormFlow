@@ -5400,6 +5400,11 @@ body.presentation-mode .presentation-task-context {
   .demo-route-signal-chain { grid-template-columns:1fr; }
 }
 
+/* Keep secondary copy readable across every route and responsive state. */
+:root {
+  --muted: #555d6b;
+}
+
 /* Shared SVG sizing for compact agent and file controls. */
 .agent-mark svg { width:19px; height:19px; }
 .msg .avatar svg { width:15px; height:15px; }
