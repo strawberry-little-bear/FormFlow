@@ -46,9 +46,24 @@ def test_login_requires_valid_password(client, db_session):
                        data={"username": "ghost", "password": "x"}).status_code == 401
 
 
+@pytest.mark.parametrize(
+    ("username", "password", "message"),
+    [
+        ("too-short", "short", "密码至少 8 位"),
+        ("   ", "pw123456", "用户名不能为空"),
+        ("too-long-password", "p" * 257, "密码不能超过 256 个字符"),
+    ],
+)
+def test_account_creation_enforces_server_credential_policy(client, username, password, message):
+    response = client.post("/api/accounts", data={"username": username, "password": password})
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == message
+
+
 def test_password_salt_is_per_account_random(client, db_session):
-    _register(client, "a1", "same-pw")
-    _register(client, "a2", "same-pw")
+    _register(client, "a1", "same-pw1")
+    _register(client, "a2", "same-pw1")
     s = Session(engine)
     h1 = s.scalar(select(Account).where(Account.username == "a1"))
     h2 = s.scalar(select(Account).where(Account.username == "a2"))

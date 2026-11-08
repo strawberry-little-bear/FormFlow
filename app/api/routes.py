@@ -97,6 +97,9 @@ from fastapi import APIRouter
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
 
+MIN_ACCOUNT_PASSWORD_LENGTH = 8
+MAX_ACCOUNT_PASSWORD_LENGTH = 256
+
 
 class UploadTooLargeError(ValueError):
     """Raised before an upload is copied into memory beyond the global cap."""
@@ -233,6 +236,14 @@ def create_account(username: str = Form(...), password: str = Form(...),
                    db: Session = Depends(get_db)):
     if not settings.allow_registration:
         raise HTTPException(403, "当前部署已关闭公开注册，请联系组织者创建账号")
+    if not username.strip():
+        raise HTTPException(422, "用户名不能为空")
+    if len(username) > 120:
+        raise HTTPException(422, "用户名不能超过 120 个字符")
+    if len(password) < MIN_ACCOUNT_PASSWORD_LENGTH:
+        raise HTTPException(422, f"密码至少 {MIN_ACCOUNT_PASSWORD_LENGTH} 位")
+    if len(password) > MAX_ACCOUNT_PASSWORD_LENGTH:
+        raise HTTPException(422, f"密码不能超过 {MAX_ACCOUNT_PASSWORD_LENGTH} 个字符")
     if db.scalar(select(Account).where(Account.username == username)):
         raise HTTPException(409, "用户名已存在")
     salt = new_salt()
