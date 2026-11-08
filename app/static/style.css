@@ -2216,7 +2216,7 @@ dialog p {
 .grid-chat { grid-template-columns:minmax(0,1fr) minmax(430px,1.08fr); gap:28px; }
 .agent-panel { border-color:#e4e5ec; box-shadow:0 18px 48px rgba(38,32,64,.08); }
 .agent-heading { padding:17px 20px; background:#fff; }
-.agent-heading h2 span { color:#767b89; }
+.agent-heading h2 span { color:#555d6b; }
 .chat { height:min(68vh,680px); min-height:520px; max-height:none; background:#fbfbfd; }
 .chat-scroll { padding:30px clamp(20px,4vw,42px); gap:25px; background:#fbfbfd; }
 .msg { max-width:min(88%,640px); }
@@ -2230,7 +2230,7 @@ dialog p {
 .msg.agent .body { padding-top:3px; line-height:1.85; }
 .composer.chat-composer { padding:14px 16px 13px; border-top:1px solid #e2e3e9; background:#fff; transition:border-color .2s, box-shadow .2s; }
 .chat-composer.drop-active { border-color:#7661c5; box-shadow:inset 0 0 0 2px #e9e4fb; }
-.composer-intro { display:flex; align-items:center; gap:9px; margin:0 2px 9px; color:#777c89; font-size:10px; line-height:1.5; }
+.composer-intro { display:flex; align-items:center; gap:9px; margin:0 2px 9px; color:#555d6b; font-size:10px; line-height:1.5; }
 .composer-intro .eyebrow { color:#7661c5; font-size:9px; font-weight:700; white-space:nowrap; }
 .chat-input-wrap { display:grid; grid-template-columns:auto auto 1fr; align-items:end; gap:7px; padding:8px 9px 7px; border:1px solid #dedfe7; border-radius:12px; background:#fff; box-shadow:0 2px 8px rgba(38,32,64,.04); }
 .chat-input-wrap:focus-within { border-color:#9b8bd1; box-shadow:0 0 0 3px #f0edfb; }
@@ -2256,7 +2256,7 @@ dialog p {
 .source-pack-details > summary::-webkit-details-marker { display:none; }
 .source-pack-details > summary::after { content:'+'; color:#8d84a0; font-size:16px; }
 .source-pack-details[open] > summary::after { content:'−'; }
-.source-pack-details > summary span { margin-left:auto; color:#96909f; font-size:9px; }
+.source-pack-details > summary span { margin-left:auto; color:#555d6b; font-size:9px; }
 .source-pack-details .source-pack { margin:0; border:0; border-top:1px solid #ecebf0; border-radius:0; background:#fcfcfd; }
 .source-pack-details .source-pack-heading { padding-top:2px; }
 .source-pack-details .source-pack-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
