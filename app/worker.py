@@ -11,6 +11,7 @@ V20（队列失败、服务重启）恢复语义：
 from __future__ import annotations
 
 import time
+from threading import Event, Thread
 from pathlib import Path
 
 from sqlalchemy import delete, select
@@ -33,6 +34,7 @@ from .config import settings
 
 # 中断未完成态：重启后需要恢复接管的运行状态（成功/失败/被取代都是历史，绝不动）
 _INTERRUPTED_STATUSES = (RUN_RUNNING, RUN_RETRY_WAIT)
+_HEARTBEAT_INTERVAL_SECONDS = 10.0
 
 
 def write_worker_heartbeat() -> bool:
@@ -47,6 +49,12 @@ def write_worker_heartbeat() -> bool:
     except OSError as exc:
         print(f"[worker] 无法写入心跳文件（继续运行）: {exc}", flush=True)
         return False
+
+
+def _heartbeat_loop(stop_event: Event, interval: float = _HEARTBEAT_INTERVAL_SECONDS) -> None:
+    """Keep the supervisor marker fresh while a long model call is running."""
+    while not stop_event.wait(interval):
+        write_worker_heartbeat()
 
 
 def _clear_partial_results(db: Session, run_id: int) -> None:
@@ -110,6 +118,14 @@ def main(poll_interval: float = 2.0) -> None:
     finally:
         db.close()
     write_worker_heartbeat()
+    heartbeat_stop = Event()
+    heartbeat_thread = Thread(
+        target=_heartbeat_loop,
+        args=(heartbeat_stop,),
+        name="formflow-worker-heartbeat",
+        daemon=True,
+    )
+    heartbeat_thread.start()
     print("[worker] ready", flush=True)
     while True:
         db = SessionLocal()
@@ -128,7 +144,6 @@ def main(poll_interval: float = 2.0) -> None:
             print(f"[worker] 运行出错（将重试）: {e}")
         finally:
             db.close()
-            write_worker_heartbeat()
         time.sleep(poll_interval)
 
 
