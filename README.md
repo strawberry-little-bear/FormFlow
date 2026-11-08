@@ -84,6 +84,7 @@ FORMFLOW_LLM_INPUT_MODE=auto
 - [部署与模型接入](docs/deployment.md)：配置本地环境、provider、密钥和生产边界。
 - [审核 Agent 评估集](docs/review-agent-evaluation.md)：在获准脱敏数据上评估结论和证据覆盖。
 - [产品证据索引](docs/ux-review-index.md)：查看具体场景的页面结果、复现入口和限制。
+- [2026-11-08 功能与视觉回归](docs/ux-review-2026-11-08/verification.md)：四档视口、关键路由和失败态的最新验收结果。
 
 演示档案中的人物、材料和结论均为虚构。它们可以说明流程、权限、状态和导出行为，不能替代真实模型质量、敏感材料处理、屏幕阅读器、移动设备或公网安全验收。
 
