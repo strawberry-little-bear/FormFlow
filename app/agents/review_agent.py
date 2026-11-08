@@ -494,6 +494,9 @@ def run_semantic_rule(
     visual_only: bool = False,
 ) -> RuleResultOut:
     client = client or get_client()
+    direct_files_available = bool(ctx.files) and all(
+        f.path is not None and f.path.is_file() for f in ctx.files
+    )
     direct_documents = [
         DocumentInput(
             file_id=f.file_id,
@@ -502,7 +505,7 @@ def run_semantic_rule(
             mime_type=f.mime_type or mimetypes.guess_type(f.original_name)[0] or "application/octet-stream",
         )
         for f in ctx.files if f.path is not None
-    ]
+    ] if direct_files_available else []
     direct_attempted = bool(direct_documents and getattr(client, "direct_documents_enabled", False))
     direct_used = False
 
@@ -573,6 +576,18 @@ def run_semantic_rule(
                 f.file_id: format_parse_text(f.parse)
                 for f in ctx.files if f.parse and f.parse.pages
             }
+            unreadable = next((f for f in ctx.files if not f.parse or not f.parse.pages), None)
+            if unreadable is not None:
+                detail = unreadable.parse_error or "服务器未能读取该附件"
+                return RuleResultOut(
+                    rule_id=rule.id,
+                    result=RESULT_UNKNOWN,
+                    explanation=f"文件 {unreadable.original_name} 无法读取（{detail}），材料覆盖不完整，无法核验",
+                    next_step="重新上传可读取的文件，或交由组织者打开原件人工核对",
+                    evidence=[EvidenceOut(file_id=unreadable.file_id, locator="file",
+                                          quote="附件无法读取，未纳入本次核验",
+                                          method="coverage")],
+                )
             payload = None
             if not file_texts:
                 return RuleResultOut(rule_id=rule.id, result=RESULT_UNKNOWN,

@@ -436,6 +436,43 @@ def test_semantic_prefers_direct_document_input_without_ocr(tmp_path, stub_llm, 
     assert coverage["parser_unread"] == 1
 
 
+def test_semantic_does_not_direct_read_partial_file_set(tmp_path, stub_llm, monkeypatch):
+    """原件不完整时不能把剩余附件当成完整直传审核。"""
+    monkeypatch.setattr("app.config.settings.llm_input_mode", "auto")
+    available = Path(tmp_path) / "available.txt"
+    available.write_text("2026 秋季第 1 期团课报告", encoding="utf-8")
+
+    class DirectStub(type(stub_llm)):
+        @property
+        def direct_documents_enabled(self):
+            return True
+
+        def __init__(self):
+            super().__init__()
+            self.document_calls = 0
+
+        def chat_json_documents(self, *args, **kwargs):
+            self.document_calls += 1
+            return {"result": "satisfied", "explanation": "不应调用", "evidence": []}
+
+    def fake_parse_file(path, *, allow_ocr=True):
+        return ParseResult(pages=["2026 秋季第 1 期团课报告"], method="text")
+
+    monkeypatch.setattr("app.parsing.parse_file", fake_parse_file)
+    client = DirectStub()
+    files = [
+        FileInfo(file_id="f1", slot="report", original_name="available.txt", size=30,
+                 path=available),
+        FileInfo(file_id="f2", slot="photo", original_name="missing.jpg", size=30),
+    ]
+    result = run_semantic_rule(_bp().rules[4], _ctx(files=files), client=client)
+
+    assert result.result == RESULT_UNKNOWN
+    assert "无法读取" in result.explanation
+    assert result.evidence[0].file_id == "f2"
+    assert client.document_calls == 0
+
+
 def test_review_agent_uses_real_client_for_direct_materials(tmp_path, monkeypatch):
     """审核 Agent 直传成功时，证据标记为模型定位线索并保留文件 ID/页码。"""
     import httpx
