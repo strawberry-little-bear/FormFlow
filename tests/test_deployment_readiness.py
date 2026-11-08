@@ -1,9 +1,18 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 
 from app.config import settings
 from app.main import app
+
+
+def test_docker_build_context_excludes_secrets_and_local_data():
+    patterns = set((Path(__file__).resolve().parents[1] / ".dockerignore")
+                   .read_text(encoding="utf-8").splitlines())
+
+    assert {".env", ".env.*", "!.env.example", "data", "**/data", ".git"} <= patterns
 
 
 def test_readiness_reports_database_and_storage():

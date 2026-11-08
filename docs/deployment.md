@@ -101,6 +101,8 @@ python scripts/backup_runtime.py restore /srv/formflow/backups/formflow-20261107
 
 仓库提供 `deploy/docker-compose.yml`，用于把 API 和 Worker 固定在同一份配置、数据库和附件卷中：
 
+Docker 构建上下文通过根目录 `.dockerignore` 排除本地 `.env`、数据库、附件、Git 历史、测试和走查文档；`.env.example` 保留为非密钥配置模板。
+
 ```bash
 cp .env.example .env
 # 编辑 .env，至少填写 FORMFLOW_LLM_BASE_URL、FORMFLOW_LLM_MODEL 和密钥
