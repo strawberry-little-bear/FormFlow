@@ -122,7 +122,7 @@ async function main() {
     await page.locator('#tk-name').fill(taskName);
     await page.locator('#create-submit').click();
     await page.waitForURL(/#\/design\/\d+$/);
-    await page.getByRole('heading', { name: '把要求，变成好用的收集表' }).waitFor();
+    await page.getByRole('heading', { name: '先聊清楚，再生成收集流程' }).waitFor();
     await page.getByRole('button', { name: /团课报告/ }).click();
     await page.getByText('模板已准备好，这只是个起点，不是最终要求。').waitFor();
     await page.locator('#draft-panel .version-picker select').waitFor({ state: 'visible' });

@@ -35,6 +35,17 @@ def _task(db, owner_id):
     return task
 
 
+def test_loaded_file_sources_keep_inline_chat_links():
+    loaded = [{"id": "src_notice", "name": "通知.pdf", "kind": "notice", "content": "原文"}]
+    inline = [
+        {"id": "src_notice", "name": "旧通知", "kind": "notice", "content": "旧文"},
+        {"id": "link-1", "name": "https://example.com/notice", "kind": "attachment", "content": "参考链接：https://example.com/notice"},
+    ]
+    merged = agent_requests._merge_inline_sources(inline, loaded)
+    assert [item["id"] for item in merged] == ["src_notice", "link-1"]
+    assert merged[0]["content"] == "原文"
+
+
 def test_design_agent_api_returns_durable_status_and_replays_completed_request(
         client, db_session, monkeypatch):
     headers = _register(client, "agent-request-owner")

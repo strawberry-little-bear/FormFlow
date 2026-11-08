@@ -101,8 +101,9 @@ async function main() {
     await page.locator('#create-submit').click();
     await page.waitForURL(/#\/design\/\d+$/);
     report.taskId = Number(new URL(page.url()).hash.match(/design\/(\d+)/)?.[1]);
-    await page.getByRole('heading', { name: '把要求，变成好用的收集表' }).waitFor();
-    await page.getByText('来源资料包', { exact: false }).waitFor();
+    await page.getByRole('heading', { name: '先聊清楚，再生成收集流程' }).waitFor();
+    await page.locator('.source-pack-details summary').click();
+    await page.getByText('来源资料', { exact: true }).waitFor();
     await page.waitForFunction(() => {
       const inputs = [...document.querySelectorAll('#source-pack input[type="file"]')];
       return inputs.length === 4 && inputs.every(input => !input.disabled);

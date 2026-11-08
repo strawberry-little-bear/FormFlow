@@ -342,6 +342,18 @@ test('uploaded source materials stay addressable and expose a readable status', 
   assert.match(els['source-files-notice'].innerHTML, /等待模型直读/);
   assert.match(els['source-materials-state'].innerHTML, /服务器已保存 1 份资料/);
 });
+test('chat requirement entry treats links as traceable source hints', () => {
+  const {app} = setup();
+  app.state.chatLinks = ['https://example.com/notice'];
+  const link = app.collectSourceMaterials().find(item => item.id === 'link-1');
+  assert.equal(link.id, 'link-1');
+  assert.equal(link.name, 'https://example.com/notice');
+  assert.equal(link.kind, 'attachment');
+  assert.equal(link.content, '参考链接：https://example.com/notice');
+  assert.match(source, /handleChatDrop\(event\)/);
+  assert.match(source, /onpaste="handleChatPaste\(event\)"/);
+  assert.match(source, /source-pack-details/);
+});
 test('submitter credential errors show the server guidance once', async () => {
   const {app, context, els} = setup();
   els['lg-cred'].value = 'expired-token';
@@ -3728,16 +3740,13 @@ test('submitter actions keep the primary action readable on narrow screens', () 
   assert.match(styleSource, /submit-primary-dock button \{[\s\S]*min-height:48px/);
 });
 
-test('desktop design chat stays compact while narrow layouts keep their dedicated height', () => {
-  const designPanel = styleSource.match(/#design-chat\.agent-panel\s*\{([^}]*)\}/);
-  const desktopChat = styleSource.match(/\.chat\s*\{\s*height:360px;\s*min-height:320px;\s*max-height:460px\s*\}/);
-  assert.ok(designPanel);
-  assert.match(designPanel[1], /height:auto/);
-  assert.match(designPanel[1], /max-height:calc\(100vh - 118px\)/);
-  assert.match(designPanel[1], /overflow-y:auto/);
-  assert.ok(desktopChat);
-  assert.match(styleSource, /@media\(max-width:980px\)[\s\S]*\.chat\s*\{\s*height:530px/);
-  assert.match(styleSource, /@media\s*\(max-width:700px\)[\s\S]*\.chat\s*\{\s*height:64vh/);
+test('desktop design chat uses a conversation-first composer and collapsible source controls', () => {
+  assert.match(styleSource, /\.chat-composer\.drop-active/);
+  assert.match(styleSource, /\.chat-input-wrap\s*\{/);
+  assert.match(styleSource, /\.chat-attachment\.link/);
+  assert.match(styleSource, /\.source-pack-details\s*>\s*summary/);
+  assert.match(styleSource, /@media\s*\(max-width:980px\)\s*\{[\s\S]*\.grid-chat\s*\{\s*grid-template-columns:minmax\(0,1fr\)/);
+  assert.match(styleSource, /@media\s*\(max-width:620px\)\s*\{[\s\S]*\.source-pack-details \.source-pack-grid\s*\{\s*grid-template-columns:1fr/);
 });
 test('submitter dock follows the visible viewport above a virtual keyboard', () => {
   const {context, document, visualViewport, viewportListeners} = setup();

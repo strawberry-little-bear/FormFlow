@@ -1,7 +1,7 @@
 "use strict";
 /* 收齐啦 FormFlow 前端（P01–P05）。纯静态 SPA，直接调用 /api。 */
 const ORG_KEY = "ff_org_token", SUB_KEY = "ff_sub_token", PRESENTATION_KEY = "ff_tasks_presentation";
-const state = { taskId: null, chat: [], bpId: null, draft: null, requirement: "", answeredDone: false, files: {}, filesMeta: {}, draftVersion: null, me: null, lastJob: null, roster: {}, rosterEntries: [], rosterFilter: "all", rosterGrantBusy: false, designEpoch: 0, agentBusy: false, agentRequest: null, agentRequestPollTimer: 0, agentResumeStarted: false, agentRequestDisplayedId: null, draftStatus: "draft", draftVersionId: null, designTab: "preview", tasks: [], llmConfigured: null, agentRuntime: null, mcpSnapshot: null, mcpSnapshotLoading: false, mcpSnapshotRunning: false, mcpReplayIndex: null, mcpReplayTimer: 0, demoTaskId: null, designBlocking: [], designAdvisories: [], designVersions: [], designHistory: [], viewingVersion: null, viewingPublished: null, viewingImpact: null, wbRows: [], wbFilter: "all", reviewRule: null, reviewFilter: "all", reviewTraceFilter: "all", presentationMode: false, presentationStartAligned: false, timePolicySaving: false, submissionValidationAttempted: false, sourceMaterials: [], sourceMaterialsLoading: false, sourceMaterialsBusy: false, sourceMaterialsError: "" };
+const state = { taskId: null, chat: [], chatLinks: [], bpId: null, draft: null, requirement: "", answeredDone: false, files: {}, filesMeta: {}, draftVersion: null, me: null, lastJob: null, roster: {}, rosterEntries: [], rosterFilter: "all", rosterGrantBusy: false, designEpoch: 0, agentBusy: false, agentRequest: null, agentRequestPollTimer: 0, agentResumeStarted: false, agentRequestDisplayedId: null, draftStatus: "draft", draftVersionId: null, designTab: "preview", tasks: [], llmConfigured: null, agentRuntime: null, mcpSnapshot: null, mcpSnapshotLoading: false, mcpSnapshotRunning: false, mcpReplayIndex: null, mcpReplayTimer: 0, demoTaskId: null, designBlocking: [], designAdvisories: [], designVersions: [], designHistory: [], viewingVersion: null, viewingPublished: null, viewingImpact: null, wbRows: [], wbFilter: "all", reviewRule: null, reviewFilter: "all", reviewTraceFilter: "all", presentationMode: false, presentationStartAligned: false, timePolicySaving: false, submissionValidationAttempted: false, sourceMaterials: [], sourceMaterialsLoading: false, sourceMaterialsBusy: false, sourceMaterialsError: "" };
 
 const orgToken = () => localStorage.getItem(ORG_KEY) || "";
 const subToken = () => localStorage.getItem(SUB_KEY) || "";
@@ -844,6 +844,7 @@ const ICONS = {
   collapse: '<path d="M9 3v6H3M15 3v6h6M9 21v-6H3M15 21v-6h6"/>',
   sparkle: '<path d="m12 3 1.7 5.3L19 10l-5.3 1.7L12 17l-1.7-5.3L5 10l5.3-1.7Z"/><path d="m19 16 .7 2.3L22 19l-2.3.7L19 22l-.7-2.3L16 19l2.3-.7Z"/>',
   close: '<path d="m6 6 12 12M18 6 6 18"/>',
+  link: '<path d="M10 13a5 5 0 0 0 7.1.1l2.2-2.2a5 5 0 0 0-7.1-7.1L11 5"/><path d="M14 11a5 5 0 0 0-7.1-.1l-2.2 2.2a5 5 0 0 0 7.1 7.1L13 19"/>',
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5m0-8h.01"/>',
   warning: '<circle cx="12" cy="12" r="9"/><path d="M12 7v6m0 4h.01"/>',
   trash: '<path d="M4 7h16M10 11v6m4-6v6M9 7V4h6v3m-9 0 1 14h10l1-14"/>'
@@ -1995,9 +1996,16 @@ function sourceInputProvenanceLabel(provenance) {
   return '输入路径未记录';
 }
 function collectSourceMaterials() {
-  return SOURCE_MATERIAL_FIELDS.map(f => ({...f, content:document.getElementById(f.id)?.value || ''}))
+  const typed = SOURCE_MATERIAL_FIELDS.map(f => ({...f, content:document.getElementById(f.id)?.value || ''}))
     .filter(f => String(f.content || '').trim())
     .map(({id, key, ...f}) => ({...f, id:key, content:String(f.content).trim()}));
+  const links = (state.chatLinks || []).map((url, index) => ({
+    id:`link-${index + 1}`,
+    name:url,
+    kind:'attachment',
+    content:`参考链接：${url}`
+  }));
+  return typed.concat(links);
 }
 function restoreSourceMaterials(materials = []) {
   const byId = Object.fromEntries((Array.isArray(materials) ? materials : []).map(m => [m.id, m.content || '']));
@@ -2035,6 +2043,16 @@ function sourceMaterialsListHtml(kind) {
     return `<li class="source-material-row"><div class="source-material-main"><b title="${esc(item.name || item.id)}">${esc(item.name || item.id || '未命名资料')}</b><span>${Number(item.size || 0).toLocaleString('zh-CN')} bytes · ${esc(SOURCE_STATUS_LABEL[status] || status)}</span><small>${esc(sourceMaterialStatusText(item))}</small></div><button class="icon-btn source-material-delete" type="button" data-source-delete="${esc(item.id)}" onclick="deleteSourceMaterial('${esc(item.id)}')" aria-label="删除 ${esc(item.name || '来源资料')}" title="删除来源资料">${icon('trash')}</button></li>`;
   }).join('')}</ul>`;
 }
+function chatAttachmentsHtml() {
+  const files = (state.sourceMaterials || []).map(item => `<span class="chat-attachment file" title="${esc(item.name || '来源文件')}">${icon('delivery')}<span>${esc(item.name || '来源文件')}</span></span>`);
+  const links = (state.chatLinks || []).map((url, index) => `<span class="chat-attachment link" title="${esc(url)}">${icon('link')}<span>${esc(url)}</span><button type="button" onclick="removeChatLink(${index})" aria-label="移除链接 ${esc(url)}" title="移除链接">${icon('close')}</button></span>`);
+  const box = document.getElementById('chat-attachments');
+  if (!box) return;
+  const items = files.concat(links);
+  box.innerHTML = items.length
+    ? `<div class="chat-attachments-label">已放入对话 <span>${items.length} 份</span></div><div class="chat-attachments-list">${items.join('')}</div>`
+    : '';
+}
 function renderSourceMaterials() {
   SOURCE_MATERIAL_FIELDS.forEach(field => {
     const box = document.getElementById(`source-files-${field.kind}`);
@@ -2048,7 +2066,9 @@ function renderSourceMaterials() {
       : `<span>${count ? `服务器已保存 ${count} 份资料` : '服务器资料尚未上传'}</span><span>上传后会保留原文件，需求 Agent 请求会带上资料编号。</span>`;
   }
   document.querySelectorAll('#source-pack input[type="file"]').forEach(input => { input.disabled = !!(state.agentBusy || state.sourceMaterialsBusy || state.designLoadFailed); });
+  document.getElementById('chat-file-picker')?.toggleAttribute('disabled', !!(state.agentBusy || state.sourceMaterialsBusy || state.designLoadFailed));
   document.querySelectorAll('[data-source-delete]').forEach(button => { button.disabled = !!(state.agentBusy || state.sourceMaterialsBusy || state.designLoadFailed); });
+  chatAttachmentsHtml();
 }
 async function loadSourceMaterials(taskId = state.taskId, epoch = state.designEpoch, token = orgToken()) {
   if (!taskId) return;
@@ -2069,9 +2089,8 @@ async function loadSourceMaterials(taskId = state.taskId, epoch = state.designEp
     }
   }
 }
-async function uploadSourceFiles(kind, input) {
-  if (state.agentBusy || state.sourceMaterialsBusy || !input?.files?.length) return;
-  const files = Array.from(input.files);
+async function uploadSourceFileList(kind, files, input = null) {
+  if (state.agentBusy || state.sourceMaterialsBusy || !files?.length) return;
   state.sourceMaterialsBusy = true;
   state.sourceMaterialsError = '';
   renderSourceMaterials();
@@ -2089,7 +2108,7 @@ async function uploadSourceFiles(kind, input) {
         failure = failure || `${file.name}：${error.message || '上传失败'}`;
       }
     }
-    input.value = '';
+    if (input) input.value = '';
     await loadSourceMaterials();
     if (failure) setFlash(uploaded ? `已上传 ${uploaded} 份；${failure}` : failure);
     else if (uploaded) setFlash(`已保存 ${uploaded} 份来源资料`, 'ok');
@@ -2097,6 +2116,12 @@ async function uploadSourceFiles(kind, input) {
     state.sourceMaterialsBusy = false;
     renderSourceMaterials();
   }
+}
+function uploadSourceFiles(kind, input) {
+  return uploadSourceFileList(kind, input?.files ? Array.from(input.files) : [], input);
+}
+function uploadChatFiles(input) {
+  return uploadSourceFileList('attachment', input?.files ? Array.from(input.files) : [], input);
 }
 async function deleteSourceMaterial(sourceId) {
   const material = (state.sourceMaterials || []).find(item => item.id === sourceId);
@@ -2117,13 +2142,13 @@ async function deleteSourceMaterial(sourceId) {
 }
 function hasDesignInput(value) {
   return !!value && [value.composer, value.extra, ...Object.values(value.answers || {}),
-    ...(value.source_materials || []).map(m => m.content)].some(x => String(x || '').trim());
+    ...(value.source_materials || []).map(m => m.content), ...(value.links || [])].some(x => String(x || '').trim());
 }
 function collectDesignInputs() {
   return {composer:document.getElementById('chat-in')?.value || '',
     answers:Object.fromEntries((state.designQuestions || []).map((q,i) => [q.question,document.getElementById(`clar-${i}`)?.value || ''])),
     extra:document.getElementById('clar-extra')?.value || '',
-    source_materials:collectSourceMaterials(), source_material_ids:sourceMaterialIds()};
+    source_materials:collectSourceMaterials(), source_material_ids:sourceMaterialIds(), links:[...(state.chatLinks || [])]};
 }
 function sourceMaterialIds() {
   return (state.sourceMaterials || []).map(item => String(item.id || '').trim()).filter(Boolean);
@@ -2155,16 +2180,18 @@ function cacheDesignInputs() {
 function designInputText(value) {
   const materials=(value.source_materials || []).filter(m=>String(m.content || '').trim())
     .map(m=>`【${m.name || m.id}】\n${m.content}`).join('\n\n');
-  return [materials,value.composer,...Object.entries(value.answers || {}).filter(([,v])=>String(v).trim()).map(([q,v])=>`${q}：${v}`),value.extra].filter(Boolean).join('\n\n');
+  const links=(value.links || []).map(url=>`【参考链接】\n${url}`).join('\n\n');
+  return [materials,links,value.composer,...Object.entries(value.answers || {}).filter(([,v])=>String(v).trim()).map(([q,v])=>`${q}：${v}`),value.extra].filter(Boolean).join('\n\n');
 }
 function restoreDesignInputs() {
   if (!designInputKey() || state.designToken !== orgToken()) return;
   const saved=readDesignInputs(), base=String(state.designBaseId || 0), value=saved.versions[base] || {};
   const input=document.getElementById('chat-in'); if (input) input.value=value.composer || '';
+  state.chatLinks = Array.isArray(value.links) ? value.links.filter(url => /^https?:\/\//i.test(String(url || ''))) : [];
   restoreSourceMaterials(value.source_materials || []);
   (state.designQuestions || []).forEach((q,i)=>{const el=document.getElementById(`clar-${i}`);if(el) el.value=value.answers?.[q.question] || '';});
   const extra=document.getElementById('clar-extra');if(extra)extra.value=value.extra || '';
-  state.designDirty=hasDesignInput(value);paintDesignInputState();
+  state.designDirty=hasDesignInput(value);paintDesignInputState();renderChatAttachments();
   const old=Object.entries(saved.versions).filter(([id,v])=>/^\d+$/.test(id) && id!==base && hasDesignInput(v));
   const box=document.getElementById('design-recovery');
   if(box) box.innerHTML=old.length ? `<details class="notice-warn"><summary>另有 ${old.length} 份旧草案的未发送内容，尚未应用到当前草案</summary>${old.map(([id,v])=>`<p><b>${id==='0' ? '生成草案前的输入' : '历史草案 v'+((state.designVersions || []).find(x=>String(x.id)===id)?.version || '—')+' 的未发送输入'}</b></p><pre class="source-text">${esc(designInputText(v))}</pre><button class="ghost sm" onclick="recoverDesignInput('${id}')">复制为当前修改意见</button>`).join('')}</details>` : '';
@@ -2177,16 +2204,17 @@ function recoverDesignInput(base) {
     .filter(([,answer])=>String(answer || '').trim())
     .map(([question,answer])=>`${question}：${answer}`);
   input.value=[input.value,value.composer,...recoveredAnswers,value.extra].filter(Boolean).join('\n\n');
+  state.chatLinks = [...new Set([...(state.chatLinks || []), ...(value.links || [])].filter(url => /^https?:\/\//i.test(String(url || ''))))];
   const current=collectSourceMaterials();
   if(!current.length) restoreSourceMaterials(value.source_materials || []);
-  delete saved.versions[base];writeDesignInputs(saved);cacheDesignInputs();restoreDesignInputs();input.focus();
+  delete saved.versions[base];writeDesignInputs(saved);cacheDesignInputs();restoreDesignInputs();renderChatAttachments();input.focus();
 }
 function consumeDesignInput(base, sent, source) {
   const saved=readDesignInputs();
   if(JSON.stringify(saved.versions[String(base || 0)])===JSON.stringify(sent)) {
     saved.versions[String(base || 0)]=source==='clarifications'
-      ? {...sent,answers:{},extra:'',source_materials:[]}
-      : {...sent,composer:'',source_materials:[]};writeDesignInputs(saved);
+      ? {...sent,answers:{},extra:'',source_materials:[],links:[]}
+      : {...sent,composer:'',source_materials:[],links:[]};writeDesignInputs(saved);
   }
 }
 async function viewDesign(taskId) {
@@ -2194,21 +2222,22 @@ async function viewDesign(taskId) {
   const epoch = ++state.designEpoch, token = orgToken();
   state.timePolicySaving = false;
   Object.assign(state,{designTaskId:taskId,designOwnerId:null,designToken:token,designBaseId:0,designQuestions:[],designRenderedBase:null,designDirty:false,designCacheFailed:false,designNeedsRevision:false,sourceMaterials:[],sourceMaterialsLoading:false,sourceMaterialsBusy:false,sourceMaterialsError:''});
-  Object.assign(state, {taskId, chat: [], bpId: null, draft: null, requirement: "", answeredDone: false, draftStatus: "draft", draftVersionId: null, designLoadFailed: false, designLoadError: "", retryRequest: null, agentRequest: null, agentRequestPollTimer: 0, agentResumeStarted: false, agentRequestDisplayedId: null, designTab: "preview", agentBusy: false, designBlocking: [], designAdvisories: [], designVersions: [], designHistory: [], viewingVersion: null, viewingPublished: null, viewingImpact: null});
+  Object.assign(state, {taskId, chat: [], chatLinks: [], bpId: null, draft: null, requirement: "", answeredDone: false, draftStatus: "draft", draftVersionId: null, designLoadFailed: false, designLoadError: "", retryRequest: null, agentRequest: null, agentRequestPollTimer: 0, agentResumeStarted: false, agentRequestDisplayedId: null, designTab: "preview", agentBusy: false, designBlocking: [], designAdvisories: [], designVersions: [], designHistory: [], viewingVersion: null, viewingPublished: null, viewingImpact: null});
   document.getElementById("app").innerHTML = `<div class="breadcrumb"><a href="#/tasks">我的任务</a><span>/</span><span id="design-name">收集任务 #${taskId}</span></div>
     ${showcaseReturnHtml("需求设计")}
-    <div class="page-heading design-heading"><div><div class="eyebrow">COLLECTION DESIGN</div><h1>把要求，变成好用的收集表</h1><p>左边一起梳理需求，右边实时核对。确认无误后再发布。</p></div><span class="badge brand" id="draft-state">正在加载…</span></div>
+    <div class="page-heading design-heading"><div><div class="eyebrow">COLLECTION DESIGN</div><h1>先聊清楚，再生成收集流程</h1><p>把通知、名单、模板和链接交给需求 Agent，用对话一起确认字段、材料与核验规则。</p></div><span class="badge brand" id="draft-state">正在加载…</span></div>
     <div id="flash" role="status" aria-live="polite"></div>
     <div id="agent-request-status" aria-live="polite"></div>
     <div id="llm-status-banner" class="llm-banner" style="display:none"></div>
     <div class="step-flow"><span class="st on"><span class="dot">1</span>描述需求</span><span class="arw"></span><span class="st" id="st-2"><span class="dot">2</span>核对与澄清</span><span class="arw"></span><span class="st" id="st-3"><span class="dot">3</span>确认发布</span><span class="step-hint">草案存在服务器上；没发出去的内容只留在当前标签页</span></div>
     <nav class="design-jump-nav" aria-label="需求设计区域"><button type="button" onclick="jumpToDesignSection('design-chat')">${icon("sparkle")} 和小齐整理</button><button type="button" onclick="jumpToDesignSection('draft-panel')">${icon("review")} 核对收集表</button></nav>
-    <div id="design-recovery"></div><div class="grid-chat"><section id="design-chat" class="card agent-panel"><div class="agent-heading"><span class="agent-mark">${icon("sparkle")}</span><div><h2>小齐 <span>需求设计助手</span></h2><p id="agent-status">正在准备…</p></div><span class="agent-live"></span></div>
-       <div class="chat"><div class="chat-scroll" id="chat-scroll" role="log" aria-label="需求对话" aria-live="polite" tabindex="0"></div><div class="composer"><div class="chips" id="chat-chips"></div>
-       <section class="source-pack" id="source-pack" aria-labelledby="source-pack-title"><div class="source-pack-heading"><div><b id="source-pack-title">来源资料包</b><span>上传原文件或粘贴文字；需求 Agent 会保留资料编号，规则可以回到来源。</span></div><span class="source-pack-badge">私有资料</span></div><div class="source-pack-grid">
-       ${SOURCE_MATERIAL_FIELDS.map(f => `<div class="source-pack-entry" role="group" aria-labelledby="${f.id}-label"><span id="${f.id}-label" class="source-pack-label">${esc(f.name)}</span><label class="source-file-button" for="${f.kind}-source-file">${icon('plus')}<span>选择文件</span></label><input id="${f.kind}-source-file" class="source-file-picker sr-only" type="file" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.txt,.md" onchange="uploadSourceFiles('${esc(f.kind)}', this)" aria-label="上传${esc(f.name)}"><textarea id="${f.id}" aria-label="粘贴${esc(f.name)}正文" oninput="cacheDesignInputs()" placeholder="也可以粘贴${esc(f.name)}正文"></textarea><div id="source-files-${f.kind}" class="source-files" aria-live="polite"></div></div>`).join('')}</div><div id="source-materials-state" class="source-materials-state" role="status"></div><p class="field-help">上传不会在服务器端偷偷启动 OCR。模型支持原始文件时优先直读；不支持或读取失败时，才按配置进入文字解析或 OCR 降级。名单、冲突和不确定内容会列为待确认，不会自动发布。</p></section>
-       <label class="sr-only" for="chat-in">告诉小齐你的收集要求</label><textarea id="chat-in" oninput="cacheDesignInputs()" placeholder="再用一句话补充：这次要收什么、有什么特别要求…" onkeydown="if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing){event.preventDefault();chatSend()}"></textarea>
-      <div class="composer-foot"><span>Enter 发送 · Shift + Enter 换行</span><button id="chat-send" onclick="chatSend()" aria-label="发送需求">发送 ${icon('arrow')}</button></div><p class="field-help" id="design-input-hint" role="status"></p></div></div>${designRuntimeHtml()}${designProgressHtml()}
+    <div id="design-recovery"></div><div class="grid-chat"><section id="design-chat" class="card agent-panel"><div class="agent-heading"><span class="agent-mark">${icon("sparkle")}</span><div><h2>小齐 <span>需求设计 Agent</span></h2><p id="agent-status">正在准备…</p></div><span class="agent-live"></span></div>
+       <div class="chat"><div class="chat-scroll" id="chat-scroll" role="log" aria-label="需求对话" aria-live="polite" tabindex="0"></div><div class="composer chat-composer" ondragover="handleChatDragOver(event)" ondragleave="handleChatDragLeave(event)" ondrop="handleChatDrop(event)"><div class="composer-intro"><span class="eyebrow">CHAT WITH YOUR REQUIREMENTS AGENT</span><span>把资料拖进来，或直接告诉我你要收什么。</span></div><div class="chips" id="chat-chips"></div><div id="chat-attachments" class="chat-attachments" aria-live="polite"></div>
+       <div class="chat-link-row" id="chat-link-row" hidden><span>${icon('link')}</span><input id="chat-link-in" type="url" placeholder="粘贴一个公开链接，例如通知页面或表格地址" onkeydown="if(event.key==='Enter'){event.preventDefault();addChatLink()}"><button type="button" class="ghost sm" onclick="addChatLink()">加入</button></div>
+       <div class="chat-input-wrap"><label class="chat-attach-button" for="chat-file-picker" title="添加文件">${icon('plus')}<span>文件</span></label><input id="chat-file-picker" class="sr-only" type="file" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.txt,.md" onchange="uploadChatFiles(this)" aria-label="添加来源文件"><button type="button" class="chat-attach-button" onclick="toggleChatLinkInput()" title="添加链接">${icon('link')}<span>链接</span></button><label class="sr-only" for="chat-in">告诉小齐你的收集要求</label><textarea id="chat-in" oninput="cacheDesignInputs()" onpaste="handleChatPaste(event)" placeholder="例如：我要收一份团课报告，名单在附件里，截止到周五；请帮我检查格式和姓名是否一致…" onkeydown="if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing){event.preventDefault();chatSend()}"></textarea></div>
+      <div class="composer-foot"><span>Enter 发送 · Shift + Enter 换行</span><button id="chat-send" onclick="chatSend()" aria-label="发送需求">发送 ${icon('arrow')}</button></div><p class="field-help" id="design-input-hint" role="status"></p></div></div>
+       <details class="source-pack-details"><summary>按类型管理来源资料 <span>高级选项 · 可追溯引用</span></summary><section class="source-pack" id="source-pack" aria-labelledby="source-pack-title"><div class="source-pack-heading"><div><b id="source-pack-title">来源资料</b><span>需要精确区分通知、名单、模板时，可以在这里归档；对话入口会自动把文件作为附件资料。</span></div><span class="source-pack-badge">私有资料</span></div><div class="source-pack-grid">
+       ${SOURCE_MATERIAL_FIELDS.map(f => `<div class="source-pack-entry" role="group" aria-labelledby="${f.id}-label"><span id="${f.id}-label" class="source-pack-label">${esc(f.name)}</span><label class="source-file-button" for="${f.kind}-source-file">${icon('plus')}<span>选择文件</span></label><input id="${f.kind}-source-file" class="source-file-picker sr-only" type="file" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.txt,.md" onchange="uploadSourceFiles('${esc(f.kind)}', this)" aria-label="上传${esc(f.name)}"><textarea id="${f.id}" aria-label="粘贴${esc(f.name)}正文" oninput="cacheDesignInputs()" placeholder="也可以粘贴${esc(f.name)}正文"></textarea><div id="source-files-${f.kind}" class="source-files" aria-live="polite"></div></div>`).join('')}</div><div id="source-materials-state" class="source-materials-state" role="status"></div><p class="field-help">模型支持原始文件时优先直读；不支持或读取失败时，才按配置进入文字解析或 OCR 降级。链接目前作为来源线索传给 Agent，不会假装已经抓取正文。</p></section></details>${designRuntimeHtml()}${designProgressHtml()}
     </section><section id="draft-panel" aria-label="实时收集表预览"></section></div>
     <dialog id="publish-dialog" aria-labelledby="publish-title"><form onsubmit="event.preventDefault();confirmPublish()"><div class="eyebrow">REVIEW & PUBLISH</div><h2 id="publish-title" tabindex="-1">确认这份收集要求</h2><p>发布后，这个版本的字段、材料和规则会被冻结。后续修改将产生新版本。</p><div id="publish-summary"></div><label class="check-label"><input type="checkbox" id="publish-consent" required>我已核对上方要求与数据处理说明，并按实际约定确认未填写项</label><div class="dialog-actions"><button type="button" class="ghost" onclick="this.closest('dialog').close()">返回核对</button><button type="submit" id="publish-confirm">确认并发布</button></div><div id="publish-error" role="alert" class="inline-error"></div></form></dialog>`;
   setAgentBusy(true, "正在加载"); renderSourceMaterials(); renderDraftPanel();
@@ -2349,6 +2378,74 @@ function renderChips() {
   box.querySelectorAll('button').forEach(x => x.disabled = state.agentBusy || state.designLoadFailed || !!state.viewingVersion);
 }
 function fillChat(t) { if (state.agentBusy) return; const el = document.getElementById('chat-in'); el.value = t;cacheDesignInputs(); el.focus(); }
+function toggleChatLinkInput(force) {
+  const row = document.getElementById('chat-link-row');
+  const input = document.getElementById('chat-link-in');
+  if (!row) return;
+  row.hidden = force === undefined ? !row.hidden : !force;
+  if (!row.hidden) input?.focus();
+}
+function addChatLinkValue(value) {
+  const url = String(value || '').trim();
+  if (!url) return false;
+  let parsed;
+  try { parsed = new URL(url); } catch (e) { return false; }
+  if (!['http:', 'https:'].includes(parsed.protocol)) return false;
+  if (!state.chatLinks.includes(url)) state.chatLinks.push(url);
+  renderChatAttachments(); cacheDesignInputs();
+  return true;
+}
+function addChatLink() {
+  const input = document.getElementById('chat-link-in');
+  const value = input?.value || '';
+  if (!addChatLinkValue(value)) {
+    setFlash('请粘贴以 http:// 或 https:// 开头的链接。');
+    input?.focus();
+    return;
+  }
+  input.value = '';
+  toggleChatLinkInput(false);
+  setFlash('链接已放入对话，发送后会作为来源线索交给需求 Agent。', 'ok');
+}
+function removeChatLink(index) {
+  if (state.agentBusy) return;
+  state.chatLinks.splice(index, 1);
+  renderChatAttachments(); cacheDesignInputs();
+}
+function renderChatAttachments() { chatAttachmentsHtml(); }
+function handleChatDragOver(event) {
+  event.preventDefault();
+  event.currentTarget?.classList.add('drop-active');
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+}
+function handleChatDragLeave(event) {
+  if (!event.currentTarget?.contains(event.relatedTarget)) event.currentTarget.classList.remove('drop-active');
+}
+function handleChatDrop(event) {
+  event.preventDefault();
+  event.currentTarget?.classList.remove('drop-active');
+  if (state.agentBusy) return;
+  const files = Array.from(event.dataTransfer?.files || []);
+  const uriText = event.dataTransfer?.getData?.('text/uri-list') || '';
+  const plainText = event.dataTransfer?.getData?.('text/plain') || '';
+  if (uriText) addChatLinkValue(uriText.split(/\r?\n/).find(Boolean));
+  else if (/^https?:\/\/\S+$/i.test(plainText.trim())) addChatLinkValue(plainText.trim());
+  if (files.length) uploadSourceFileList('attachment', files);
+}
+function handleChatPaste(event) {
+  if (state.agentBusy) return;
+  const files = Array.from(event.clipboardData?.files || []);
+  if (files.length) {
+    event.preventDefault();
+    uploadSourceFileList('attachment', files);
+    return;
+  }
+  const text = event.clipboardData?.getData('text/plain')?.trim() || '';
+  if (/^https?:\/\/\S+$/i.test(text)) {
+    event.preventDefault();
+    addChatLinkValue(text);
+  }
+}
 function chatScrollBottom() { const el = document.getElementById('chat-scroll'); if (el) el.scrollTop = el.scrollHeight; }
 function userSay(text) { state.chat.push({role: 'user', html: esc(text).replace(/\n/g,'<br>')}); paintChat(); }
 function agentSay(html, mini) { state.chat.push({role: 'agent', html, mini: mini || ''}); paintChat(); }

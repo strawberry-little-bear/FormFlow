@@ -188,6 +188,12 @@ def _model_failed(result) -> bool:
     return any(str(w).startswith(markers) for w in result.warnings)
 
 
+def _merge_inline_sources(inline: list[dict], loaded: list[dict]) -> list[dict]:
+    """Keep chat-only sources (such as links) beside uploaded file sources."""
+    loaded_ids = {str(item.get("id") or "") for item in loaded}
+    return loaded + [item for item in inline if str(item.get("id") or "") not in loaded_ids]
+
+
 def _draft_with_optional_sources(requirement: str, *, template: str | None = None,
                                  source_materials: list[dict] | None = None,
                                  source_documents: list | None = None,
@@ -219,8 +225,9 @@ def _execute_request(db: Session, job: AgentDraftRequest, task: Task, payload: d
         if payload.get("source_material_ids"):
             from .source_materials import load_inputs
             try:
-                source_materials, source_documents = load_inputs(
+                loaded_materials, source_documents = load_inputs(
                     db, task, payload["source_material_ids"])
+                source_materials = _merge_inline_sources(source_materials, loaded_materials)
             except ValueError as exc:
                 raise AgentRequestError(str(exc)) from exc
         result = _draft_with_optional_sources(
@@ -255,8 +262,9 @@ def _execute_request(db: Session, job: AgentDraftRequest, task: Task, payload: d
     if payload.get("source_material_ids"):
         from .source_materials import load_inputs
         try:
-            source_materials, source_documents = load_inputs(
+            loaded_materials, source_documents = load_inputs(
                 db, task, payload["source_material_ids"])
+            source_materials = _merge_inline_sources(source_materials, loaded_materials)
         except ValueError as exc:
             raise AgentRequestError(str(exc)) from exc
     result, blueprint, impact = task_service.revise_draft(
