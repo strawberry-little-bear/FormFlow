@@ -36,7 +36,7 @@ def _can_write(path: Path) -> bool:
     return bool(os.access(path, os.W_OK))
 
 
-def deployment_issues(*, allow_offline: bool) -> tuple[list[str], list[str]]:
+def deployment_issues(*, allow_offline: bool, secret_file: Path | None = None) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     warnings: list[str] = []
 
@@ -50,7 +50,14 @@ def deployment_issues(*, allow_offline: bool) -> tuple[list[str], list[str]]:
     if "/data/demo" in database_url or storage_dir.name == "demo":
         errors.append("数据库或附件目录仍指向演示数据")
 
-    if not settings.llm_configured:
+    file_secret_configured = False
+    if secret_file is not None:
+        try:
+            file_secret_configured = secret_file.is_file() and secret_file.stat().st_size > 0
+        except OSError:
+            errors.append(f"模型 Secret 文件无法读取：{secret_file}")
+
+    if not settings.llm_configured and not file_secret_configured:
         if allow_offline:
             warnings.append("未配置模型密钥：将以离线/人工接手模式运行")
         else:
@@ -99,9 +106,13 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="只读检查 FormFlow 生产部署配置")
     parser.add_argument("--allow-offline", action="store_true", help="允许未配置模型密钥，以离线模式运行")
     parser.add_argument("--url", help="额外检查已启动实例的 /api/health 与 /api/ready")
+    parser.add_argument("--secret-file", type=Path, help="只检查文件型模型 Secret 非空，不读取或打印内容")
     args = parser.parse_args(argv)
 
-    errors, warnings = deployment_issues(allow_offline=args.allow_offline)
+    errors, warnings = deployment_issues(
+        allow_offline=args.allow_offline,
+        secret_file=args.secret_file.expanduser().resolve() if args.secret_file else None,
+    )
     errors.extend(check_url(args.url) if args.url else [])
     for warning in warnings:
         print(f"WARN  {warning}")

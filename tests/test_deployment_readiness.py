@@ -118,6 +118,7 @@ def test_deployment_preflight_script_has_help_and_offline_flag(tmp_path):
     )
     assert result.returncode == 0
     assert "allow-offline" in result.stdout
+    assert "secret-file" in result.stdout
     assert "只读检查" in result.stdout
 
 
