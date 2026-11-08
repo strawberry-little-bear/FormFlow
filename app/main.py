@@ -41,13 +41,15 @@ async def add_security_headers(request: Request, call_next):
 
 
 @app.get("/health")
-def health() -> dict:
+def health(response: Response) -> dict:
+    response.headers["Cache-Control"] = "no-store"
     return {"status": "ok"}
 
 
 @app.get("/api/health")
-def demo_health() -> dict:
+def demo_health(response: Response) -> dict:
     """Identify the current app build contract for local demo readiness checks."""
+    response.headers["Cache-Control"] = "no-store"
     return {
         "status": "ok",
         "service": "formflow",
@@ -66,6 +68,7 @@ def demo_health() -> dict:
 @app.get("/api/ready")
 def readiness(response: Response) -> dict:
     """Return 200 only when the API can reach its database and storage root."""
+    response.headers["Cache-Control"] = "no-store"
     checks = {"database": False, "storage": False}
     try:
         with SessionLocal() as db:

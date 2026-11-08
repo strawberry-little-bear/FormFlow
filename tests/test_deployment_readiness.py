@@ -57,6 +57,14 @@ def test_baseline_security_headers_are_present():
     assert response.headers["X-Content-Type-Options"] == "nosniff"
     assert response.headers["X-Frame-Options"] == "SAMEORIGIN"
     assert response.headers["Referrer-Policy"] == "strict-origin-when-cross-origin"
+    assert response.headers["Cache-Control"] == "no-store"
+
+
+def test_readiness_probe_is_not_cacheable():
+    with TestClient(app) as client:
+        response = client.get("/api/ready")
+
+    assert response.headers["Cache-Control"] == "no-store"
 
 
 def test_public_registration_can_be_disabled(monkeypatch):
