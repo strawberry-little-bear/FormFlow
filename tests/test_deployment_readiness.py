@@ -25,7 +25,8 @@ def test_compose_uses_file_secret_instead_of_api_key_environment_value():
     assert "FORMFLOW_LLM_API_KEY_FILE: /run/secrets/formflow_llm_api_key" in compose
     assert "FORMFLOW_LLM_API_KEY:" not in compose
     assert "file: ../.formflow_llm_api_key" in compose
-    assert ".worker-heartbeat" in compose
+    assert "FORMFLOW_WORKER_HEARTBEAT_FILE:" in compose
+    assert "os.environ['FORMFLOW_WORKER_HEARTBEAT_FILE']" in compose
 
 
 def test_public_model_defaults_are_neutral_and_require_explicit_provider():
@@ -114,3 +115,13 @@ def test_config_can_read_api_key_from_local_secret_file(tmp_path, monkeypatch):
     configured = Settings()
     assert configured.llm_api_key == "file-secret"
     assert configured.llm_configured is True
+
+
+def test_worker_heartbeat_path_can_be_configured(tmp_path, monkeypatch):
+    marker = tmp_path / "runtime" / "worker-heartbeat"
+    monkeypatch.setenv("FORMFLOW_WORKER_HEARTBEAT_FILE", str(marker))
+
+    from app.config import Settings
+
+    configured = Settings()
+    assert configured.worker_heartbeat_file == marker

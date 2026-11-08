@@ -11,6 +11,7 @@ FORMFLOW_ENV=production
 FORMFLOW_ALLOW_REGISTRATION=false
 FORMFLOW_DATABASE_URL=sqlite:////srv/formflow/data/formflow.db
 FORMFLOW_STORAGE_DIR=/srv/formflow/data/storage
+FORMFLOW_WORKER_HEARTBEAT_FILE=/srv/formflow/data/storage/.worker-heartbeat
 FORMFLOW_LLM_BASE_URL=https://your-provider.example/v1
 FORMFLOW_LLM_API_KEY=由用户自行填写
 FORMFLOW_LLM_MODEL=your-model
