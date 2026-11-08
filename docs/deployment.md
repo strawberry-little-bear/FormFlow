@@ -114,6 +114,15 @@ curl http://127.0.0.1:8000/api/ready
 docker compose -f deploy/docker-compose.yml logs -f api worker
 ```
 
+Windows PowerShell 创建同一个空文件使用：
+
+```powershell
+New-Item -ItemType File -Path .formflow_llm_api_key -Force
+docker compose -f deploy/docker-compose.yml up -d --build
+Invoke-WebRequest http://127.0.0.1:8000/api/ready
+docker compose -f deploy/docker-compose.yml logs -f api worker
+```
+
 Compose 通过文件型 Secret 把 `.formflow_llm_api_key` 只读挂载到 API 和 Worker；密钥不会进入容器环境变量，也不会出现在 `docker compose config` 的展开结果中。Compose 只把 API 绑定到本机回环地址，公网访问仍应由 Caddy、Nginx 或云负载均衡终止 HTTPS 后转发。
 `formflow_data` 卷同时保存 SQLite 和附件；升级前先停服务并完成备份，不能把演示数据库挂到生产卷。
 
