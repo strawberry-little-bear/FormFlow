@@ -97,7 +97,7 @@ sudo cp deploy/Caddyfile.example /etc/caddy/Caddyfile
 sudo systemctl reload caddy
 ```
 
-Caddy 会负责证书申请和 HTTPS，FormFlow 仍只监听本机回环地址。API 和 Worker 必须使用同一份配置；不要使用 `--reload`、演示种子、演示账号或共享的开发数据库。
+Caddy 会负责证书申请和 HTTPS，示例同时设置 HSTS、内容类型、嵌入、来源和浏览器权限策略；FormFlow 仍只监听本机回环地址。API 和 Worker 必须使用同一份配置；不要使用 `--reload`、演示种子、演示账号或共享的开发数据库。
 
 SQLite 文件和 `FORMFLOW_STORAGE_DIR` 必须位于持久磁盘。备份应同时覆盖数据库和附件，并定期在新目录做恢复演练。需要多 Worker 或多 API 实例前，先把 SQLite 换成受支持的共享数据库，并为队列任务增加领取锁/租约；当前执行模型按单 Worker 设计。
 

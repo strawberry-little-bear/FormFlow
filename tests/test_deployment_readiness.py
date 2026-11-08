@@ -29,6 +29,11 @@ def test_caddy_example_keeps_api_on_loopback():
 
     assert "example.com" in caddy
     assert "reverse_proxy 127.0.0.1:8000" in caddy
+    assert 'Strict-Transport-Security "max-age=31536000; includeSubDomains"' in caddy
+    assert 'Permissions-Policy "camera=(), microphone=(), geolocation=()"' in caddy
+    assert 'X-Content-Type-Options "nosniff"' in caddy
+    assert 'X-Frame-Options "SAMEORIGIN"' in caddy
+    assert 'Referrer-Policy "strict-origin-when-cross-origin"' in caddy
     assert "Caddyfile.example" in deployment
 
 
