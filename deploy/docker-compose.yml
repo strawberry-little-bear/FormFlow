@@ -27,7 +27,10 @@ services:
     init: true
     read_only: true
     tmpfs:
-      - /tmp
+      - /tmp:rw,noexec,nosuid,size=64m
+    cap_drop:
+      - ALL
+    pids_limit: 256
     security_opt:
       - no-new-privileges:true
     ports:
@@ -72,7 +75,10 @@ services:
     init: true
     read_only: true
     tmpfs:
-      - /tmp
+      - /tmp:rw,noexec,nosuid,size=64m
+    cap_drop:
+      - ALL
+    pids_limit: 128
     security_opt:
       - no-new-privileges:true
     volumes:

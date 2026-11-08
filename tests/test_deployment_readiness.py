@@ -49,7 +49,10 @@ def test_compose_services_use_ephemeral_root_filesystems():
         encoding="utf-8"
     )
     assert compose.count("read_only: true") == 2
-    assert compose.count("- /tmp") == 2
+    assert compose.count("- /tmp:rw,noexec,nosuid,size=64m") == 2
+    assert compose.count("cap_drop:") == 2
+    assert compose.count("- ALL") == 2
+    assert compose.count("pids_limit:") == 2
     assert compose.count("no-new-privileges:true") == 2
     assert compose.count("init: true") == 2
 
