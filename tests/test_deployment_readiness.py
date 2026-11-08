@@ -10,7 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 from starlette.datastructures import UploadFile
 
-from app.config import settings
+from app.config import public_llm_base_url, settings
 from app.api.routes import UploadTooLargeError, _read_upload_content
 from app.main import app
 
@@ -171,6 +171,13 @@ def test_config_status_exposes_only_non_secret_deployment_flags():
     assert payload["registration_open"] is settings.allow_registration
     assert payload["environment"] == settings.environment
     assert "api_key" not in payload
+
+
+def test_public_provider_url_removes_embedded_credentials_and_query():
+    assert public_llm_base_url(
+        "https://user:secret@provider.example:8443/v1?api_key=secret#debug"
+    ) == "https://provider.example:8443/v1"
+    assert public_llm_base_url("provider.local/v1?token=secret") == "provider.local/v1"
 
 
 def test_config_can_read_api_key_from_local_secret_file(tmp_path, monkeypatch):

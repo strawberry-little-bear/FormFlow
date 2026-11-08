@@ -12,7 +12,7 @@ from sqlalchemy import text
 
 from .api.routes import router
 from .db import SessionLocal, init_db
-from .config import settings
+from .config import public_llm_base_url, settings
 from . import storage
 from .services.agent_runtime import AGENT_RUNTIME_CONTRACT_VERSION
 
@@ -56,7 +56,7 @@ def demo_health(response: Response) -> dict:
         "agent_runtime_contract_version": AGENT_RUNTIME_CONTRACT_VERSION,
         "llm": {
             "configured": settings.llm_configured,
-            "provider": settings.llm_base_url,
+            "provider": public_llm_base_url(settings.llm_base_url),
             "model": settings.llm_model,
             "input_mode": settings.llm_input_mode,
             "direct_documents": settings.llm_input_mode in {"auto", "direct"},

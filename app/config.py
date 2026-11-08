@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 from dotenv import load_dotenv
 
@@ -82,6 +83,25 @@ class Settings:
     @property
     def llm_configured(self) -> bool:
         return bool(self.llm_api_key)
+
+
+def public_llm_base_url(value: str) -> str:
+    """Return a provider URL safe to expose in health and runtime summaries."""
+    parsed = urlsplit(value)
+    if not parsed.scheme or not parsed.netloc:
+        # Keep diagnostics useful for a malformed local setting without exposing
+        # query strings that may contain an accidentally embedded credential.
+        return value.split("?", 1)[0].split("#", 1)[0]
+
+    hostname = parsed.hostname or ""
+    if ":" in hostname and not hostname.startswith("["):
+        hostname = f"[{hostname}]"
+    try:
+        port = parsed.port
+    except ValueError:
+        port = None
+    netloc = hostname if port is None else f"{hostname}:{port}"
+    return urlunsplit((parsed.scheme, netloc, parsed.path, "", ""))
 
 
 def _env_bool(name: str, default: bool) -> bool:
