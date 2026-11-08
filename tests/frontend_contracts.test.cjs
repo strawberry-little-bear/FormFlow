@@ -3232,6 +3232,13 @@ test('repainting agent messages preserves partially entered clarification answer
   const {app,els}=designSetup();els['clar-0'].value='只回答了一半';app.paintChat();
   assert.equal(els['clar-0'].value,'只回答了一半');
 });
+test('clarification cards turn bounded agent choices into selectable answers', () => {
+  const {context} = designSetup();
+  const html = vm.runInContext(`clarCard([{question:'材料如何接收？',why:'影响上传格式',options:['只收 PDF','PDF 或 DOCX']}])`, context);
+  assert.match(html, /class="clar-options"/);
+  assert.match(html, /data-clar-value="只收 PDF"/);
+  assert.match(html, /也可以补充其他答案/);
+});
 test('design storage failure retains memory input and tells the user refresh is risky', () => {
   const {app,els,context}=designSetup();context.sessionStorage.setItem=()=>{throw new Error('quota');};
   els['chat-in'].value='内存要求';app.cacheDesignInputs();els['chat-in'].value='';app.restoreDesignInputs();

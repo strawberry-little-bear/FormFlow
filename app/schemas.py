@@ -134,6 +134,10 @@ class Clarification(BaseModel):
 
     question: str
     why: str = ""
+    # When the Agent can identify a small set of mutually exclusive paths,
+    # expose them as choices so the organizer can answer without composing a
+    # policy from scratch. An empty list keeps the free-form path.
+    options: list[str] = Field(default_factory=list)
     affects_rule_ids: list[str] = Field(default_factory=list)
 
 

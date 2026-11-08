@@ -2309,9 +2309,43 @@ dialog p {
 .clar-card .muted {
   font-size:10px
 }
-.clar-card label {
+.clar-card label,
+.clar-question legend {
   font-size:11px;
   color:#645e75
+}
+.clar-question {
+  min-width:0;
+  margin:10px 0 0;
+  padding:0;
+  border:0
+}
+.clar-question legend {
+  padding:0;
+  font-weight:600
+}
+.clar-options {
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+  margin:7px 0 6px
+}
+.clar-option {
+  min-height:30px;
+  padding:5px 9px;
+  border:1px solid #ded8ee;
+  border-radius:7px;
+  background:#fff;
+  color:#5d4c86;
+  font-size:10px;
+  line-height:1.35;
+  cursor:pointer
+}
+.clar-option:hover,
+.clar-option.selected {
+  border-color:#7861c7;
+  background:#f0ecfb;
+  color:#463274
 }
 .clar-card input {
   font-size:11px;

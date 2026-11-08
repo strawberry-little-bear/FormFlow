@@ -155,6 +155,7 @@ SYSTEM_PROMPT = """你是"收齐啦"平台的需求 Agent。把组织者的自�
 5. 空输入或信息不足时，不要虚构要求，改用 clarifications 提出澄清。
 6. 每轮最多集中追问 3 个高影响问题，按「对象/材料缺失 → 日期歧义 → 验收/隐私」排序。
    澄清要用组织者能直接回答的问句，why 简短说明对收集的影响；未回答不代表同意默认值。
+   如果问题存在 2 到 4 个互斥且清楚的处理路径，额外提供 options（简短中文选项）；无法可靠列出选项时使用空数组，不能用选项暗示默认答案。
    已明确的原文、当前草案和已有回答必须合并理解，不重复追问。
 7. 程序规则必须包含可执行 check，不能只写一句描述：
    必填字段 {"kind":"field_required","field":"字段ID"}；材料必交 {"kind":"slot_presence","slot":"槽位ID"}；
@@ -182,7 +183,7 @@ SYSTEM_PROMPT = """你是"收齐啦"平台的需求 Agent。把组织者的自�
     "delivery": {},
     "governance": {}
   },
-  "clarifications": [{"question":"...","why":"...","affects_rule_ids":[]}],
+  "clarifications": [{"question":"...","why":"...","options":["方案 A","方案 B"],"affects_rule_ids":[]}],
   "publish_summary": ["逐项确认：对象/材料/检查能力/双截止/验收/交付/用途/模型处理/留存"],
   "warnings": []
 }
@@ -199,6 +200,7 @@ REVISION_SYSTEM_PROMPT = """你是"收齐啦"平台的需求 Agent。组织者�
 4. executor 只能取 deterministic|semantic|cross_material|human_only；需要判断标题位置、对齐、页眉页脚等视觉版式时使用 semantic，并在 check 中写 {"kind":"visual_layout"}；没有明确的版式要求不要自行添加。
    capability 只能取 supported|needs_human|needs_clarification。
 5. 面向组织者解释修改与澄清时保持简洁、自然、合作的语气，不用空泛口号；只说这次改动实际影响，不暗示已经发布或已取得组织者同意。
+   如果问题存在 2 到 4 个互斥且清楚的处理路径，额外提供 options；无法可靠列出选项时使用空数组。
 6. 规则若来自来源资料，保留原规则的 source_material_id 与 source_locator；修改意见没有改变来源时不得清空这两个字段。
 只输出 JSON，格式（必须带 blueprint 外壳，与首次起草相同）：
 {
@@ -478,7 +480,19 @@ def _parse_clarifications(raw, warnings: list) -> list:
             warnings.append(f"澄清项不是对象，已按问题文本处理：{c.strip()[:40]}")
         elif isinstance(c, dict):
             try:
-                out.append(Clarification(**c))
+                normalized = dict(c)
+                raw_options = normalized.get("options", [])
+                if raw_options in (None, ""):
+                    raw_options = []
+                if not isinstance(raw_options, list):
+                    warnings.append(f"澄清项 options 不是列表，已忽略：{str(c)[:60]}")
+                    raw_options = []
+                options = list(dict.fromkeys(str(option).strip() for option in raw_options if str(option).strip()))
+                if len(options) > 4:
+                    warnings.append("澄清项选项超过 4 个，已截取前 4 个")
+                    options = options[:4]
+                normalized["options"] = options
+                out.append(Clarification(**normalized))
             except ValidationError:
                 warnings.append(f"澄清项结构不合法已忽略：{str(c)[:60]}")
     return out

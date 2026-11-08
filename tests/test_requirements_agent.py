@@ -572,3 +572,16 @@ def test_clarifications_as_plain_strings_tolerated(stub_llm):
     result = draft_blueprint(REQUIREMENT, client=stub_llm)
     assert [c.question for c in result.clarifications] == ["是否需要同时提交查重报告？"]
     assert any("澄清项不是对象" in w for w in result.warnings)
+
+
+def test_clarification_options_are_bounded_and_deduplicated(stub_llm):
+    """Choice-based clarifications stay small enough for a human decision card."""
+    payload = _draft_payload()
+    payload["clarifications"] = [{
+        "question": "材料如何接收？",
+        "options": ["只收 PDF", "PDF 或 DOCX", "只收 PDF", "允许图片", "再问一次", "由组织者确认"],
+    }]
+    stub_llm.responses = [payload]
+    result = draft_blueprint(REQUIREMENT, client=stub_llm)
+    assert result.clarifications[0].options == ["只收 PDF", "PDF 或 DOCX", "允许图片", "再问一次"]
+    assert any("超过 4 个" in warning for warning in result.warnings)

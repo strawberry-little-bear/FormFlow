@@ -2460,12 +2460,39 @@ function paintChat() {
   box.innerHTML = state.chat.map(m => `<div class="msg ${m.role}"><div class="avatar">${m.role === 'agent' ? icon("sparkle") : '我'}</div><div class="body">${m.html}${m.mini ? `<div class="mini">${m.mini}</div>` : ''}</div></div>`).join('');
   const clar = state.designQuestions || [];
   if (state.bpId && clar.length && !state.answeredDone) box.insertAdjacentHTML('beforeend', clarCard(clar));
-  state.designRenderedBase=state.designBaseId;restoreDesignInputs();chatScrollBottom();
+  state.designRenderedBase=state.designBaseId;restoreDesignInputs();bindClarificationOptions();chatScrollBottom();
 }
 function clarCard(clars) {
   const affects = c => (c.affects_rule_ids || []).length
     ? `<p class="field-help">影响规则：${c.affects_rule_ids.map(esc).join("、")}</p>` : "";
-  return `<div class="clar-card" id="clar-card"><div class="eyebrow">NEEDS YOUR INPUT</div><h3>有 ${clars.length} 项需要你确认</h3><p class="muted">只回答已确定的内容，留空会保留为待确认，不代表同意默认值。</p>${clars.map((c,i) => `<label for="clar-${i}">${i+1}. ${esc(c.question)}</label>${c.why ? `<p class="field-help">${esc(c.why)}</p>` : ''}${affects(c)}<input id="clar-${i}" oninput="cacheDesignInputs()" placeholder="填写你的决定">`).join('')}<label for="clar-extra">其他修改意见（可选）</label><input id="clar-extra" oninput="cacheDesignInputs()" placeholder="还需要调整什么？"><button onclick="submitClarAnswers()">更新草案 ${icon('arrow')}</button></div>`;
+  const questions = clars.map((c,i) => {
+    const options = Array.isArray(c.options) ? c.options.filter(x => String(x || '').trim()).slice(0,4) : [];
+    const optionHtml = options.length ? `<div class="clar-options" role="group" aria-label="${esc(c.question)} 可选答案">${options.map(option => `<button type="button" class="clar-option" data-clar-index="${i}" data-clar-value="${esc(option)}">${esc(option)}</button>`).join('')}</div>` : '';
+    return `<fieldset class="clar-question"><legend>${i+1}. ${esc(c.question)}</legend>${c.why ? `<p class="field-help">${esc(c.why)}</p>` : ''}${affects(c)}${optionHtml}<input id="clar-${i}" oninput="syncClarificationOption(${i});cacheDesignInputs()" placeholder="${options.length ? '也可以补充其他答案' : '填写你的决定'}"></fieldset>`;
+  }).join('');
+  return `<div class="clar-card" id="clar-card"><div class="eyebrow">NEEDS YOUR INPUT</div><h3>有 ${clars.length} 项需要你确认</h3><p class="muted">小齐把不确定的地方列出来了。可以直接选方案，也可以补充自己的答案；留空不会自动替你决定。</p>${questions}<label for="clar-extra">其他修改意见（可选）</label><input id="clar-extra" oninput="cacheDesignInputs()" placeholder="还需要调整什么？"><button onclick="submitClarAnswers()">更新草案 ${icon('arrow')}</button></div>`;
+}
+function chooseClarification(index, value) {
+  const input = document.getElementById(`clar-${index}`);
+  if (!input) return;
+  input.value = String(value || '');
+  syncClarificationOption(index);
+  cacheDesignInputs();
+}
+function syncClarificationOption(index) {
+  const input = document.getElementById(`clar-${index}`);
+  const value = input?.value || '';
+  document.querySelectorAll(`.clar-option[data-clar-index="${index}"]`).forEach(button => {
+    const selected = button.dataset.clarValue === value;
+    button.classList.toggle('selected', selected);
+    button.setAttribute('aria-pressed', String(selected));
+  });
+}
+function bindClarificationOptions() {
+  document.querySelectorAll('.clar-option').forEach(button => {
+    button.onclick = () => chooseClarification(Number(button.dataset.clarIndex), button.dataset.clarValue || '');
+  });
+  (state.designQuestions || []).forEach((_, index) => syncClarificationOption(index));
 }
 async function quickTemplate(tpl) {
   if (state.agentBusy || state.designLoadFailed) return;
