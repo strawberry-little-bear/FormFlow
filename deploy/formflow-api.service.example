@@ -1,0 +1,23 @@
+[Unit]
+Description=FormFlow API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=formflow
+Group=formflow
+WorkingDirectory=/opt/formflow
+EnvironmentFile=/etc/formflow/formflow.env
+ExecStart=/opt/formflow/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
+Restart=on-failure
+RestartSec=5s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/formflow
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

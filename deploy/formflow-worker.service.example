@@ -1,0 +1,23 @@
+[Unit]
+Description=FormFlow Worker
+After=network-online.target formflow-api.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=formflow
+Group=formflow
+WorkingDirectory=/opt/formflow
+EnvironmentFile=/etc/formflow/formflow.env
+ExecStart=/opt/formflow/.venv/bin/python -m app.worker
+Restart=on-failure
+RestartSec=5s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/formflow
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

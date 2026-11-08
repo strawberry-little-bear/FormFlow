@@ -99,6 +99,21 @@ sudo systemctl reload caddy
 
 Caddy 会负责证书申请和 HTTPS，示例同时设置 HSTS、内容类型、嵌入、来源和浏览器权限策略；FormFlow 仍只监听本机回环地址。API 和 Worker 必须使用同一份配置；不要使用 `--reload`、演示种子、演示账号或共享的开发数据库。
 
+不使用 Docker 时，可以用仓库中的 `deploy/formflow-api.service.example` 和 `deploy/formflow-worker.service.example` 交给 systemd。示例假定代码位于 `/opt/formflow`、虚拟环境位于 `/opt/formflow/.venv`，生产数据位于 `/var/lib/formflow`，配置文件位于 `/etc/formflow/formflow.env`：
+
+```bash
+sudo useradd --system --home /opt/formflow --shell /usr/sbin/nologin formflow
+sudo install -d -o formflow -g formflow -m 700 /var/lib/formflow /etc/formflow
+sudo install -o root -g formflow -m 640 /opt/formflow/deploy/formflow-api.service.example /etc/systemd/system/formflow-api.service
+sudo install -o root -g formflow -m 640 /opt/formflow/deploy/formflow-worker.service.example /etc/systemd/system/formflow-worker.service
+# 将同一份生产配置写入 /etc/formflow/formflow.env，并把数据库与附件目录设为 /var/lib/formflow
+sudo systemctl daemon-reload
+sudo systemctl enable --now formflow-api.service formflow-worker.service
+sudo systemctl status formflow-api.service formflow-worker.service
+```
+
+systemd 示例启用非 root、只读系统目录、私有临时目录、禁止提权和 0077 文件权限；只有 `/var/lib/formflow` 可写。公网 HTTPS 仍由 Caddy 终止，服务单元不直接暴露公网端口。
+
 SQLite 文件和 `FORMFLOW_STORAGE_DIR` 必须位于持久磁盘。备份应同时覆盖数据库和附件，并定期在新目录做恢复演练。需要多 Worker 或多 API 实例前，先把 SQLite 换成受支持的共享数据库，并为队列任务增加领取锁/租约；当前执行模型按单 Worker 设计。
 
 生产 SQLite 可使用与 API/Worker 相同的 `.env` 做一致性备份。执行前应停止 API 和 Worker，或由进程管理器保证没有写入：

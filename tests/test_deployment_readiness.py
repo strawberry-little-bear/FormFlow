@@ -37,6 +37,27 @@ def test_caddy_example_keeps_api_on_loopback():
     assert "Caddyfile.example" in deployment
 
 
+def test_systemd_examples_share_production_paths_and_hardening():
+    root = Path(__file__).resolve().parents[1]
+    api = (root / "deploy" / "formflow-api.service.example").read_text(encoding="utf-8")
+    worker = (root / "deploy" / "formflow-worker.service.example").read_text(encoding="utf-8")
+
+    for unit in (api, worker):
+        assert "User=formflow" in unit
+        assert "Group=formflow" in unit
+        assert "WorkingDirectory=/opt/formflow" in unit
+        assert "EnvironmentFile=/etc/formflow/formflow.env" in unit
+        assert "NoNewPrivileges=true" in unit
+        assert "PrivateTmp=true" in unit
+        assert "ProtectHome=true" in unit
+        assert "ProtectSystem=strict" in unit
+        assert "ReadWritePaths=/var/lib/formflow" in unit
+        assert "UMask=0077" in unit
+    assert "127.0.0.1 --port 8000" in api
+    assert "python -m app.worker" in worker
+    assert "After=network-online.target formflow-api.service" in worker
+
+
 def test_compose_uses_file_secret_instead_of_api_key_environment_value():
     compose = (Path(__file__).resolve().parents[1] / "deploy" / "docker-compose.yml").read_text(
         encoding="utf-8"
