@@ -227,6 +227,20 @@ def login(username: str = Form(...), password: str = Form(...), db: Session = De
     db.commit()
     return {"token": token, "account_id": acct.id}
 
+
+@router.post("/auth/logout")
+def logout(authorization: str = Header(default=""), db: Session = Depends(get_db)):
+    """Revoke the current organizer session; repeated logout stays harmless."""
+    if not authorization.startswith("Bearer "):
+        return {"revoked": False}
+    session = db.scalar(select(AuthSession).where(
+        AuthSession.token_hash == hash_credential(authorization[7:])))
+    if session is None or session.revoked:
+        return {"revoked": False}
+    session.revoked = True
+    db.commit()
+    return {"revoked": True}
+
 @router.get("/auth/check-demo")
 def check_demo(db: Session = Depends(get_db)):
     """Check if the demo account exists; used by login page to show demo shortcut."""

@@ -873,6 +873,11 @@ function renderNav() {
 }
 
 function logout() {
+  const token = orgToken();
+  if (token) {
+    // Clear the browser immediately; server revocation can finish in the background.
+    void api("/api/auth/logout", {method:"POST", token}).catch(() => {});
+  }
   cacheDesignInputs();
   try {
     sessionStorage.removeItem(REVIEW_DRAFT_KEY);

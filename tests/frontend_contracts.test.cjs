@@ -1501,6 +1501,21 @@ test('demo login opens the task list and logout clears presentation state', asyn
   app.logout();
   assert.equal(context.sessionStorage.getItem('ff_tasks_presentation'), null);
 });
+test('organizer logout requests server-side session revocation', async () => {
+  const {app, context} = setup();
+  context.localStorage.setItem('ff_org_token', 'organizer-token');
+  let request = null;
+  context.fetch = async (url, options) => {
+    request = {url, options};
+    return response({revoked: true});
+  };
+  app.logout();
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(request?.url, '/api/auth/logout');
+  assert.equal(request?.options?.method, 'POST');
+  assert.match(request?.options?.headers?.Authorization || '', /Bearer organizer-token/);
+});
 test('presentation entry keeps Agent evidence on demand while retaining the live summary', () => {
   const {app, context, els} = setup();
   const details = element();

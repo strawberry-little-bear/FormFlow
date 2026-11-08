@@ -73,6 +73,14 @@ def test_session_persisted_in_db(client, db_session):
     assert r.status_code == 200
 
 
+def test_logout_revokes_current_session_and_is_idempotent(client, db_session):
+    headers = _register(client, "logout-user")
+    assert client.post("/api/auth/logout", headers=headers).json() == {"revoked": True}
+    assert client.post("/api/auth/logout", headers=headers).json() == {"revoked": False}
+    task = client.post("/api/tasks", data={"name": "退出后不可写"}, headers=headers)
+    assert task.status_code == 401
+
+
 def test_expired_session_rejected(client, db_session):
     headers = _register(client, "org2")
     s = Session(engine)
