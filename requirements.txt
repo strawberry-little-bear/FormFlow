@@ -1,5 +1,5 @@
 # FormFlow 收齐啦 - Python 依赖
-fastapi>=0.110
+fastapi>=0.162.0
 uvicorn[standard]>=0.29
 sqlalchemy>=2.0
 pydantic>=2.6
