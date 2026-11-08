@@ -119,7 +119,37 @@ def test_deployment_preflight_script_has_help_and_offline_flag(tmp_path):
     assert result.returncode == 0
     assert "allow-offline" in result.stdout
     assert "secret-file" in result.stdout
+    assert "env-file" in result.stdout
     assert "只读检查" in result.stdout
+
+
+def test_deployment_preflight_can_validate_a_separate_env_file(tmp_path):
+    storage = tmp_path / "storage"
+    storage.mkdir()
+    env_file = tmp_path / "production.env"
+    env_file.write_text(
+        "\n".join([
+            "FORMFLOW_ENV=production",
+            "FORMFLOW_ALLOW_REGISTRATION=false",
+            f"FORMFLOW_DATABASE_URL=sqlite:///{tmp_path / 'formflow.db'}",
+            f"FORMFLOW_STORAGE_DIR={storage}",
+            f"FORMFLOW_WORKER_HEARTBEAT_FILE={storage / '.worker-heartbeat'}",
+        ]) + "\n",
+        encoding="utf-8",
+    )
+    script = Path(__file__).resolve().parents[1] / "scripts" / "check_deployment.py"
+
+    result = subprocess.run(
+        [sys.executable, str(script), "--env-file", str(env_file), "--allow-offline"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "部署预检通过" in result.stdout
+    assert "生产环境" not in result.stderr
 
 
 def test_readiness_reports_database_and_storage():

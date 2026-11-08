@@ -93,6 +93,14 @@ curl http://127.0.0.1:8000/api/ready
 python scripts/check_deployment.py --allow-offline
 ```
 
+如果生产配置保存在单独文件中，可以直接检查该文件，不需要覆盖当前开发环境：
+
+```bash
+python scripts/check_deployment.py --env-file /etc/formflow/formflow.env --allow-offline
+```
+
+`--env-file` 会把该文件作为本次预检的完整 FormFlow 配置，只在当前进程内生效，不会修改 `.env`、数据库或附件目录；文件中的模型密钥也不会打印出来。
+
 配置真实模型时去掉 `--allow-offline`；服务启动后再加 `--url http://127.0.0.1:8000`，预检会同时确认 `/api/health` 和 `/api/ready` 返回 200。预检不会创建文件、发送模型请求或打印 API Key。
 
 Docker Compose 使用仓库外的文件型 Secret 时，在宿主机执行：

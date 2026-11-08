@@ -10,11 +10,13 @@ import sys
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+from dotenv import load_dotenv
+
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from app.config import settings
+from app.config import Settings, settings
 
 
 def configure_output_encoding() -> None:
@@ -37,17 +39,24 @@ def _can_write(path: Path) -> bool:
     return bool(os.access(path, os.W_OK))
 
 
-def deployment_issues(*, allow_offline: bool, secret_file: Path | None = None) -> tuple[list[str], list[str]]:
+def deployment_issues(
+    *,
+    allow_offline: bool,
+    secret_file: Path | None = None,
+    config: Settings | None = None,
+) -> tuple[list[str], list[str]]:
+    """Return production configuration problems without changing the filesystem."""
+    config = config or settings
     errors: list[str] = []
     warnings: list[str] = []
 
-    if settings.environment != "production":
+    if config.environment != "production":
         errors.append("FORMFLOW_ENV 必须设置为 production")
-    if settings.allow_registration:
+    if config.allow_registration:
         errors.append("生产环境必须关闭 FORMFLOW_ALLOW_REGISTRATION")
 
-    database_url = settings.database_url.replace("\\", "/")
-    storage_dir = _resolved(settings.storage_dir)
+    database_url = config.database_url.replace("\\", "/")
+    storage_dir = _resolved(config.storage_dir)
     if "/data/demo" in database_url or storage_dir.name == "demo":
         errors.append("数据库或附件目录仍指向演示数据")
 
@@ -62,17 +71,17 @@ def deployment_issues(*, allow_offline: bool, secret_file: Path | None = None) -
         except OSError:
             errors.append(f"模型 Secret 文件无法读取：{secret_file}")
 
-    if not settings.llm_configured and not file_secret_configured:
+    if not config.llm_configured and not file_secret_configured:
         if allow_offline:
             warnings.append("未配置模型密钥：将以离线/人工接手模式运行")
         else:
             errors.append("未配置模型密钥；如需离线运行请加 --allow-offline")
     else:
-        if settings.llm_base_url == "https://your-provider.example/v1":
+        if config.llm_base_url == "https://your-provider.example/v1":
             errors.append("FORMFLOW_LLM_BASE_URL 仍是占位地址")
-        if settings.llm_model == "your-model":
+        if config.llm_model == "your-model":
             errors.append("FORMFLOW_LLM_MODEL 仍是占位模型")
-        if settings.llm_base_url.startswith("http://") and not _is_local_url(settings.llm_base_url):
+        if config.llm_base_url.startswith("http://") and not _is_local_url(config.llm_base_url):
             errors.append("公网模型地址必须使用 HTTPS")
 
     storage_parent = storage_dir if storage_dir.exists() else storage_dir.parent
@@ -83,7 +92,7 @@ def deployment_issues(*, allow_offline: bool, secret_file: Path | None = None) -
     elif not _can_write(storage_parent):
         errors.append(f"附件目录父路径不可写：{storage_parent}")
 
-    heartbeat_parent = _resolved(settings.worker_heartbeat_file).parent
+    heartbeat_parent = _resolved(config.worker_heartbeat_file).parent
     if heartbeat_parent != storage_dir:
         errors.append("FORMFLOW_WORKER_HEARTBEAT_FILE 必须位于 FORMFLOW_STORAGE_DIR 内")
 
@@ -112,11 +121,28 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--allow-offline", action="store_true", help="允许未配置模型密钥，以离线模式运行")
     parser.add_argument("--url", help="额外检查已启动实例的 /api/health 与 /api/ready")
     parser.add_argument("--secret-file", type=Path, help="只检查文件型模型 Secret 非空，不读取或打印内容")
+    parser.add_argument("--env-file", type=Path,
+                        help="读取指定环境文件后检查，不修改当前 .env 或写入文件")
     args = parser.parse_args(argv)
+
+    config = settings
+    if args.env_file:
+        env_file = args.env_file.expanduser().resolve()
+        if not env_file.is_file():
+            print(f"FAIL  环境文件不存在：{env_file}", file=sys.stderr)
+            return 1
+        # Make the file authoritative instead of accidentally inheriting a
+        # developer's FORMFLOW_* values from the process or local .env.
+        for key in tuple(os.environ):
+            if key.startswith("FORMFLOW_"):
+                os.environ.pop(key, None)
+        load_dotenv(env_file, override=True)
+        config = Settings()
 
     errors, warnings = deployment_issues(
         allow_offline=args.allow_offline,
         secret_file=args.secret_file.expanduser().resolve() if args.secret_file else None,
+        config=config,
     )
     errors.extend(check_url(args.url) if args.url else [])
     for warning in warnings:
