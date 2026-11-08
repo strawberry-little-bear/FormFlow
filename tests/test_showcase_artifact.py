@@ -37,3 +37,17 @@ def test_pages_workflow_uploads_curated_output():
     assert "scripts/prepare_showcase.py" in workflow
     assert "path: _site" in workflow
     assert "path: docs" not in workflow
+
+
+def test_showcase_builder_rejects_repository_or_source_directory():
+    script = ROOT / "scripts" / "prepare_showcase.py"
+    for output in (ROOT, ROOT / "docs"):
+        result = subprocess.run(
+            [sys.executable, str(script), "--output", str(output)],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+        assert result.returncode == 1
+        assert "独立目录" in result.stderr

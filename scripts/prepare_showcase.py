@@ -38,8 +38,9 @@ def configure_output_encoding() -> None:
 def build_showcase(source: Path, output: Path) -> tuple[Path, ...]:
     source = source.expanduser().resolve()
     output = output.expanduser().resolve()
-    if source == output:
-        raise ValueError("展示页输出目录不能覆盖源目录")
+    protected = {source, source.parent, ROOT.resolve()}
+    if output in protected:
+        raise ValueError("展示页输出目录必须是独立目录，不能覆盖仓库或源目录")
 
     missing = [relative for relative in SHOWCASE_FILES if not (source / relative).is_file()]
     if missing:
