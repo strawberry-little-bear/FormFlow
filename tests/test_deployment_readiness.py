@@ -50,6 +50,15 @@ def test_readiness_reports_database_and_storage():
     }
 
 
+def test_baseline_security_headers_are_present():
+    with TestClient(app) as client:
+        response = client.get("/api/health")
+
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
+    assert response.headers["X-Frame-Options"] == "SAMEORIGIN"
+    assert response.headers["Referrer-Policy"] == "strict-origin-when-cross-origin"
+
+
 def test_public_registration_can_be_disabled(monkeypatch):
     monkeypatch.setattr(settings, "allow_registration", False)
     with TestClient(app) as client:
