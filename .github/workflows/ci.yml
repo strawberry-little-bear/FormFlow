@@ -66,6 +66,11 @@ jobs:
         run: docker compose -f deploy/docker-compose.yml config --quiet
       - name: Build deployment images
         run: docker compose -f deploy/docker-compose.yml build
+      - name: Initialize deployment account
+        run: |
+          printf 'password1\npassword1\n' | \
+            docker compose -f deploy/docker-compose.yml run --rm api \
+              python scripts/create_account.py --username organizer --password-stdin
       - name: Start API and worker
         run: docker compose -f deploy/docker-compose.yml up -d
       - name: Wait for API readiness
@@ -88,6 +93,12 @@ jobs:
           grep -Fqi "x-content-type-options: nosniff" /tmp/formflow-health-headers
           grep -Fqi "x-frame-options: sameorigin" /tmp/formflow-health-headers
           grep -Fqi "cache-control: no-store" /tmp/formflow-health-headers
+      - name: Verify initialized account login
+        run: |
+          curl --fail --silent --show-error \
+            --data "username=organizer" \
+            --data "password=password1" \
+            http://127.0.0.1:8000/api/auth/login | grep -F '"token"'
       - name: Verify worker readiness
         run: |
           for attempt in {1..15}; do
