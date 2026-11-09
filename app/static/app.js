@@ -2468,6 +2468,22 @@ function addChatLinksFromText(value) {
   urls.forEach(addChatLinkValue);
   return urls;
 }
+function insertComposerText(value, input = document.getElementById('chat-in')) {
+  const text = String(value || '').trim();
+  if (!text || !input) return;
+  const start = Number.isInteger(input.selectionStart) ? input.selectionStart : input.value.length;
+  const end = Number.isInteger(input.selectionEnd) ? input.selectionEnd : start;
+  const before = input.value.slice(0, start);
+  const after = input.value.slice(end);
+  const separator = before && !/[\s\n]$/.test(before) ? ' ' : '';
+  input.value = `${before}${separator}${text}${after}`;
+  const caret = (before + separator + text).length;
+  input.setSelectionRange?.(caret, caret);
+  cacheDesignInputs();
+}
+function textWithoutHttpUrls(value) {
+  return String(value || '').replace(/https?:\/\/[^\s<>"'`]+/gi, ' ').replace(/\s+/g, ' ').trim();
+}
 function handleChatDragOver(event) {
   event.preventDefault();
   event.currentTarget?.classList.add('drop-active');
@@ -2483,8 +2499,11 @@ function handleChatDrop(event) {
   const files = Array.from(event.dataTransfer?.files || []);
   const uriText = event.dataTransfer?.getData?.('text/uri-list') || '';
   const plainText = event.dataTransfer?.getData?.('text/plain') || '';
-  if (uriText) addChatLinksFromText(uriText);
-  else addChatLinksFromText(plainText);
+  const droppedText = uriText || plainText;
+  if (droppedText) {
+    addChatLinksFromText(droppedText);
+    insertComposerText(textWithoutHttpUrls(droppedText));
+  }
   if (files.length) uploadSourceFileList('attachment', files);
 }
 function handleChatPaste(event) {
@@ -2499,6 +2518,7 @@ function handleChatPaste(event) {
   if (extractHttpUrls(text).length) {
     event.preventDefault();
     addChatLinksFromText(text);
+    insertComposerText(textWithoutHttpUrls(text), event.target);
   }
 }
 function chatScrollBottom() { const el = document.getElementById('chat-scroll'); if (el) el.scrollTop = el.scrollHeight; }
