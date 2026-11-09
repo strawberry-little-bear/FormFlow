@@ -2826,7 +2826,15 @@ async function completeAgentRequest(request, response, epoch, token) {
       : request.previousBlueprintId ? impactText(result.impact) : empty
         ? "可以用同一个请求重试，或者从模板开始。"
         : `整理出 ${bp.fields?.length || 0} 项登记信息、${bp.slots?.length || 0} 类材料和 ${bp.rules?.length || 0} 条核对规则。`);
-    if (!modelOffline && !empty) agentSay("我目前这样理解：", agentUnderstandingHtml(bp, latest.draft || result.draft));
+    const latestDraft = latest.draft || {};
+    const resultDraft = result.draft || {};
+    const understandingDraft = {
+      ...resultDraft,
+      ...latestDraft,
+      source_materials: latestDraft.source_materials?.length ? latestDraft.source_materials : resultDraft.source_materials,
+      input_provenance: latestDraft.input_provenance?.length ? latestDraft.input_provenance : resultDraft.input_provenance,
+    };
+    if (!modelOffline && !empty) agentSay("我目前这样理解：", agentUnderstandingHtml(bp, understandingDraft));
     if (warnings.length) agentSay("有几处还需要你看一眼。", warnings.map(esc).join("<br>"));
     if (empty || (unchanged && warnings.length)) {
       request.status = "failed"; request.error = "这次没有生成新的可用草案，原要求和旧版本还在。";

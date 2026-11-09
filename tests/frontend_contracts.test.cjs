@@ -3345,6 +3345,19 @@ test('agent understanding card summarizes the current blueprint before clarifica
 test('design reload restores the current understanding into the conversation flow', () => {
   assert.match(source, /if \(!state\.chat\.length\) \{[\s\S]*agentUnderstandingHtml\(r\.draft\?\.blueprint \|\| \{\}, r\.draft \|\| \{\}\)/);
 });
+test('agent completion keeps source metadata when the latest design response omits it', async () => {
+  const {app, els, context} = designSetup();
+  els['chat-in'].value = '按通知收集报名表';
+  context.fetch = async (url, opts) => {
+    if (url.endsWith('/agent-requests')) return response({request_id: opts.body.get('request_id'), status:'completed', result: {
+      ...updatedDesign(),
+      draft: {...updatedDesign().draft, source_materials:[{id:'notice', name:'报名通知', kind:'notice'}]},
+    }});
+    return response({...latestDesign(), draft: {...latestDesign().draft, source_materials: []}});
+  };
+  await app.runAgent('按通知收集报名表');
+  assert.match(els['chat-scroll'].innerHTML, /报名通知/);
+});
 test('design storage failure retains memory input and tells the user refresh is risky', () => {
   const {app,els,context}=designSetup();context.sessionStorage.setItem=()=>{throw new Error('quota');};
   els['chat-in'].value='内存要求';app.cacheDesignInputs();els['chat-in'].value='';app.restoreDesignInputs();
