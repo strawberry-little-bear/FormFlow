@@ -3880,7 +3880,11 @@ test('desktop design chat uses a conversation-first composer and collapsible sou
   assert.match(styleSource, /\.chat-attachment\.link/);
   assert.match(styleSource, /\.message-attachment\.file/);
   assert.match(source, /message-attachments/);
+  assert.match(source, /<span class="eyebrow">需求对话<\/span>/);
+  assert.match(source, /<h1>把要求讲给小齐<\/h1>/);
   assert.match(styleSource, /\.source-pack-details\s*>\s*summary/);
+  assert.match(styleSource, /@media\s*\(min-width:981px\)\s*\{[\s\S]*\.grid-chat\s*\{ grid-template-columns:minmax\(0,1\.16fr\) minmax\(400px,\.84fr\)/);
+  assert.match(styleSource, /#draft-panel\s*\{ max-height:calc\(100vh - 100px\); overflow:auto/);
   assert.match(styleSource, /@media\s*\(max-width:980px\)\s*\{[\s\S]*\.grid-chat\s*\{\s*grid-template-columns:minmax\(0,1fr\)/);
   assert.match(styleSource, /@media\s*\(max-width:620px\)\s*\{[\s\S]*\.source-pack-details \.source-pack-grid\s*\{\s*grid-template-columns:1fr/);
 });

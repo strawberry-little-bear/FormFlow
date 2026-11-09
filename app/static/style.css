@@ -2321,6 +2321,11 @@ dialog p {
 .step-hint { color:#85808e; }
 .chat-composer { box-shadow:0 -8px 22px rgba(38,32,64,.035); }
 .composer-intro > span:last-child { color:#6b6875; }
+@media (min-width:981px) {
+  /* Keep the conversation as the primary workspace; the blueprint gets its own readable scroll area. */
+  .grid-chat { grid-template-columns:minmax(0,1.16fr) minmax(400px,.84fr); gap:24px; }
+  #draft-panel { max-height:calc(100vh - 100px); overflow:auto; overscroll-behavior:contain; scrollbar-gutter:stable; }
+}
 @media (max-width:980px) {
   .grid-chat { grid-template-columns:minmax(0,1fr); }
   .agent-panel { position:static; }
