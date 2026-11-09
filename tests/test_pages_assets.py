@@ -38,4 +38,9 @@ def test_pages_index_references_only_existing_local_assets():
     assert (docs / "robots.txt").is_file()
     assert (docs / "sitemap.xml").is_file()
     assert 'class="video-transcript"' in html
+    assert "document.documentElement.classList.add('js')" in html
     assert html.count('loading="lazy"') == 3
+
+    css = (docs / "site.css").read_text(encoding="utf-8")
+    assert "[data-reveal]{opacity:1" in css
+    assert ".js [data-reveal]{opacity:0" in css
