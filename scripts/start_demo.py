@@ -50,6 +50,13 @@ ENV = {
 }
 
 
+def configure_output_encoding() -> None:
+    """Keep launcher diagnostics readable in PowerShell and redirected logs."""
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="backslashreplace")
+
+
 def valid_port(value: str) -> int:
     try:
         port = int(value)
@@ -611,4 +618,5 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    configure_output_encoding()
     raise SystemExit(main())

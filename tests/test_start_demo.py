@@ -9,6 +9,24 @@ from unittest.mock import patch
 from scripts import start_demo
 
 
+def test_configure_output_encoding_uses_utf8(monkeypatch):
+    class Stream:
+        def __init__(self):
+            self.calls = []
+
+        def reconfigure(self, **kwargs):
+            self.calls.append(kwargs)
+
+    stdout, stderr = Stream(), Stream()
+    monkeypatch.setattr(start_demo.sys, "stdout", stdout)
+    monkeypatch.setattr(start_demo.sys, "stderr", stderr)
+
+    start_demo.configure_output_encoding()
+
+    assert stdout.calls == [{"encoding": "utf-8", "errors": "backslashreplace"}]
+    assert stderr.calls == [{"encoding": "utf-8", "errors": "backslashreplace"}]
+
+
 def test_check_status_is_read_only(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(start_demo, "DEMO_DIR", tmp_path / "demo")
     monkeypatch.setattr(start_demo, "DEMO_DB", tmp_path / "demo" / "formflow.db")
