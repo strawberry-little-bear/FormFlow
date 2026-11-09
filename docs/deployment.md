@@ -37,7 +37,7 @@ FORMFLOW_SESSION_TTL_SECONDS=604800
 
 ## 2. 审核输入链路
 
-默认 `FORMFLOW_LLM_INPUT_MODE=auto`，每条语义规则按以下顺序运行：
+默认 `FORMFLOW_LLM_INPUT_MODE=auto`，每条语义规则按以下顺序运行。可选值只有 `auto`、`direct`、`text` 和 `ocr`；部署预检会拒绝拼写错误，服务运行时遇到非法值也会采用更保守的 `text` 模式，避免误把原始材料走直传路径：
 
 1. 程序确定性规则先执行。
 2. 有原始文件且模型客户端支持文件/图像输入时，直接把 PDF 或图片作为受控模型输入发送。

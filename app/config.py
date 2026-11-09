@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+LLM_INPUT_MODES = {"auto", "direct", "text", "ocr"}
 
 
 class Settings:
@@ -42,9 +43,11 @@ class Settings:
         self.llm_model: str = os.environ.get("FORMFLOW_LLM_MODEL", "your-model")
         # auto 优先把原始文件交给支持文件输入的模型；不支持时回退到文本解析/OCR。
         # text/ocr 可用于明确禁止原始材料离开本机，direct 则在不支持时直接报未完成。
-        self.llm_input_mode: str = os.environ.get("FORMFLOW_LLM_INPUT_MODE", "auto").strip().lower()
-        if self.llm_input_mode not in {"auto", "direct", "text", "ocr"}:
-            self.llm_input_mode = "auto"
+        self.llm_input_mode_raw: str = os.environ.get("FORMFLOW_LLM_INPUT_MODE", "auto").strip().lower()
+        self.llm_input_mode_valid: bool = self.llm_input_mode_raw in LLM_INPUT_MODES
+        # Keep the runtime fail-safe: an invalid value must never silently enable
+        # a more permissive input path. Deployment preflight reports the typo.
+        self.llm_input_mode: str = self.llm_input_mode_raw if self.llm_input_mode_valid else "text"
         self.llm_max_file_bytes: int = int(
             os.environ.get("FORMFLOW_LLM_MAX_FILE_BYTES", str(20 * 1024 * 1024))
         )

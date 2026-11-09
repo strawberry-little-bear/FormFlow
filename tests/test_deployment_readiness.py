@@ -278,6 +278,31 @@ def test_config_can_read_api_key_from_local_secret_file(tmp_path, monkeypatch):
     assert configured.llm_configured is True
 
 
+def test_invalid_input_mode_is_safe_and_rejected_by_preflight(monkeypatch, tmp_path):
+    monkeypatch.setenv("FORMFLOW_LLM_INPUT_MODE", "direkt")
+
+    from app.config import Settings
+    from scripts.check_deployment import deployment_issues
+
+    configured = Settings()
+    assert configured.llm_input_mode_valid is False
+    assert configured.llm_input_mode == "text"
+
+    storage = tmp_path / "storage"
+    storage.mkdir()
+    configured.environment = "production"
+    configured.allow_registration = False
+    configured.database_url = f"sqlite:///{tmp_path / 'formflow.db'}"
+    configured.storage_dir = storage
+    configured.worker_heartbeat_file = storage / ".worker-heartbeat"
+    configured.llm_api_key = "key"
+    configured.llm_base_url = "https://provider.example/v1"
+    configured.llm_model = "model"
+
+    errors, _ = deployment_issues(allow_offline=False, config=configured)
+    assert any("FORMFLOW_LLM_INPUT_MODE" in error for error in errors)
+
+
 def test_worker_heartbeat_path_can_be_configured(tmp_path, monkeypatch):
     marker = tmp_path / "runtime" / "worker-heartbeat"
     monkeypatch.setenv("FORMFLOW_WORKER_HEARTBEAT_FILE", str(marker))

@@ -54,6 +54,10 @@ def deployment_issues(
         errors.append("FORMFLOW_ENV 必须设置为 production")
     if config.allow_registration:
         errors.append("生产环境必须关闭 FORMFLOW_ALLOW_REGISTRATION")
+    if not getattr(config, "llm_input_mode_valid", True):
+        errors.append(
+            "FORMFLOW_LLM_INPUT_MODE 无效；请使用 auto、direct、text 或 ocr"
+        )
 
     database_url = config.database_url.replace("\\", "/")
     storage_dir = _resolved(config.storage_dir)
