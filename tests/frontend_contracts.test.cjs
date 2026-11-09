@@ -397,6 +397,9 @@ test('chatSend keeps files and links attached to the user message', async () => 
     {type:'file', name:'报名通知.pdf'},
     {type:'link', name:'https://example.com/notice'},
   ]));
+  app.paintChat();
+  assert.match(els['chat-scroll'].innerHTML, /target="_blank"/);
+  assert.match(els['chat-scroll'].innerHTML, /https:\/\/example\.com\/notice/);
 });
 test('submitter credential errors show the server guidance once', async () => {
   const {app, context, els} = setup();

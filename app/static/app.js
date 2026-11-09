@@ -2477,7 +2477,11 @@ function chatMessageAttachmentsHtml(items = []) {
   return `<div class="message-attachments" aria-label="本条消息附带的资料">${attachments.map(item => {
     const label = item.type === 'link' ? '链接' : '文件';
     const detail = item.type === 'link' ? item.url : (item.size ? `${item.size.toLocaleString('zh-CN')} bytes` : '已放入资料池');
-    return `<span class="message-attachment ${item.type}" title="${esc(item.url || item.name)}">${icon(item.type === 'link' ? 'link' : 'delivery')}<span class="message-attachment-copy"><b>${esc(label)}</b><span>${esc(item.name)}</span><small>${esc(detail)}</small></span></span>`;
+    const tag = item.type === 'link' && /^https?:\/\//i.test(item.url)
+      ? `<a class="message-attachment ${item.type}" href="${esc(item.url)}" target="_blank" rel="noopener noreferrer" title="在新标签页打开 ${esc(item.url)}">`
+      : `<span class="message-attachment ${item.type}" title="${esc(item.url || item.name)}">`;
+    const close = item.type === 'link' && /^https?:\/\//i.test(item.url) ? '</a>' : '</span>';
+    return `${tag}${icon(item.type === 'link' ? 'link' : 'delivery')}<span class="message-attachment-copy"><b>${esc(label)}</b><span>${esc(item.name)}</span><small>${esc(detail)}</small></span>${close}`;
   }).join('')}</div>`;
 }
 function userSay(text, attachments = []) {
