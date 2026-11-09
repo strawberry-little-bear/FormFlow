@@ -2056,7 +2056,7 @@ function sourceMaterialsListHtml(kind) {
   }).join('')}</ul>`;
 }
 function chatAttachmentsHtml() {
-  const files = (state.sourceMaterials || []).map(item => `<span class="chat-attachment file" title="${esc(item.name || '来源文件')}">${icon('delivery')}<span>${esc(item.name || '来源文件')}</span></span>`);
+  const files = (state.sourceMaterials || []).map(item => `<span class="chat-attachment file" title="${esc(item.name || '来源文件')}">${icon('delivery')}<span>${esc(item.name || '来源文件')}</span><button type="button" onclick="deleteSourceMaterial('${esc(item.id)}')" aria-label="移除文件 ${esc(item.name || '来源文件')}" title="移除文件">${icon('close')}</button></span>`);
   const links = (state.chatLinks || []).map((url, index) => `<span class="chat-attachment link" title="${esc(url)}">${icon('link')}<span>${esc(url)}</span><button type="button" onclick="removeChatLink(${index})" aria-label="移除链接 ${esc(url)}" title="移除链接">${icon('close')}</button></span>`);
   const box = document.getElementById('chat-attachments');
   if (!box) return;
@@ -2425,6 +2425,20 @@ function removeChatLink(index) {
   renderChatAttachments(); cacheDesignInputs();
 }
 function renderChatAttachments() { chatAttachmentsHtml(); }
+function extractHttpUrls(value) {
+  const text = String(value || '');
+  const matches = text.match(/https?:\/\/[^\s<>"'`]+/gi) || [];
+  return [...new Set(matches.map(raw => raw.replace(/[),.;!?\]}]+$/g, '')))]
+    .filter(url => {
+      try { return ['http:', 'https:'].includes(new URL(url).protocol); }
+      catch (e) { return false; }
+    });
+}
+function addChatLinksFromText(value) {
+  const urls = extractHttpUrls(value);
+  urls.forEach(addChatLinkValue);
+  return urls;
+}
 function handleChatDragOver(event) {
   event.preventDefault();
   event.currentTarget?.classList.add('drop-active');
@@ -2440,8 +2454,8 @@ function handleChatDrop(event) {
   const files = Array.from(event.dataTransfer?.files || []);
   const uriText = event.dataTransfer?.getData?.('text/uri-list') || '';
   const plainText = event.dataTransfer?.getData?.('text/plain') || '';
-  if (uriText) addChatLinkValue(uriText.split(/\r?\n/).find(Boolean));
-  else if (/^https?:\/\/\S+$/i.test(plainText.trim())) addChatLinkValue(plainText.trim());
+  if (uriText) addChatLinksFromText(uriText);
+  else addChatLinksFromText(plainText);
   if (files.length) uploadSourceFileList('attachment', files);
 }
 function handleChatPaste(event) {
@@ -2452,10 +2466,10 @@ function handleChatPaste(event) {
     uploadSourceFileList('attachment', files);
     return;
   }
-  const text = event.clipboardData?.getData('text/plain')?.trim() || '';
-  if (/^https?:\/\/\S+$/i.test(text)) {
+  const text = event.clipboardData?.getData('text/plain') || '';
+  if (extractHttpUrls(text).length) {
     event.preventDefault();
-    addChatLinkValue(text);
+    addChatLinksFromText(text);
   }
 }
 function chatScrollBottom() { const el = document.getElementById('chat-scroll'); if (el) el.scrollTop = el.scrollHeight; }
@@ -2863,6 +2877,14 @@ async function runAgent(text, answered = {}, instruction = '', source = 'compose
   savePendingAgentRequest(request);
   if (!resumeRequest) {
     userSay(text, request.attachments); state.agentRequestDisplayedId = request.requestId;
+    if (request.attachments.length) {
+      const fileCount = request.attachments.filter(item => item.type === 'file').length;
+      const linkCount = request.attachments.filter(item => item.type === 'link').length;
+      const received = [fileCount ? `${fileCount} 份文件` : '', linkCount ? `${linkCount} 个链接` : ''].filter(Boolean).join('和');
+      agentSay(`收到${received}，我先把它们和你的文字放在一起理解。`, '我会先整理当前理解；不确定的地方会用选项问你，蓝图确认前不会发布。');
+    } else {
+      agentSay('收到，我先把这段要求整理成一份可核对的草案。', '有歧义的地方我会单独问你，蓝图确认前不会发布。');
+    }
   }
   setAgentBusy(true, previous ? "正在核对修改影响" : "正在整理字段、材料与规则");
   paintAgentRequestStatus(request); setFlash("");

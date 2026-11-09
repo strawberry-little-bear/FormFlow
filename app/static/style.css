@@ -2261,6 +2261,7 @@ dialog p {
 .chat-attachment.link { background:#f3f0fb; border-color:#ddd6ef; color:#5c4d84; }
 .chat-attachment button { display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px; padding:0; border:0; background:transparent; color:#8d83a2; cursor:pointer; }
 .chat-attachment button svg { width:12px; height:12px; }
+.chat-attachment button:hover { color:#4f3e73; background:#ece8f9; border-radius:4px; }
 .source-pack-details { border-top:1px solid #e5e5eb; background:#fff; }
 .source-pack-details > summary { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:13px 18px; color:#5e5870; font-size:11px; cursor:pointer; list-style:none; }
 .source-pack-details > summary::-webkit-details-marker { display:none; }
@@ -2270,9 +2271,27 @@ dialog p {
 .source-pack-details .source-pack { margin:0; border:0; border-top:1px solid #ecebf0; border-radius:0; background:#fcfcfd; }
 .source-pack-details .source-pack-heading { padding-top:2px; }
 .source-pack-details .source-pack-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+#design-chat.agent-panel { border-radius:14px; }
+#draft-panel { min-width:0; position:sticky; top:97px; align-self:start; }
+#draft-panel > .draft-toolbar,
+#draft-panel > .design-readiness,
+#draft-panel > .design-version-impact,
+#draft-panel > .draft-content,
+#draft-panel > .publish-bar,
+#draft-panel > .draft-warning,
+#draft-panel > .preview-empty { border-radius:12px; }
+.design-jump-nav { margin:0 0 14px; opacity:.82; }
+.design-jump-nav button { min-height:30px; padding:5px 9px; border-radius:7px; font-size:10px; }
+.step-flow { margin-bottom:16px; padding-bottom:15px; }
+.step-flow .st { color:#6b6477; }
+.step-flow .st.on { color:#58429a; }
+.step-hint { color:#85808e; }
+.chat-composer { box-shadow:0 -8px 22px rgba(38,32,64,.035); }
+.composer-intro > span:last-child { color:#6b6875; }
 @media (max-width:980px) {
   .grid-chat { grid-template-columns:minmax(0,1fr); }
   .agent-panel { position:static; }
+  #draft-panel { position:static; }
   .chat { height:clamp(500px,70vh,680px); }
 }
 @media (max-width:620px) {
