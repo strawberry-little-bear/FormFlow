@@ -46,3 +46,4 @@ def test_pages_index_references_only_existing_local_assets():
     assert ".js [data-reveal]{opacity:0" in css
     assert "@media(max-width:520px){.hero{min-height:920px}.hero-scroll{bottom:2px}}" in css
     assert "@media(max-width:360px){.hero{min-height:1010px}}" in css
+    assert ".section,.deploy-cta{scroll-margin-top:88px}" in css
