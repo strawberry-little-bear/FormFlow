@@ -2644,6 +2644,26 @@ function impactText(im = {}) {
   if(im.eligibility_required_changed) bits.push('资格要求已调整');
   return bits.length ? esc(bits.join('；')) : '没有实质变更，沿用原草案。';
 }
+function agentUnderstandingHtml(bp = {}, draft = {}) {
+  const scope = bp.task_scope || {};
+  const fields = Array.isArray(bp.fields) ? bp.fields : [];
+  const slots = Array.isArray(bp.slots) ? bp.slots : [];
+  const rules = Array.isArray(bp.rules) ? bp.rules : [];
+  const policy = bp.time_policy || {};
+  const sources = Array.isArray(draft.source_materials) ? draft.source_materials : [];
+  const fieldText = fields.map(item => item.label || item.id).filter(Boolean).slice(0, 6).join('、') || '尚未明确';
+  const slotText = slots.map(item => item.label || item.id).filter(Boolean).slice(0, 4).join('、') || '尚未明确';
+  const deadline = policy.first_deadline || policy.correction_deadline;
+  const deadlineText = deadline ? fmtTimeShort(deadline, policy.timezone) : '尚未设置';
+  const ruleExecutors = [...new Set(rules.map(item => EXECUTOR_LABEL[item.executor] || item.executor).filter(Boolean))].join('、') || '尚未明确';
+  const sourceText = sources.length ? `${sources.length} 份来源资料` : '当前对话与已填写内容';
+  return `<div class="agent-understanding" aria-label="小齐当前理解"><div class="agent-understanding-grid">
+    <div><span>收集对象</span><strong>${esc(scope.name || state.task?.name || '当前任务')}</strong></div>
+    <div><span>登记信息</span><strong>${esc(fieldText)}</strong></div>
+    <div><span>提交材料</span><strong>${esc(slotText)}</strong></div>
+    <div><span>首次截止</span><strong>${esc(deadlineText)}</strong></div>
+  </div><div class="agent-understanding-foot"><span>核验：${esc(`${rules.length} 条规则 · ${ruleExecutors}`)}</span><span>依据：${esc(sourceText)}</span></div><p>这是当前可编辑草案；你确认并发布前，任何字段、材料和规则都不会生效。</p></div>`;
+}
 function newAgentRequestId() {
   const random = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
   return `req-${Date.now()}-${random}`.slice(0, 80);
@@ -2801,6 +2821,7 @@ async function completeAgentRequest(request, response, epoch, token) {
       : request.previousBlueprintId ? impactText(result.impact) : empty
         ? "可以用同一个请求重试，或者从模板开始。"
         : `整理出 ${bp.fields?.length || 0} 项登记信息、${bp.slots?.length || 0} 类材料和 ${bp.rules?.length || 0} 条核对规则。`);
+    if (!modelOffline && !empty) agentSay("我目前这样理解：", agentUnderstandingHtml(bp, latest.draft || result.draft));
     if (warnings.length) agentSay("有几处还需要你看一眼。", warnings.map(esc).join("<br>"));
     if (empty || (unchanged && warnings.length)) {
       request.status = "failed"; request.error = "这次没有生成新的可用草案，原要求和旧版本还在。";
