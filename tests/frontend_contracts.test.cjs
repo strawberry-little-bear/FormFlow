@@ -353,6 +353,10 @@ test('chat requirement entry treats links as traceable source hints', () => {
   assert.match(source, /handleChatDrop\(event\)/);
   assert.match(source, /onpaste="handleChatPaste\(event\)"/);
   assert.match(source, /source-pack-details/);
+  assert.match(source, /id="chat-attachment-toggle" class="chat-attach-button chat-attach-toggle"/);
+  assert.match(source, /id="chat-attachment-menu" class="chat-attachment-menu" hidden/);
+  assert.match(source, /添加文件/);
+  assert.match(source, /添加链接/);
 });
 test('chatSend starts a requirements request when the composer contains only links', async () => {
   const {app, els, context} = designSetup();
