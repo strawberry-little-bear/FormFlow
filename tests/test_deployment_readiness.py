@@ -224,6 +224,7 @@ def test_baseline_security_headers_are_present():
     assert response.headers["X-Content-Type-Options"] == "nosniff"
     assert response.headers["X-Frame-Options"] == "SAMEORIGIN"
     assert response.headers["Referrer-Policy"] == "strict-origin-when-cross-origin"
+    assert response.headers["Permissions-Policy"] == "camera=(), microphone=(), geolocation=()"
     assert response.headers["Cache-Control"] == "no-store"
 
 
