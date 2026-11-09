@@ -3356,6 +3356,8 @@ test('successful composer request preserves clarification input it did not send'
   await app.runAgent('新增字段',{},'新增字段');
   const old=savedDesign(context).versions['10'];assert.equal(old.composer,'');assert.equal(old.answers['截止？'],'还没发送的答案');
   assert.match(els['design-recovery'].innerHTML,/还没发送的答案/);
+  assert.match(els['chat-scroll'].innerHTML,/我目前这样理解/);
+  assert.match(els['chat-scroll'].innerHTML,/agent-understanding/);
 });
 test('successful clarification request preserves an unrelated unsent composer', async () => {
   const {app,els,context}=designSetup();els['chat-in'].value='另外的修改';els['clar-0'].value='11 月';
