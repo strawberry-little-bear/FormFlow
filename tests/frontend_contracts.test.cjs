@@ -3340,6 +3340,9 @@ test('agent understanding card summarizes the current blueprint before clarifica
   assert.match(html, /1 份来源资料/);
   assert.match(html, /确认并发布前/);
 });
+test('design reload restores the current understanding into the conversation flow', () => {
+  assert.match(source, /if \(!state\.chat\.length\) \{[\s\S]*agentUnderstandingHtml\(r\.draft\?\.blueprint \|\| \{\}, r\.draft \|\| \{\}\)/);
+});
 test('design storage failure retains memory input and tells the user refresh is risky', () => {
   const {app,els,context}=designSetup();context.sessionStorage.setItem=()=>{throw new Error('quota');};
   els['chat-in'].value='内存要求';app.cacheDesignInputs();els['chat-in'].value='';app.restoreDesignInputs();

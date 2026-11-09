@@ -2293,6 +2293,7 @@ async function viewDesign(taskId) {
       if (!state.chat.length) {
         agentSay(`已恢复这项任务的${r.status === 'published' ? '已发布蓝图' : '最新草案'} v${r.version}。`,
           `${when ? `最后保存于 ${esc(when)}。` : ''}右边可以实时预览，有什么要调整的继续告诉我就行。`);
+        agentSay('我目前这样理解：', agentUnderstandingHtml(r.draft?.blueprint || {}, r.draft || {}));
       }
       if ((r.history || []).length && !state.chat.some(message => message.html === '这次任务的修改记录：')) {
         agentSay('这次任务的修改记录：', r.history.slice(-4).map(h => {
