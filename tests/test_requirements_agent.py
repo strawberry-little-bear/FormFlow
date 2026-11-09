@@ -6,6 +6,7 @@ from pathlib import Path
 
 from app.agents.requirements_agent import (
     build_source_text,
+    normalize_conversation_context,
     draft_blueprint,
     normalize_source_materials,
     requirements_skill_manifest,
@@ -13,9 +14,21 @@ from app.agents.requirements_agent import (
     template_blueprint,
     validate_blueprint,
 )
+
 from app.schemas import Blueprint, FieldDef, RuleDef, SlotDef, TimePolicy
 from app.llm import DocumentInput, LLMInputUnsupported
 from app.parsing import ParseResult
+
+
+def test_conversation_context_is_bounded_and_text_only():
+    items = ([{"role": "system", "text": "不要进入提示词"}] +
+             [{"role": "user", "text": "x" * 2500}] * 20)
+    normalized = normalize_conversation_context(items)
+    assert len(normalized) <= 12
+    assert len(normalized) == 6
+    assert all(item["role"] == "user" for item in normalized)
+    assert all(len(item["text"]) <= 2000 for item in normalized)
+    assert sum(len(item["text"]) for item in normalized) <= 12000
 
 REQUIREMENT = "请名册内同学提交 2026 秋季第 1 期团课报告，包含姓名和期次，PDF 或 DOCX，最大 10 MiB、20 页，11 月 8 日 18:00 前提交。"
 

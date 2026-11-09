@@ -38,6 +38,8 @@ MAX_SOURCE_MATERIALS = 8
 MAX_SOURCE_MATERIAL_CHARS = 12_000
 MAX_SOURCE_TOTAL_CHARS = 30_000
 MAX_CLARIFICATIONS = 3
+MAX_CONVERSATION_MESSAGES = 12
+MAX_CONVERSATION_CHARS = 12_000
 _UNVERIFIABLE_SOURCE_MARKERS = (
     "（原始文件尚未形成文字缓存",
     "【文件存在未读页面】",
@@ -417,6 +419,37 @@ def _source_material_prompt_parts(source_materials: Optional[list[dict]] = None)
     ]
 
 
+def normalize_conversation_context(value: Optional[list[dict]] = None) -> list[dict]:
+    """Keep a small, text-only window of the organizer conversation.
+
+    The current requirement, structured answers and source materials remain the
+    authoritative inputs. Conversation context only helps the model resolve
+    references such as “按刚才那个名单”，and is deliberately bounded before
+    it reaches the prompt.
+    """
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError("对话上下文必须是列表")
+    normalized: list[dict] = []
+    total = 0
+    for raw in value[-MAX_CONVERSATION_MESSAGES:]:
+        if not isinstance(raw, dict):
+            continue
+        role = str(raw.get("role") or "").strip().lower()
+        text = str(raw.get("text") or "").strip()
+        if role not in {"user", "agent"} or not text:
+            continue
+        text = text[:2_000]
+        remaining = MAX_CONVERSATION_CHARS - total
+        if remaining <= 0:
+            break
+        text = text[:remaining]
+        normalized.append({"role": role, "text": text})
+        total += len(text)
+    return normalized
+
+
 def _build_user_prompt(
     requirement_text: str,
     template: Optional[str],
@@ -424,6 +457,7 @@ def _build_user_prompt(
     current_draft: Optional[Blueprint],
     instruction: str = "",
     source_materials: Optional[list[dict]] = None,
+    conversation_context: Optional[list[dict]] = None,
 ) -> str:
     now = datetime.now(ZoneInfo("Asia/Shanghai"))
     parts = [f"【当前日期与时区】{now.strftime('%Y-%m-%d %H:%M')} Asia/Shanghai"]
@@ -436,6 +470,10 @@ def _build_user_prompt(
         parts.append("【组织者已回答的澄清】\n" + json.dumps(answered, ensure_ascii=False, indent=2))
     if instruction and instruction.strip():
         parts.append(f"【本次修改意见】\n{instruction.strip()}")
+    context = normalize_conversation_context(conversation_context)
+    if context:
+        parts.append("【最近的对话上下文（仅用于理解指代，不视为新增要求）】\n" +
+                     "\n".join(f"{item['role']}: {item['text']}" for item in context))
     if current_draft is not None:
         parts.append("【当前草案】\n" + current_draft.model_dump_json(indent=2))
     return "\n\n".join(parts)
@@ -899,9 +937,11 @@ def draft_blueprint(
     prior_source: str = "",
     source_materials: Optional[list[dict]] = None,
     source_documents: Optional[list[DocumentInput]] = None,
+    conversation_context: Optional[list[dict]] = None,
 ) -> DraftResult:
     """需求 Agent 主入口：自然语言要求 → 蓝图草案。"""
     normalized_materials = normalize_source_materials(source_materials)
+    normalized_conversation = normalize_conversation_context(conversation_context)
     if not requirement_text.strip() and not normalized_materials and current_draft is None:
         return DraftResult(
             blueprint=Blueprint(),
@@ -927,7 +967,7 @@ def draft_blueprint(
     system = REVISION_SYSTEM_PROMPT if current_draft is not None else SYSTEM_PROMPT
     messages = [
         {"role": "system", "content": system},
-        {"role": "user", "content": _build_user_prompt(requirement_text, template, answered, current_draft, instruction, normalized_materials)},
+        {"role": "user", "content": _build_user_prompt(requirement_text, template, answered, current_draft, instruction, normalized_materials, normalized_conversation)},
     ]
     try:
         if source_documents and client.direct_documents_enabled:
@@ -973,7 +1013,7 @@ def draft_blueprint(
                 effective_materials = fallback_materials
                 fallback_messages = [
                     {"role": "system", "content": system},
-                    {"role": "user", "content": _build_user_prompt(requirement_text, template, answered, current_draft, instruction, fallback_materials)},
+                    {"role": "user", "content": _build_user_prompt(requirement_text, template, answered, current_draft, instruction, fallback_materials, normalized_conversation)},
                 ]
                 payload = client.chat_json(fallback_messages)
             elif direct_input_succeeded:
@@ -996,7 +1036,7 @@ def draft_blueprint(
             }) for p in fallback_provenance]
             fallback_messages = [
                 {"role": "system", "content": system},
-                {"role": "user", "content": _build_user_prompt(requirement_text, template, answered, current_draft, instruction, effective_materials)},
+                {"role": "user", "content": _build_user_prompt(requirement_text, template, answered, current_draft, instruction, effective_materials, normalized_conversation)},
             ]
             payload = client.chat_json(fallback_messages)
         else:

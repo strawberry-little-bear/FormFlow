@@ -401,6 +401,26 @@ test('chatSend keeps files and links attached to the user message', async () => 
   assert.match(els['chat-scroll'].innerHTML, /target="_blank"/);
   assert.match(els['chat-scroll'].innerHTML, /https:\/\/example\.com\/notice/);
 });
+test('chat requests carry a bounded recent conversation context', async () => {
+  const {app, els, context} = designSetup();
+  app.state.bpId = 10;
+  app.state.chat = [
+    {role:'user', html:'之前说收名单'},
+    {role:'agent', html:'我理解为按名单收集'},
+  ];
+  els['chat-in'].value = '就按刚才那个名单';
+  let sent;
+  context.fetch = async (url, opts) => {
+    if (url.endsWith('/agent-requests')) { sent = opts.body; return response({request_id: opts.body.get('request_id'), status:'running'}); }
+    throw new Error(`unexpected ${url}`);
+  };
+  await app.chatSend();
+  assert.deepEqual(JSON.parse(sent.get('conversation')), [
+    {role:'user', text:'之前说收名单'},
+    {role:'agent', text:'我理解为按名单收集'},
+    {role:'user', text:'就按刚才那个名单'},
+  ]);
+});
 test('submitter credential errors show the server guidance once', async () => {
   const {app, context, els} = setup();
   els['lg-cred'].value = 'expired-token';

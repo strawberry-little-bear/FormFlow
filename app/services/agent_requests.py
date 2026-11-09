@@ -18,6 +18,7 @@ from ..agents.requirements_agent import (
     build_source_text,
     draft_blueprint,
     normalize_source_materials,
+    normalize_conversation_context,
 )
 from ..security import utcnow
 from . import tasks as task_service
@@ -63,11 +64,16 @@ def normalize_payload(raw: dict) -> dict:
         except ValueError as exc:
             raise AgentRequestError(str(exc)) from exc
         source_material_ids = _normalize_source_ids(raw.get("source_material_ids") or [])
+        try:
+            conversation = normalize_conversation_context(raw.get("conversation") or [])
+        except ValueError as exc:
+            raise AgentRequestError(str(exc)) from exc
         payload = {"kind": "agent", "requirement": requirement,
                    "template": str(raw.get("template") or ""),
                    "base_blueprint_id": base_id,
                    "source_materials": source_materials,
                    "source_material_ids": source_material_ids,
+                   "conversation": conversation,
                    "execution_mode": execution_mode}
     elif kind == "revise":
         try:
@@ -86,11 +92,16 @@ def normalize_payload(raw: dict) -> dict:
         except ValueError as exc:
             raise AgentRequestError(str(exc)) from exc
         source_material_ids = _normalize_source_ids(raw.get("source_material_ids") or [])
+        try:
+            conversation = normalize_conversation_context(raw.get("conversation") or [])
+        except ValueError as exc:
+            raise AgentRequestError(str(exc)) from exc
         payload = {"kind": "revise", "blueprint_version_id": bp_id,
                    "base_blueprint_id": bp_id, "requirement": requirement,
                    "answered": answered, "instruction": instruction,
                    "source_materials": source_materials,
                    "source_material_ids": source_material_ids,
+                   "conversation": conversation,
                    "execution_mode": execution_mode}
     else:
         raise AgentRequestError("不支持的需求处理方式")
@@ -203,6 +214,7 @@ def _merge_inline_sources(inline: list[dict], loaded: list[dict]) -> list[dict]:
 def _draft_with_optional_sources(requirement: str, *, template: str | None = None,
                                  source_materials: list[dict] | None = None,
                                  source_documents: list | None = None,
+                                 conversation_context: list[dict] | None = None,
                                  client=None):
     """Keep the legacy call shape for integrations that do not send source materials."""
     kwargs = {"template": template or None}
@@ -210,6 +222,8 @@ def _draft_with_optional_sources(requirement: str, *, template: str | None = Non
         kwargs["source_materials"] = source_materials
     if source_documents:
         kwargs["source_documents"] = source_documents
+    if conversation_context:
+        kwargs["conversation_context"] = conversation_context
     if client is not None:
         kwargs["client"] = client
     return draft_blueprint(requirement, **kwargs)
@@ -240,7 +254,8 @@ def _execute_request(db: Session, job: AgentDraftRequest, task: Task, payload: d
         result = _draft_with_optional_sources(
             payload["requirement"], template=payload.get("template") or None,
             source_materials=source_materials,
-            source_documents=source_documents, client=client)
+            source_documents=source_documents, client=client,
+            conversation_context=payload.get("conversation") or [])
         if _model_failed(result):
             # 区分"没配密钥"和"这次没回好"：前者重试也不会成功，必须如实说
             unavailable = next((str(w) for w in result.warnings
@@ -281,7 +296,8 @@ def _execute_request(db: Session, job: AgentDraftRequest, task: Task, payload: d
         answered=payload.get("answered") or {},
         instruction=payload.get("instruction", ""),
         source_materials=source_materials,
-        source_documents=source_documents)
+        source_documents=source_documents,
+        conversation_context=payload.get("conversation") or [])
     if _model_failed(result):
         unavailable = next((str(w) for w in result.warnings
                             if str(w).startswith("需求 Agent 暂不可用")), "")

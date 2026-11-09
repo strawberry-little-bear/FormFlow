@@ -392,6 +392,7 @@ def get_blueprint_version(task_id: int, bp_id: int, db: Session = Depends(get_db
 def draft_by_agent(task_id: int, requirement: str = Form(""), template: str = Form(None),
                    source_materials: str = Form(""),
                    source_material_ids: str = Form(""),
+                   conversation: str = Form(""),
                    db: Session = Depends(get_db), acct: Account = Depends(current_account)):
     task = _owned_task(db, acct, task_id)
     try:
@@ -404,6 +405,10 @@ def draft_by_agent(task_id: int, requirement: str = Form(""), template: str = Fo
         raise HTTPException(422, f"来源资料编号格式不正确：{e}")
     if not isinstance(source_ids, list):
         raise HTTPException(422, "来源资料编号必须是列表")
+    try:
+        conversation_context = json.loads(conversation) if conversation.strip() else []
+    except json.JSONDecodeError as e:
+        raise HTTPException(422, f"对话上下文格式不正确：{e}")
     source_documents = []
     if source_ids:
         try:
@@ -414,7 +419,8 @@ def draft_by_agent(task_id: int, requirement: str = Form(""), template: str = Fo
     try:
         result, bp = task_service.draft_from_requirement(
         db, task, requirement, template, source_materials=source_materials_map,
-        source_documents=source_documents)
+        source_documents=source_documents,
+        conversation_context=conversation_context)
     except task_service.TaskNotWritable as e:
         raise HTTPException(409, str(e))
     except ValueError as e:
@@ -466,7 +472,7 @@ def update_draft_time_policy(task_id: int, blueprint_version_id: int = Form(...)
 def revise_draft_view(task_id: int, blueprint_version_id: int = Form(...),
                       requirement: str = Form(""), answered: str = Form(""),
                       instruction: str = Form(""), source_materials: str = Form(""),
-                      source_material_ids: str = Form(""),
+                      source_material_ids: str = Form(""), conversation: str = Form(""),
                       db: Session = Depends(get_db), acct: Account = Depends(current_account)):
     """澄清轮次闭环：回答澄清/提出修改意见，基于当前草案修订，返回新草案与修改影响。"""
     task = _owned_task(db, acct, task_id)
@@ -476,6 +482,10 @@ def revise_draft_view(task_id: int, blueprint_version_id: int = Form(...),
         raise HTTPException(422, f"answered 不是合法 JSON：{e}")
     if not isinstance(answered_map, dict):
         raise HTTPException(422, "answered 必须是 JSON 对象（问题 -> 回答）")
+    try:
+        conversation_context = json.loads(conversation) if conversation.strip() else []
+    except json.JSONDecodeError as e:
+        raise HTTPException(422, f"对话上下文格式不正确：{e}")
     try:
         source_materials_map = json.loads(source_materials) if source_materials.strip() else []
     except json.JSONDecodeError as e:
@@ -496,7 +506,8 @@ def revise_draft_view(task_id: int, blueprint_version_id: int = Form(...),
             db, task, blueprint_version_id, requirement=requirement,
             answered=answered_map, instruction=instruction,
             source_materials=source_materials_map,
-            source_documents=source_documents)
+            source_documents=source_documents,
+            conversation_context=conversation_context)
     except task_service.TaskNotWritable as e:
         raise HTTPException(409, str(e))
     except ValueError as e:
@@ -517,6 +528,7 @@ def enqueue_agent_draft(task_id: int, background_tasks: BackgroundTasks,
                         answered: str = Form(""), instruction: str = Form(""),
                         source_materials: str = Form(""),
                         source_material_ids: str = Form(""),
+                        conversation: str = Form(""),
                         execution_mode: str = Form("live"),
                         db: Session = Depends(get_db), acct: Account = Depends(current_account)):
     """Queue a long design-Agent request so the editor can recover after disconnects."""
@@ -545,12 +557,17 @@ def enqueue_agent_draft(task_id: int, background_tasks: BackgroundTasks,
         raise HTTPException(422, "来源资料编号格式不正确，请刷新后重试")
     if not isinstance(source_ids, list):
         raise HTTPException(422, "来源资料编号必须是列表")
+    try:
+        conversation_context = json.loads(conversation) if conversation.strip() else []
+    except json.JSONDecodeError:
+        raise HTTPException(422, "对话上下文格式不正确，请刷新后重试")
     payload = {"kind": kind, "requirement": requirement, "template": template,
                "blueprint_version_id": blueprint_version_id,
                "base_blueprint_id": base_blueprint_id,
                "answered": answered_map, "instruction": instruction,
                "source_materials": source_materials_map,
                "source_material_ids": source_ids,
+               "conversation": conversation_context,
                "execution_mode": execution_mode}
     from ..services import agent_requests
     try:

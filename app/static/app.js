@@ -2547,6 +2547,17 @@ function chatMessageAttachmentsHtml(items = []) {
     return `${tag}${icon(item.type === 'link' ? 'link' : 'delivery')}<span class="message-attachment-copy"><b>${esc(label)}</b><span>${esc(item.name)}</span><small>${esc(detail)}</small></span>${close}`;
   }).join('')}</div>`;
 }
+function conversationContextPayload(extra = null) {
+  const messages = [...(state.chat || [])];
+  if (extra && typeof extra === 'object') messages.push(extra);
+  return messages.slice(-12).map(message => {
+    const raw = message?.text != null
+      ? String(message.text)
+      : String(message?.html || '').replace(/<br\s*\/?\s*>/gi, '\n').replace(/<[^>]+>/g, '');
+    const text = raw.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').trim();
+    return {role: message?.role === 'user' ? 'user' : 'agent', text: text.slice(0, 2000)};
+  }).filter(item => item.text);
+}
 function userSay(text, attachments = [], requestId = '') {
   state.chat.push({role: 'user', html: esc(text).replace(/\n/g,'<br>'), requestId: String(requestId || ''), attachments: normalizeChatAttachments(attachments)});
   cacheChatHistory();
@@ -2668,6 +2679,7 @@ function agentRequestForm(request) {
     answered: JSON.stringify(p.answered || {}), instruction: p.instruction || "",
     source_materials: JSON.stringify(p.source_materials || []),
     source_material_ids: JSON.stringify(p.source_material_ids || []),
+    conversation: JSON.stringify(p.conversation || []),
     execution_mode: p.execution_mode || "live"};
 }
 function agentRequestProgressHtml(request) {
@@ -2814,6 +2826,7 @@ async function submitAgentRequest(request, epoch, token) {
     answered: JSON.stringify(p.answered || {}), instruction: p.instruction || "",
     source_materials: JSON.stringify(p.source_materials || []),
     source_material_ids: JSON.stringify(p.source_material_ids || []),
+    conversation: JSON.stringify(p.conversation || []),
     execution_mode: p.execution_mode || "live",
   }});
 }
@@ -2911,16 +2924,19 @@ async function runAgent(text, answered = {}, instruction = '', source = 'compose
   const token = orgToken(), epoch = state.designEpoch;
   const payload = resumeRequest ? resumeRequest.payload : options.executionMode === 'offline_replay'
     ? {kind: "agent", base_blueprint_id: state.bpId || 0, requirement: text,
+       conversation: conversationContextPayload({role: 'user', text}),
        execution_mode: "offline_replay"}
     : previous
     ? {kind: "revise", blueprint_version_id: previous, base_blueprint_id: previous,
        requirement: state.requirement || "", answered: {...answered}, instruction,
        source_materials: sent.source_materials || [],
        source_material_ids: sent.source_material_ids || sourceMaterialIds(),
+       conversation: conversationContextPayload({role: 'user', text}),
        execution_mode: "live"}
     : {kind: "agent", base_blueprint_id: state.bpId || 0, requirement: text,
        source_materials: sent.source_materials || [],
        source_material_ids: sent.source_material_ids || sourceMaterialIds(),
+       conversation: conversationContextPayload({role: 'user', text}),
        execution_mode: "live"};
   const request = resumeRequest || {requestId: newAgentRequestId(), payload,
     text, answered: {...answered}, instruction, source, previousBlueprintId: previous,
