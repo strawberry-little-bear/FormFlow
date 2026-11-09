@@ -3338,6 +3338,8 @@ test('agent understanding card summarizes the current blueprint before clarifica
   assert.match(html, /2026-11-15 14:00/);
   assert.match(html, /1 条规则/);
   assert.match(html, /1 份来源资料/);
+  assert.match(html, /通知/);
+  assert.match(html, /正在使用的资料/);
   assert.match(html, /确认并发布前/);
 });
 test('design reload restores the current understanding into the conversation flow', () => {

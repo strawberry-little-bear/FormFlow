@@ -2658,12 +2658,16 @@ function agentUnderstandingHtml(bp = {}, draft = {}) {
   const deadlineText = deadline ? fmtTimeShort(deadline, policy.timezone) : '尚未设置';
   const ruleExecutors = [...new Set(rules.map(item => EXECUTOR_LABEL[item.executor] || item.executor).filter(Boolean))].join('、') || '尚未明确';
   const sourceText = sources.length ? `${sources.length} 份来源资料` : '当前对话与已填写内容';
+  const sourceNames = sources.slice(0, 5).map(item => item.name || item.id).filter(Boolean);
+  const sourceChips = sourceNames.length
+    ? `<div class="agent-understanding-sources"><span>正在使用的资料</span><div>${sourceNames.map(name => `<b>${esc(name)}</b>`).join('')}</div></div>`
+    : '';
   return `<div class="agent-understanding" aria-label="小齐当前理解"><div class="agent-understanding-grid">
     <div><span>收集对象</span><strong>${esc(scope.name || state.task?.name || '当前任务')}</strong></div>
     <div><span>登记信息</span><strong>${esc(fieldText)}</strong></div>
     <div><span>提交材料</span><strong>${esc(slotText)}</strong></div>
     <div><span>首次截止</span><strong>${esc(deadlineText)}</strong></div>
-  </div><div class="agent-understanding-foot"><span>核验：${esc(`${rules.length} 条规则 · ${ruleExecutors}`)}</span><span>依据：${esc(sourceText)}</span></div><p>这是当前可编辑草案；你确认并发布前，任何字段、材料和规则都不会生效。</p></div>`;
+  </div><div class="agent-understanding-foot"><span>核验：${esc(`${rules.length} 条规则 · ${ruleExecutors}`)}</span><span>依据：${esc(sourceText)}</span></div>${sourceChips}<p>这是当前可编辑草案；你确认并发布前，任何字段、材料和规则都不会生效。</p></div>`;
 }
 function newAgentRequestId() {
   const random = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
