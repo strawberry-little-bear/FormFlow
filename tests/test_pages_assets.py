@@ -38,6 +38,11 @@ def test_pages_index_references_only_existing_local_assets():
     assert (docs / "robots.txt").is_file()
     assert (docs / "sitemap.xml").is_file()
     assert 'class="video-transcript"' in html
+    assert 'kind="captions"' in html
+    assert 'src="formflow-showcase-zh.vtt"' in html
+    captions = (docs / "formflow-showcase-zh.vtt").read_text(encoding="utf-8")
+    assert captions.startswith("WEBVTT\n")
+    assert captions.count(" --> ") == 5
     assert "document.documentElement.classList.add('js')" in html
     assert html.count('loading="lazy"') == 3
 

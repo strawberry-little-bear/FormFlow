@@ -25,6 +25,7 @@ SHOWCASE_FILES = (
     Path("robots.txt"),
     Path("sitemap.xml"),
     Path("formflow-showcase-captioned.webm"),
+    Path("formflow-showcase-zh.vtt"),
     Path("ux-review-2026-10-30/showcase-home-current.png"),
     Path("ux-review-2026-10-23/design.png"),
     Path("ux-review-2026-10-23/review-s2.png"),
