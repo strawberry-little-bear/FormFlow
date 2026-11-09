@@ -45,7 +45,7 @@ function setup(sharedStorage = storage()) {
   const viewportListeners = {};
   const visualViewport = {height: 844, offsetTop: 0, addEventListener(name, fn) {viewportListeners[name] = fn;}};
   const context = vm.createContext({document, localStorage: storage(), sessionStorage: sharedStorage,
-    window: {innerHeight: 844, visualViewport, addEventListener(name, fn) {windowListeners[name] = fn;}}, navigator: {onLine: true}, location: {hash:'#/submit'}, Intl, URLSearchParams, FormData,
+    window: {innerHeight: 844, visualViewport, addEventListener(name, fn) {windowListeners[name] = fn;}}, navigator: {onLine: true}, location: {hash:'#/submit'}, Intl, URL, URLSearchParams, FormData,
     requestAnimationFrame: fn => fn(),
     setTimeout, clearTimeout, confirm: () => true, console,
     fetch: async () => {throw new Error('Unexpected request');}});
@@ -420,6 +420,23 @@ test('chat requests carry a bounded recent conversation context', async () => {
     {role:'agent', text:'我理解为按名单收集'},
     {role:'user', text:'就按刚才那个名单'},
   ]);
+});
+test('chatSend turns typed URLs into source attachments while keeping the request text', async () => {
+  const {app, els, context} = designSetup();
+  app.state.bpId = null;
+  els['chat-in'].value = '请参考 https://example.com/notice 生成报名要求';
+  let sent;
+  context.fetch = async (url, opts) => {
+    if (url.endsWith('/agent-requests')) { sent = opts.body; return response({request_id: opts.body.get('request_id'), status:'running'}); }
+    throw new Error(`unexpected ${url}`);
+  };
+  await app.chatSend();
+  assert.equal(sent.get('requirement'), '请参考 生成报名要求');
+  assert.deepEqual(JSON.parse(sent.get('source_materials')), [
+    {id:'link-1', name:'https://example.com/notice', kind:'attachment', content:'参考链接：https://example.com/notice'},
+  ]);
+  assert.equal(app.state.chat[0].html, '请参考 生成报名要求');
+  assert.match(els['chat-scroll'].innerHTML, /https:\/\/example\.com\/notice/);
 });
 test('submitter credential errors show the server guidance once', async () => {
   const {app, context, els} = setup();

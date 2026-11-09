@@ -2973,14 +2973,16 @@ function retryAgent() {
   return pollAgentRequest(request, state.designEpoch, orgToken(), "enqueue");
 }
 function chatSend() {
-  const text = (document.getElementById('chat-in')?.value || '').trim();
+  const typed = (document.getElementById('chat-in')?.value || '').trim();
+  const typedLinks = addChatLinksFromText(typed);
+  const text = textWithoutHttpUrls(typed);
   const materials = collectSourceMaterials();
   const links = state.chatLinks || [];
   const attachments = [
     ...(state.sourceMaterials || []).map(item => ({type: 'file', id: item.id, name: item.name, size: item.size})),
     ...links.map(url => ({type: 'link', id: `link-${url}`, name: url, url})),
   ];
-  if (text || materials.length || sourceMaterialIds().length || links.length)
+  if (text || materials.length || sourceMaterialIds().length || links.length || typedLinks.length)
     return runAgent(text || '请根据已放入的来源资料和参考链接整理这次收集要求。', {}, state.bpId ? text : '', 'composer', null, {displayAttachments: attachments});
 }
 function submitClarAnswers() {
