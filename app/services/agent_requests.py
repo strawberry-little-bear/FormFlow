@@ -21,6 +21,7 @@ from ..agents.requirements_agent import (
 )
 from ..security import utcnow
 from . import tasks as task_service
+from .source_links import enrich_links
 
 REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{16,80}$")
 # Cover the configured primary/retry/fallback budget with margin before recovering
@@ -235,6 +236,7 @@ def _execute_request(db: Session, job: AgentDraftRequest, task: Task, payload: d
                 source_materials = _merge_inline_sources(source_materials, loaded_materials)
             except ValueError as exc:
                 raise AgentRequestError(str(exc)) from exc
+        source_materials = enrich_links(source_materials)
         result = _draft_with_optional_sources(
             payload["requirement"], template=payload.get("template") or None,
             source_materials=source_materials,
@@ -272,6 +274,7 @@ def _execute_request(db: Session, job: AgentDraftRequest, task: Task, payload: d
             source_materials = _merge_inline_sources(source_materials, loaded_materials)
         except ValueError as exc:
             raise AgentRequestError(str(exc)) from exc
+    source_materials = enrich_links(source_materials)
     result, blueprint, impact = task_service.revise_draft(
         db, task, payload["blueprint_version_id"],
         requirement=payload.get("requirement", ""),
