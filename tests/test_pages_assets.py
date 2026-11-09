@@ -44,3 +44,5 @@ def test_pages_index_references_only_existing_local_assets():
     css = (docs / "site.css").read_text(encoding="utf-8")
     assert "[data-reveal]{opacity:1" in css
     assert ".js [data-reveal]{opacity:0" in css
+    assert "@media(max-width:520px){.hero{min-height:920px}.hero-scroll{bottom:2px}}" in css
+    assert "@media(max-width:360px){.hero{min-height:1010px}}" in css

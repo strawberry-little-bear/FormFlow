@@ -13,3 +13,5 @@
 .video-transcript li+li{margin-top:6px}
 @media(max-width:850px){.hero h1{font-size:48px}.section-heading h2{font-size:40px}.deploy-cta h2{font-size:38px}}
 @media(max-width:520px){.hero h1{font-size:39px}.section-heading h2{font-size:32px}.deploy-cta h2{font-size:32px}}
+@media(max-width:520px){.hero{min-height:920px}.hero-scroll{bottom:2px}}
+@media(max-width:360px){.hero{min-height:1010px}}
