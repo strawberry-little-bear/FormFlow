@@ -81,6 +81,14 @@ python -m app.worker
 
 Windows PowerShell 使用 `.venv\Scripts\Activate.ps1`，其余命令相同。启动后先检查：
 
+如果生产配置保存在单独文件中，可以把同一文件显式传给账号初始化脚本：
+
+```bash
+python scripts/create_account.py --env-file /etc/formflow/formflow.env --username organizer
+```
+
+`--env-file` 会把该文件作为本次账号初始化的完整 FormFlow 配置，只在当前进程内生效，不会修改 `.env`。
+
 ```bash
 curl http://127.0.0.1:8000/api/health
 curl http://127.0.0.1:8000/api/ready
@@ -201,6 +209,8 @@ docker compose -f deploy/docker-compose.yml run --rm api \
   python scripts/create_account.py --username organizer
 docker compose -f deploy/docker-compose.yml up -d --build
 ```
+
+如果使用独立环境文件，必须把同一文件挂载到容器并显式传入 `--env-file`，避免账号初始化写入另一套数据库。
 
 脚本通过交互式输入读取密码，不会把密码写进命令行参数或日志。
 

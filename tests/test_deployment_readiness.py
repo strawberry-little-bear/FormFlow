@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import asyncio
 import io
+import os
 import subprocess
 import sys
 
@@ -102,9 +103,60 @@ def test_create_account_script_runs_outside_repository_cwd(tmp_path):
         cwd=tmp_path,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     assert result.returncode == 0
     assert "usage" in result.stdout.lower()
+    assert "env-file" in result.stdout
+
+
+def test_create_account_env_file_targets_the_declared_database(tmp_path):
+    script = Path(__file__).resolve().parents[1] / "scripts" / "create_account.py"
+    target_db = tmp_path / "target.db"
+    wrong_db = tmp_path / "wrong.db"
+    storage = tmp_path / "storage"
+    storage.mkdir()
+    env_file = tmp_path / "production.env"
+    env_file.write_text(
+        "\n".join([
+            "FORMFLOW_ENV=production",
+            "FORMFLOW_ALLOW_REGISTRATION=false",
+            f"FORMFLOW_DATABASE_URL=sqlite:///{target_db}",
+            f"FORMFLOW_STORAGE_DIR={storage}",
+        ]) + "\n",
+        encoding="utf-8",
+    )
+    process_env = os.environ.copy()
+    process_env["FORMFLOW_DATABASE_URL"] = f"sqlite:///{wrong_db}"
+    process_env["FORMFLOW_STORAGE_DIR"] = str(tmp_path / "wrong-storage")
+    process_env["PYTHON_DOTENV_DISABLED"] = "1"
+
+    result = subprocess.run(
+        [sys.executable, str(script), "--env-file", str(env_file), "--username", "organizer",
+         "--password-stdin"],
+        cwd=tmp_path,
+        input="password1\npassword1\n",
+        env=process_env,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "组织者账号已创建" in result.stdout
+    assert target_db.is_file()
+    assert not wrong_db.exists()
+
+    import sqlite3
+
+    connection = sqlite3.connect(target_db)
+    try:
+        row = connection.execute(
+            "SELECT username FROM accounts WHERE username = ?", ("organizer",)
+        ).fetchone()
+    finally:
+        connection.close()
+    assert row == ("organizer",)
 
 
 def test_deployment_preflight_script_has_help_and_offline_flag(tmp_path):
