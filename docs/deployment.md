@@ -150,7 +150,7 @@ sudo systemctl status formflow-api.service formflow-worker.service
 
 systemd 示例启用非 root、只读系统目录、私有临时目录、禁止提权和 0077 文件权限；只有 `/var/lib/formflow` 可写。公网 HTTPS 仍由 Caddy 终止，服务单元不直接暴露公网端口。
 
-API 服务单元在启动前会执行一次 `check_deployment.py`，检查生产环境、公开注册、模型配置、数据库和附件目录；预检失败时 systemd 不会拉起 API，先修正 `/etc/formflow/formflow.env` 后再查看服务状态。Worker 复用同一份环境文件，并在 API 通过预检后启动。
+API 服务单元在启动前会执行一次 `check_deployment.py`，检查生产环境、公开注册、模型配置、数据库和附件目录；预检失败时 systemd 不会拉起 API，先修正 `/etc/formflow/formflow.env` 后再查看服务状态。Worker 复用同一份环境文件，并通过 `Requires=formflow-api.service` 与 API 绑定：API 没有成功启动或随后停止时，Worker 不会独立运行。
 
 SQLite 文件和 `FORMFLOW_STORAGE_DIR` 必须位于持久磁盘。备份应同时覆盖数据库和附件，并定期在新目录做恢复演练。需要多 Worker 或多 API 实例前，先把 SQLite 换成受支持的共享数据库，并为队列任务增加领取锁/租约；当前执行模型按单 Worker 设计。
 

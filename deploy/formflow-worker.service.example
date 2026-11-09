@@ -1,6 +1,7 @@
 [Unit]
 Description=FormFlow Worker
 After=network-online.target formflow-api.service
+Requires=formflow-api.service
 Wants=network-online.target
 
 [Service]

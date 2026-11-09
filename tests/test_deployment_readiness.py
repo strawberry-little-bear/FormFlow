@@ -60,6 +60,7 @@ def test_systemd_examples_share_production_paths_and_hardening():
     assert "127.0.0.1 --port 8000" in api
     assert "python -m app.worker" in worker
     assert "After=network-online.target formflow-api.service" in worker
+    assert "Requires=formflow-api.service" in worker
 
 
 def test_compose_uses_file_secret_instead_of_api_key_environment_value():
