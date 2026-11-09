@@ -2855,7 +2855,9 @@ function retryAgent() {
 function chatSend() {
   const text = (document.getElementById('chat-in')?.value || '').trim();
   const materials = collectSourceMaterials();
-  if (text || materials.length || sourceMaterialIds().length) return runAgent(text || '请根据来源资料包整理这次收集要求。', {}, state.bpId ? text : '');
+  const links = state.chatLinks || [];
+  if (text || materials.length || sourceMaterialIds().length || links.length)
+    return runAgent(text || '请根据已放入的来源资料和参考链接整理这次收集要求。', {}, state.bpId ? text : '');
 }
 function submitClarAnswers() {
   const answered = {}; (state.draft?.clarifications || []).forEach((c,i) => { const v = document.getElementById(`clar-${i}`)?.value.trim(); if(v) answered[c.question] = v; });

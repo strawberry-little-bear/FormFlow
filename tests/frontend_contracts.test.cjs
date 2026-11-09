@@ -49,7 +49,7 @@ function setup(sharedStorage = storage()) {
     requestAnimationFrame: fn => fn(),
     setTimeout, clearTimeout, confirm: () => true, console,
     fetch: async () => {throw new Error('Unexpected request');}});
-vm.runInContext(source + '\nthis.app = {state, route, pageTitleForRoute, useVersionAsBase, loadDesignVersion, cacheDesignInputs, restoreDesignInputs, recoverDesignInput, recoverDesignInput, collectSourceMaterials, restoreSourceMaterials, collectDesignInputs, sourceMaterialIds, renderSourceMaterials, loadSourceMaterials, uploadSourceFiles, deleteSourceMaterial, sourceMaterialsSummaryHtml, paintChat, renderDraftPanel, runAgent, runExport, deliveryHistoryHtml, deliverySnapshotStatusHtml, loadDeliveryHistory, inspectSnapshot, paintSnapshot, agentEvidenceSummaryHtml, canPublishDesign, publishDiffHtml, designVersionImpactHtml, publishGovernanceHtml, publishBp, confirmPublish, saveTimePolicy, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, fmtTimeShort, designReadinessHtml, designProgressHtml, applyDraft, quickTemplate, draftFingerprint, collectDraftFields, paintSubmitterNextStep, submitterNextStepHtml, setSubMode, moveSubmitModeTab, setDesignTab, moveDesignTab, refreshSlotConditions, wbMatches, api, apiError, submitDecision, saveDraft, doSubmit, doSubLogin, uploadSlot, deleteSlotFile, cacheReviewDraft, discardReviewDraft, logout, nextPendingReview, setReviewFilter, setReviewTraceFilter, selectReviewRule, viewReview, reviewRevisionHistoryHtml, reviewEvidenceMethodLabel, reviewEvidenceBboxLabel, reviewEvidenceMeta, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, chooseWorkbenchNextStep, workbenchNextStepHtml, agentRunCard, agentTourHtml, agentTourRuntimeHtml, runtimeSelfTestHtml, submitterGuidance, ruleCard, receiptFilesHtml, submissionIssues, checkAgentRequestNow, resumePendingAgentRequest, savePendingAgentRequest, agentRequestProgressHtml, retryAgent, pollAgentRequest, showSubmissionIssues, refreshSubmissionValidation, initSubChat, demoRouteTask, demoRouteHtml, demoRouteCueHtml, copyDemoRouteCue, agentArchitectureRailHtml, agentQuickReadHtml, agentShowcaseHtml, runStageReplayHtml, paintAgentShowcase, jumpToRunStage, mcpSnapshotHtml, renderDemoRoute, paintWorkspaceAgentStatus, paintAgentRuntime, paintAgentRuntimeContractIssue, viewLogin, viewSubmit, switchLoginTab, moveLoginTab, setFlash, openDialog, readPresentationMode, showcaseReturnHtml, applyPresentationMode, setPresentationMode, togglePresentationMode, fillDemoCred, doLogin, issueGrant, issueAllGrants, viewRoster, loadRoster, setRosterFilter, renderRosterTable, showCredential, showCredentialList, setEmptyTaskHome, jumpToSubmitResults, filterTasks, clearTaskFilters, paintTasks, createTask};', context);
+vm.runInContext(source + '\nthis.app = {state, route, pageTitleForRoute, useVersionAsBase, loadDesignVersion, cacheDesignInputs, restoreDesignInputs, recoverDesignInput, recoverDesignInput, collectSourceMaterials, restoreSourceMaterials, collectDesignInputs, sourceMaterialIds, renderSourceMaterials, loadSourceMaterials, uploadSourceFiles, deleteSourceMaterial, sourceMaterialsSummaryHtml, paintChat, renderDraftPanel, runAgent, chatSend, runExport, deliveryHistoryHtml, deliverySnapshotStatusHtml, loadDeliveryHistory, inspectSnapshot, paintSnapshot, agentEvidenceSummaryHtml, canPublishDesign, publishDiffHtml, designVersionImpactHtml, publishGovernanceHtml, publishBp, confirmPublish, saveTimePolicy, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, fmtTimeShort, designReadinessHtml, designProgressHtml, applyDraft, quickTemplate, draftFingerprint, collectDraftFields, paintSubmitterNextStep, submitterNextStepHtml, setSubMode, moveSubmitModeTab, setDesignTab, moveDesignTab, refreshSlotConditions, wbMatches, api, apiError, submitDecision, saveDraft, doSubmit, doSubLogin, uploadSlot, deleteSlotFile, cacheReviewDraft, discardReviewDraft, logout, nextPendingReview, setReviewFilter, setReviewTraceFilter, selectReviewRule, viewReview, reviewRevisionHistoryHtml, reviewEvidenceMethodLabel, reviewEvidenceBboxLabel, reviewEvidenceMeta, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, chooseWorkbenchNextStep, workbenchNextStepHtml, agentRunCard, agentTourHtml, agentTourRuntimeHtml, runtimeSelfTestHtml, submitterGuidance, ruleCard, receiptFilesHtml, submissionIssues, checkAgentRequestNow, resumePendingAgentRequest, savePendingAgentRequest, agentRequestProgressHtml, retryAgent, pollAgentRequest, showSubmissionIssues, refreshSubmissionValidation, initSubChat, demoRouteTask, demoRouteHtml, demoRouteCueHtml, copyDemoRouteCue, agentArchitectureRailHtml, agentQuickReadHtml, agentShowcaseHtml, runStageReplayHtml, paintAgentShowcase, jumpToRunStage, mcpSnapshotHtml, renderDemoRoute, paintWorkspaceAgentStatus, paintAgentRuntime, paintAgentRuntimeContractIssue, viewLogin, viewSubmit, switchLoginTab, moveLoginTab, setFlash, openDialog, readPresentationMode, showcaseReturnHtml, applyPresentationMode, setPresentationMode, togglePresentationMode, fillDemoCred, doLogin, issueGrant, issueAllGrants, viewRoster, loadRoster, setRosterFilter, renderRosterTable, showCredential, showCredentialList, setEmptyTaskHome, jumpToSubmitResults, filterTasks, clearTaskFilters, paintTasks, createTask};', context);
   context.app.copyText = vm.runInContext('copyText', context);
   context.app.copyCredential = vm.runInContext('copyCredential', context);
   context.app.submissionMatchesReceipt = context.submissionMatchesReceipt;
@@ -353,6 +353,29 @@ test('chat requirement entry treats links as traceable source hints', () => {
   assert.match(source, /handleChatDrop\(event\)/);
   assert.match(source, /onpaste="handleChatPaste\(event\)"/);
   assert.match(source, /source-pack-details/);
+});
+test('chatSend starts a requirements request when the composer contains only links', async () => {
+  const {app, els, context} = designSetup();
+  app.state.bpId = null;
+  app.state.draft = null;
+  app.state.chatLinks = ['https://example.com/notice'];
+  els['chat-in'].value = '';
+  const calls = [];
+  context.fetch = async (url, opts) => {
+    calls.push({url, opts});
+    if (url.endsWith('/agent-requests')) return response({request_id: opts.body.get('request_id'), status: 'running'});
+    throw new Error(`unexpected ${url}`);
+  };
+
+  await app.chatSend();
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, '/api/tasks/1/draft/agent-requests');
+  assert.equal(calls[0].opts.body.get('requirement'), '请根据已放入的来源资料和参考链接整理这次收集要求。');
+  assert.deepEqual(JSON.parse(calls[0].opts.body.get('source_materials')), [
+    {id: 'link-1', name: 'https://example.com/notice', kind: 'attachment', content: '参考链接：https://example.com/notice'},
+  ]);
+  assert.equal(els['chat-in'].value, '');
 });
 test('submitter credential errors show the server guidance once', async () => {
   const {app, context, els} = setup();
