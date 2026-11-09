@@ -54,6 +54,8 @@ def test_systemd_examples_share_production_paths_and_hardening():
         assert "ProtectSystem=strict" in unit
         assert "ReadWritePaths=/var/lib/formflow" in unit
         assert "UMask=0077" in unit
+    assert "ExecStartPre=/opt/formflow/.venv/bin/python /opt/formflow/scripts/check_deployment.py" in api
+    assert "ExecStartPre=/opt/formflow/.venv/bin/python /opt/formflow/scripts/check_deployment.py" not in worker
     assert "127.0.0.1 --port 8000" in api
     assert "python -m app.worker" in worker
     assert "After=network-online.target formflow-api.service" in worker

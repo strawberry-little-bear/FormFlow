@@ -9,6 +9,7 @@ User=formflow
 Group=formflow
 WorkingDirectory=/opt/formflow
 EnvironmentFile=/etc/formflow/formflow.env
+ExecStartPre=/opt/formflow/.venv/bin/python /opt/formflow/scripts/check_deployment.py
 ExecStart=/opt/formflow/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
 Restart=on-failure
 RestartSec=5s
