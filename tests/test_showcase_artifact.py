@@ -39,6 +39,7 @@ def test_showcase_manifest_covers_html_and_css_asset_references():
 def test_pages_workflow_uploads_curated_output():
     workflow = (ROOT / ".github" / "workflows" / "pages.yml").read_text(encoding="utf-8")
     assert "scripts/prepare_showcase.py" in workflow
+    assert '      - "scripts/prepare_showcase.py"' in workflow
     assert "path: _site" in workflow
     assert "path: docs" not in workflow
 
