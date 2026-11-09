@@ -52,6 +52,8 @@ function setup(sharedStorage = storage()) {
 vm.runInContext(source + '\nthis.app = {state, route, pageTitleForRoute, useVersionAsBase, loadDesignVersion, cacheDesignInputs, restoreDesignInputs, recoverDesignInput, recoverDesignInput, collectSourceMaterials, restoreSourceMaterials, collectDesignInputs, sourceMaterialIds, renderSourceMaterials, loadSourceMaterials, uploadSourceFiles, deleteSourceMaterial, sourceMaterialsSummaryHtml, paintChat, renderDraftPanel, runAgent, chatSend, agentUnderstandingHtml, runExport, deliveryHistoryHtml, deliverySnapshotStatusHtml, loadDeliveryHistory, inspectSnapshot, paintSnapshot, agentEvidenceSummaryHtml, canPublishDesign, publishDiffHtml, designVersionImpactHtml, publishGovernanceHtml, publishBp, confirmPublish, saveTimePolicy, revokeDecision, confirmRevokeDecision, paintWorkbench, filterWorkbench, fmtTime, fmtTimeShort, designReadinessHtml, designProgressHtml, applyDraft, quickTemplate, draftFingerprint, collectDraftFields, paintSubmitterNextStep, submitterNextStepHtml, setSubMode, moveSubmitModeTab, setDesignTab, moveDesignTab, refreshSlotConditions, wbMatches, api, apiError, submitDecision, saveDraft, doSubmit, doSubLogin, uploadSlot, deleteSlotFile, cacheReviewDraft, discardReviewDraft, logout, nextPendingReview, setReviewFilter, setReviewTraceFilter, selectReviewRule, viewReview, reviewRevisionHistoryHtml, reviewEvidenceMethodLabel, reviewEvidenceBboxLabel, reviewEvidenceMeta, paintReview, renderNav, loadMyResults, refreshWorkbench, paintReminder, chooseWorkbenchNextStep, workbenchNextStepHtml, agentRunCard, agentTourHtml, agentTourRuntimeHtml, runtimeSelfTestHtml, submitterGuidance, ruleCard, receiptFilesHtml, submissionIssues, checkAgentRequestNow, resumePendingAgentRequest, savePendingAgentRequest, agentRequestProgressHtml, retryAgent, pollAgentRequest, showSubmissionIssues, refreshSubmissionValidation, initSubChat, demoRouteTask, demoRouteHtml, demoRouteCueHtml, copyDemoRouteCue, agentArchitectureRailHtml, agentQuickReadHtml, agentShowcaseHtml, runStageReplayHtml, paintAgentShowcase, jumpToRunStage, mcpSnapshotHtml, renderDemoRoute, paintWorkspaceAgentStatus, paintAgentRuntime, paintAgentRuntimeContractIssue, viewLogin, viewSubmit, switchLoginTab, moveLoginTab, setFlash, openDialog, readPresentationMode, showcaseReturnHtml, applyPresentationMode, setPresentationMode, togglePresentationMode, fillDemoCred, doLogin, issueGrant, issueAllGrants, viewRoster, loadRoster, setRosterFilter, renderRosterTable, showCredential, showCredentialList, setEmptyTaskHome, jumpToSubmitResults, filterTasks, clearTaskFilters, paintTasks, createTask};', context);
   context.app.copyText = vm.runInContext('copyText', context);
   context.app.copyCredential = vm.runInContext('copyCredential', context);
+  context.app.toggleChatAttachmentMenu = vm.runInContext('toggleChatAttachmentMenu', context);
+  context.app.openChatFilePicker = vm.runInContext('openChatFilePicker', context);
   context.app.submissionMatchesReceipt = context.submissionMatchesReceipt;
   context.app.cacheSubmissionDraft = vm.runInContext('cacheSubmissionDraft', context);
   context.app.refreshSubmitAction = context.refreshSubmitAction;
@@ -358,6 +360,24 @@ test('chat requirement entry treats links as traceable source hints', () => {
   assert.match(source, /class="chat-attachment-menu-item" onclick="openChatFilePicker\(\)"/);
   assert.match(source, /添加文件/);
   assert.match(source, /添加链接/);
+});
+test('chat attachment menu preserves keyboard focus and opens the file picker', () => {
+  const {app, els} = designSetup();
+  els['chat-attachment-toggle'] = element();
+  els['chat-attachment-menu'] = element();
+  els['chat-attachment-menu'].hidden = true;
+  els['chat-file-picker'] = element();
+
+  app.toggleChatAttachmentMenu();
+  assert.equal(els['chat-attachment-menu'].hidden, false);
+  assert.equal(els['chat-attachment-toggle'].getAttribute('aria-expanded'), 'true');
+
+  app.toggleChatAttachmentMenu(false, true);
+  assert.equal(els['chat-attachment-menu'].hidden, true);
+  assert.equal(els['chat-attachment-toggle'].focused, true);
+
+  app.openChatFilePicker();
+  assert.equal(els['chat-file-picker'].clicked, true);
 });
 test('chatSend starts a requirements request when the composer contains only links', async () => {
   const {app, els, context} = designSetup();
