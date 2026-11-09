@@ -2584,9 +2584,9 @@ function clarCard(clars) {
   const questions = clars.map((c,i) => {
     const options = Array.isArray(c.options) ? c.options.filter(x => String(x || '').trim()).slice(0,4) : [];
     const optionHtml = options.length ? `<div class="clar-options" role="group" aria-label="${esc(c.question)} 可选答案">${options.map(option => `<button type="button" class="clar-option" data-clar-index="${i}" data-clar-value="${esc(option)}">${esc(option)}</button>`).join('')}</div>` : '';
-    return `<fieldset class="clar-question"><legend>${i+1}. ${esc(c.question)}</legend>${c.why ? `<p class="field-help">${esc(c.why)}</p>` : ''}${affects(c)}${optionHtml}<input id="clar-${i}" oninput="syncClarificationOption(${i});cacheDesignInputs()" placeholder="${options.length ? '也可以补充其他答案' : '填写你的决定'}"></fieldset>`;
+    return `<fieldset class="clar-question"><legend>${i+1}. ${esc(c.question)}</legend>${c.why ? `<p class="field-help">${esc(c.why)}</p>` : ''}${affects(c)}${optionHtml}<input id="clar-${i}" oninput="syncClarificationOption(${i});cacheDesignInputs()" onkeydown="if(event.key==='Enter'&&!event.isComposing){event.preventDefault();submitClarAnswers()}" placeholder="${options.length ? '也可以补充其他答案' : '填写你的决定'}"></fieldset>`;
   }).join('');
-  return `<div class="clar-card" id="clar-card"><div class="eyebrow">NEEDS YOUR INPUT</div><h3>有 ${clars.length} 项需要你确认</h3><p class="muted">小齐把不确定的地方列出来了。可以直接选方案，也可以补充自己的答案；留空不会自动替你决定。</p>${questions}<label for="clar-extra">其他修改意见（可选）</label><input id="clar-extra" oninput="cacheDesignInputs()" placeholder="还需要调整什么？"><button onclick="submitClarAnswers()">更新草案 ${icon('arrow')}</button></div>`;
+  return `<div class="clar-card" id="clar-card"><div class="eyebrow">NEEDS YOUR INPUT</div><h3>有 ${clars.length} 项需要你确认</h3><p class="muted">小齐把不确定的地方列出来了。可以直接选方案，也可以补充自己的答案；留空不会自动替你决定。</p>${questions}<label for="clar-extra">其他修改意见（可选）</label><input id="clar-extra" oninput="cacheDesignInputs()" onkeydown="if(event.key==='Enter'&&!event.isComposing){event.preventDefault();submitClarAnswers()}" placeholder="还需要调整什么？"><button type="button" aria-label="发送澄清回答并更新草案" onclick="submitClarAnswers()">发送回答并更新草案 ${icon('arrow')}</button></div>`;
 }
 function chooseClarification(index, value) {
   const input = document.getElementById(`clar-${index}`);

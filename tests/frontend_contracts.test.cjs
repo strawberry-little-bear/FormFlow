@@ -3322,6 +3322,8 @@ test('clarification cards turn bounded agent choices into selectable answers', (
   assert.match(html, /class="clar-options"/);
   assert.match(html, /data-clar-value="只收 PDF"/);
   assert.match(html, /也可以补充其他答案/);
+  assert.match(html, /发送回答并更新草案/);
+  assert.match(html, /onkeydown="if\(event\.key==='Enter'/);
 });
 test('agent understanding card summarizes the current blueprint before clarifications', () => {
   const {app} = designSetup();
