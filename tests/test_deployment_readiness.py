@@ -256,6 +256,7 @@ def test_config_status_exposes_only_non_secret_deployment_flags():
     assert payload["registration_open"] is settings.allow_registration
     assert payload["environment"] == settings.environment
     assert "api_key" not in payload
+    assert response.headers["Cache-Control"] == "no-store"
 
 
 def test_public_provider_url_removes_embedded_credentials_and_query():

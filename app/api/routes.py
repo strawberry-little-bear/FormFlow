@@ -288,8 +288,9 @@ def check_demo(db: Session = Depends(get_db)):
     return {"exists": exists}
 
 @router.get("/config/status")
-def config_status():
+def config_status(response: Response):
     """Public endpoint: report whether LLM is configured, for UI hints."""
+    response.headers["Cache-Control"] = "no-store"
     from ..config import settings
     return {
         "llm_configured": settings.llm_configured,
