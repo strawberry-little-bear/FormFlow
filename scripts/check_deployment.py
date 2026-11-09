@@ -9,6 +9,7 @@ import stat
 import sys
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+from urllib.parse import urlsplit
 
 from dotenv import load_dotenv
 
@@ -27,7 +28,29 @@ def configure_output_encoding() -> None:
 
 
 def _is_local_url(value: str) -> bool:
-    return value.startswith(("http://127.0.0.1", "http://localhost", "http://[::1]"))
+    try:
+        parsed = urlsplit(value)
+    except ValueError:
+        return False
+    return parsed.scheme == "http" and parsed.hostname in {"127.0.0.1", "localhost", "::1"}
+
+
+def _provider_url_issues(value: str) -> list[str]:
+    """Validate the model base URL without making a network request."""
+    try:
+        parsed = urlsplit(value)
+        hostname = parsed.hostname
+    except ValueError:
+        return ["FORMFLOW_LLM_BASE_URL 格式无效"]
+    if parsed.scheme not in {"http", "https"} or not hostname:
+        return ["FORMFLOW_LLM_BASE_URL 必须是带主机名的 http(s) 地址"]
+    if parsed.username or parsed.password:
+        return ["FORMFLOW_LLM_BASE_URL 不应内嵌用户名或密码"]
+    if parsed.query or parsed.fragment:
+        return ["FORMFLOW_LLM_BASE_URL 不应包含 query 或 fragment"]
+    if parsed.scheme == "http" and not _is_local_url(value):
+        return ["公网模型地址必须使用 HTTPS"]
+    return []
 
 
 def _resolved(path: Path) -> Path:
@@ -85,8 +108,7 @@ def deployment_issues(
             errors.append("FORMFLOW_LLM_BASE_URL 仍是占位地址")
         if config.llm_model == "your-model":
             errors.append("FORMFLOW_LLM_MODEL 仍是占位模型")
-        if config.llm_base_url.startswith("http://") and not _is_local_url(config.llm_base_url):
-            errors.append("公网模型地址必须使用 HTTPS")
+        errors.extend(_provider_url_issues(config.llm_base_url))
 
     storage_parent = storage_dir if storage_dir.exists() else storage_dir.parent
     if not storage_parent.exists():

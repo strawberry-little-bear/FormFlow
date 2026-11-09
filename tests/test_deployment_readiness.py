@@ -303,6 +303,35 @@ def test_invalid_input_mode_is_safe_and_rejected_by_preflight(monkeypatch, tmp_p
     assert any("FORMFLOW_LLM_INPUT_MODE" in error for error in errors)
 
 
+def test_deployment_preflight_parses_provider_host_safely(tmp_path):
+    from scripts.check_deployment import _is_local_url, deployment_issues
+
+    assert _is_local_url("http://127.0.0.1:9000/v1")
+    assert not _is_local_url("http://127.0.0.1.evil.example/v1")
+
+    storage = tmp_path / "storage"
+    storage.mkdir()
+    from app.config import Settings
+
+    configured = Settings()
+    configured.environment = "production"
+    configured.allow_registration = False
+    configured.database_url = f"sqlite:///{tmp_path / 'formflow.db'}"
+    configured.storage_dir = storage
+    configured.worker_heartbeat_file = storage / ".worker-heartbeat"
+    configured.llm_api_key = "key"
+    configured.llm_model = "model"
+
+    for url, expected in [
+        ("http://127.0.0.1.evil.example/v1", "公网模型地址必须使用 HTTPS"),
+        ("provider.example/v1", "必须是带主机名的 http(s) 地址"),
+        ("https://user:password@provider.example/v1", "不应内嵌用户名或密码"),
+    ]:
+        configured.llm_base_url = url
+        errors, _ = deployment_issues(allow_offline=False, config=configured)
+        assert any(expected in error for error in errors)
+
+
 def test_worker_heartbeat_path_can_be_configured(tmp_path, monkeypatch):
     marker = tmp_path / "runtime" / "worker-heartbeat"
     monkeypatch.setenv("FORMFLOW_WORKER_HEARTBEAT_FILE", str(marker))
