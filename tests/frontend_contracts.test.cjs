@@ -377,6 +377,27 @@ test('chatSend starts a requirements request when the composer contains only lin
   ]);
   assert.equal(els['chat-in'].value, '');
 });
+test('chatSend keeps files and links attached to the user message', async () => {
+  const {app, els, context} = designSetup();
+  app.state.bpId = null;
+  app.state.draft = null;
+  app.state.sourceMaterials = [{id:'src_notice', name:'报名通知.pdf', size:4096, kind:'notice', status:'ready'}];
+  app.state.chatLinks = ['https://example.com/notice'];
+  els['chat-in'].value = '请按这些资料整理报名要求';
+  context.fetch = async (url, opts) => {
+    if (url.endsWith('/agent-requests')) return response({request_id: opts.body.get('request_id'), status: 'running'});
+    throw new Error(`unexpected ${url}`);
+  };
+
+  await app.chatSend();
+
+  const message = app.state.chat[0];
+  assert.equal(message.role, 'user');
+  assert.equal(JSON.stringify(message.attachments.map(item => ({type:item.type, name:item.name}))), JSON.stringify([
+    {type:'file', name:'报名通知.pdf'},
+    {type:'link', name:'https://example.com/notice'},
+  ]));
+});
 test('submitter credential errors show the server guidance once', async () => {
   const {app, context, els} = setup();
   els['lg-cred'].value = 'expired-token';
@@ -3774,6 +3795,8 @@ test('desktop design chat uses a conversation-first composer and collapsible sou
   assert.match(styleSource, /\.chat-composer\.drop-active/);
   assert.match(styleSource, /\.chat-input-wrap\s*\{/);
   assert.match(styleSource, /\.chat-attachment\.link/);
+  assert.match(styleSource, /\.message-attachment\.file/);
+  assert.match(source, /message-attachments/);
   assert.match(styleSource, /\.source-pack-details\s*>\s*summary/);
   assert.match(styleSource, /@media\s*\(max-width:980px\)\s*\{[\s\S]*\.grid-chat\s*\{\s*grid-template-columns:minmax\(0,1fr\)/);
   assert.match(styleSource, /@media\s*\(max-width:620px\)\s*\{[\s\S]*\.source-pack-details \.source-pack-grid\s*\{\s*grid-template-columns:1fr/);

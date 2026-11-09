@@ -2459,7 +2459,31 @@ function handleChatPaste(event) {
   }
 }
 function chatScrollBottom() { const el = document.getElementById('chat-scroll'); if (el) el.scrollTop = el.scrollHeight; }
-function userSay(text) { state.chat.push({role: 'user', html: esc(text).replace(/\n/g,'<br>')}); paintChat(); }
+function normalizeChatAttachments(items = []) {
+  return (Array.isArray(items) ? items : []).map(item => {
+    const isLink = item?.type === 'link' || item?.kind === 'link' || /^https?:\/\//i.test(String(item?.url || item?.name || ''));
+    return {
+      type: isLink ? 'link' : 'file',
+      id: String(item?.id || ''),
+      name: String(item?.name || item?.url || (isLink ? '参考链接' : '来源文件')),
+      url: isLink ? String(item?.url || item?.name || '') : '',
+      size: Number(item?.size || 0),
+    };
+  }).filter(item => item.name || item.url);
+}
+function chatMessageAttachmentsHtml(items = []) {
+  const attachments = normalizeChatAttachments(items);
+  if (!attachments.length) return '';
+  return `<div class="message-attachments" aria-label="本条消息附带的资料">${attachments.map(item => {
+    const label = item.type === 'link' ? '链接' : '文件';
+    const detail = item.type === 'link' ? item.url : (item.size ? `${item.size.toLocaleString('zh-CN')} bytes` : '已放入资料池');
+    return `<span class="message-attachment ${item.type}" title="${esc(item.url || item.name)}">${icon(item.type === 'link' ? 'link' : 'delivery')}<span class="message-attachment-copy"><b>${esc(label)}</b><span>${esc(item.name)}</span><small>${esc(detail)}</small></span></span>`;
+  }).join('')}</div>`;
+}
+function userSay(text, attachments = []) {
+  state.chat.push({role: 'user', html: esc(text).replace(/\n/g,'<br>'), attachments: normalizeChatAttachments(attachments)});
+  paintChat();
+}
 function agentSay(html, mini) { state.chat.push({role: 'agent', html, mini: mini || ''}); paintChat(); }
 function chatTyping(on) {
   document.getElementById('typing-row')?.remove(); if (!on) return;
@@ -2469,7 +2493,7 @@ function chatTyping(on) {
 function paintChat() {
   if(state.designRenderedBase === state.designBaseId) cacheDesignInputs();
   const box = document.getElementById('chat-scroll'); if (!box) return;
-  box.innerHTML = state.chat.map(m => `<div class="msg ${m.role}"><div class="avatar">${m.role === 'agent' ? icon("sparkle") : '我'}</div><div class="body">${m.html}${m.mini ? `<div class="mini">${m.mini}</div>` : ''}</div></div>`).join('');
+  box.innerHTML = state.chat.map(m => `<div class="msg ${m.role}"><div class="avatar">${m.role === 'agent' ? icon("sparkle") : '我'}</div><div class="body">${m.html}${chatMessageAttachmentsHtml(m.attachments)}${m.mini ? `<div class="mini">${m.mini}</div>` : ''}</div></div>`).join('');
   const clar = state.designQuestions || [];
   if (state.bpId && clar.length && !state.answeredDone) box.insertAdjacentHTML('beforeend', clarCard(clar));
   state.designRenderedBase=state.designBaseId;restoreDesignInputs();bindClarificationOptions();chatScrollBottom();
@@ -2785,7 +2809,7 @@ function resumePendingAgentRequest(epoch, token) {
     return;
   }
   if (pending.text && state.agentRequestDisplayedId !== pending.requestId) {
-    userSay(pending.text); state.agentRequestDisplayedId = pending.requestId;
+    userSay(pending.text, pending.attachments); state.agentRequestDisplayedId = pending.requestId;
   }
   agentSay("接着上次没完成的整理", "请求和原文都还在，我先确认一下进度，不会重复生成草案。");
   setAgentBusy(true, "正在接回上次的整理");
@@ -2829,11 +2853,12 @@ async function runAgent(text, answered = {}, instruction = '', source = 'compose
        execution_mode: "live"};
   const request = resumeRequest || {requestId: newAgentRequestId(), payload,
     text, answered: {...answered}, instruction, source, previousBlueprintId: previous,
-    sentBase, sent, createdAt: Date.now(), pollCount: 0, status: "queued"};
+    sentBase, sent, attachments: normalizeChatAttachments(options.displayAttachments || []),
+    createdAt: Date.now(), pollCount: 0, status: "queued"};
   state.agentRequest = request; state.retryRequest = request;
   savePendingAgentRequest(request);
   if (!resumeRequest) {
-    userSay(text); state.agentRequestDisplayedId = request.requestId;
+    userSay(text, request.attachments); state.agentRequestDisplayedId = request.requestId;
   }
   setAgentBusy(true, previous ? "正在核对修改影响" : "正在整理字段、材料与规则");
   paintAgentRequestStatus(request); setFlash("");
@@ -2856,8 +2881,12 @@ function chatSend() {
   const text = (document.getElementById('chat-in')?.value || '').trim();
   const materials = collectSourceMaterials();
   const links = state.chatLinks || [];
+  const attachments = [
+    ...(state.sourceMaterials || []).map(item => ({type: 'file', id: item.id, name: item.name, size: item.size})),
+    ...links.map(url => ({type: 'link', id: `link-${url}`, name: url, url})),
+  ];
   if (text || materials.length || sourceMaterialIds().length || links.length)
-    return runAgent(text || '请根据已放入的来源资料和参考链接整理这次收集要求。', {}, state.bpId ? text : '');
+    return runAgent(text || '请根据已放入的来源资料和参考链接整理这次收集要求。', {}, state.bpId ? text : '', 'composer', null, {displayAttachments: attachments});
 }
 function submitClarAnswers() {
   const answered = {}; (state.draft?.clarifications || []).forEach((c,i) => { const v = document.getElementById(`clar-${i}`)?.value.trim(); if(v) answered[c.question] = v; });
