@@ -1975,6 +1975,30 @@ function writeDesignInputs(value) {
   try { sessionStorage.setItem(key, JSON.stringify(value)); state.designCacheFailed = false; }
   catch (e) { state.designCacheFailed = true; }
 }
+function restoreChatHistory() {
+  const saved = readDesignInputs();
+  const messages = Array.isArray(saved.chat) ? saved.chat : [];
+  state.chat = messages.filter(message => message && (message.role === 'user' || message.role === 'agent')
+    && typeof message.html === 'string').slice(-60).map(message => ({
+      role: message.role,
+      html: message.html.slice(0, 16000),
+      mini: typeof message.mini === 'string' ? message.mini.slice(0, 6000) : '',
+      requestId: typeof message.requestId === 'string' ? message.requestId : '',
+      attachments: normalizeChatAttachments(message.attachments || []),
+    }));
+}
+function cacheChatHistory() {
+  if (!designInputKey() || state.designToken !== orgToken()) return;
+  const saved = readDesignInputs();
+  saved.chat = (state.chat || []).slice(-60).map(message => ({
+    role: message.role === 'user' ? 'user' : 'agent',
+    html: String(message.html || '').slice(0, 16000),
+    mini: String(message.mini || '').slice(0, 6000),
+    requestId: String(message.requestId || '').slice(0, 100),
+    attachments: normalizeChatAttachments(message.attachments || []).slice(0, 12),
+  }));
+  writeDesignInputs(saved);
+}
 const SOURCE_MATERIAL_FIELDS = [
   {id:'source-notice', key:'notice', kind:'notice', name:'报名通知'},
   {id:'source-roster', key:'roster', kind:'roster', name:'适用名单'},
@@ -2257,6 +2281,7 @@ async function viewDesign(taskId) {
     const r = await api(`/api/tasks/${taskId}/design`);
     if (epoch !== state.designEpoch || token !== orgToken()) return;
     state.task = r.task; state.designOwnerId=r.task.owner_id;
+    restoreChatHistory();
     state.designPublished=r.published;state.designPublishImpact=r.publish_impact;
     document.getElementById("design-name").textContent = r.task.name;
     await loadSourceMaterials(taskId, epoch, token);
@@ -2265,9 +2290,11 @@ async function viewDesign(taskId) {
     if (r.blueprint_version_id) {
       applyDraft(r); state.requirement = r.source_text || "";
       const when = r.versions && r.versions[0] ? fmtTime(r.versions[0].created_at) : "";
-      agentSay(`已恢复这项任务的${r.status === 'published' ? '已发布蓝图' : '最新草案'} v${r.version}。`,
-        `${when ? `最后保存于 ${esc(when)}。` : ''}右边可以实时预览，有什么要调整的继续告诉我就行。`);
-      if ((r.history || []).length) {
+      if (!state.chat.length) {
+        agentSay(`已恢复这项任务的${r.status === 'published' ? '已发布蓝图' : '最新草案'} v${r.version}。`,
+          `${when ? `最后保存于 ${esc(when)}。` : ''}右边可以实时预览，有什么要调整的继续告诉我就行。`);
+      }
+      if ((r.history || []).length && !state.chat.some(message => message.html === '这次任务的修改记录：')) {
         agentSay('这次任务的修改记录：', r.history.slice(-4).map(h => {
           const label = h.action === 'blueprint.publish' ? `发布 v${h.version}`
             : h.action === 'blueprint.revise_noop' ? '一次修改未形成新版本'
@@ -2275,14 +2302,16 @@ async function viewDesign(taskId) {
           return `${esc(label)}${h.impact ? `（${esc(h.impact)}）` : ''} · ${esc(fmtTime(h.created_at))}`;
         }).join('<br>'));
       }
-      if ((r.blocking || []).length) {
+      if ((r.blocking || []).length && !state.chat.some(message => message.html === '这份草案还不能发布，需要先处理：')) {
         agentSay('这份草案还不能发布，需要先处理：', r.blocking.map(esc).join('<br>'));
-      } else if ((r.advisories || []).length) {
+      } else if ((r.advisories || []).length && !state.chat.some(message => message.html === '有几项提醒，不影响发布，但建议发布前看一眼：')) {
         agentSay('有几项提醒，不影响发布，但建议发布前看一眼：', r.advisories.map(esc).join('<br>'));
       }
     } else {
-      agentSay('这次，你想收些什么？', '告诉我收集对象、需要登记的信息和材料。还没想清楚也没关系，我们可以从一份模板开始。');
-      agentSay('我会先帮你整理草案，只追问影响收集的关键信息。', '不确定的地方会标出来，未经你确认不会发布，也不会暗加材料门槛。');
+      if (!state.chat.length) {
+        agentSay('这次，你想收些什么？', '告诉我收集对象、需要登记的信息和材料。还没想清楚也没关系，我们可以从一份模板开始。');
+        agentSay('我会先帮你整理草案，只追问影响收集的关键信息。', '不确定的地方会标出来，未经你确认不会发布，也不会暗加材料门槛。');
+      }
     }
   } catch(e) {
     if (epoch === state.designEpoch) {
@@ -2498,11 +2527,12 @@ function chatMessageAttachmentsHtml(items = []) {
     return `${tag}${icon(item.type === 'link' ? 'link' : 'delivery')}<span class="message-attachment-copy"><b>${esc(label)}</b><span>${esc(item.name)}</span><small>${esc(detail)}</small></span>${close}`;
   }).join('')}</div>`;
 }
-function userSay(text, attachments = []) {
-  state.chat.push({role: 'user', html: esc(text).replace(/\n/g,'<br>'), attachments: normalizeChatAttachments(attachments)});
+function userSay(text, attachments = [], requestId = '') {
+  state.chat.push({role: 'user', html: esc(text).replace(/\n/g,'<br>'), requestId: String(requestId || ''), attachments: normalizeChatAttachments(attachments)});
+  cacheChatHistory();
   paintChat();
 }
-function agentSay(html, mini) { state.chat.push({role: 'agent', html, mini: mini || ''}); paintChat(); }
+function agentSay(html, mini) { state.chat.push({role: 'agent', html, mini: mini || ''}); cacheChatHistory(); paintChat(); }
 function chatTyping(on) {
   document.getElementById('typing-row')?.remove(); if (!on) return;
   const box = document.getElementById('chat-scroll'); if (!box) return;
@@ -2827,7 +2857,10 @@ function resumePendingAgentRequest(epoch, token) {
     return;
   }
   if (pending.text && state.agentRequestDisplayedId !== pending.requestId) {
-    userSay(pending.text, pending.attachments); state.agentRequestDisplayedId = pending.requestId;
+    if (!state.chat.some(message => message.role === 'user' && message.requestId === pending.requestId)) {
+      userSay(pending.text, pending.attachments, pending.requestId);
+    }
+    state.agentRequestDisplayedId = pending.requestId;
   }
   agentSay("接着上次没完成的整理", "请求和原文都还在，我先确认一下进度，不会重复生成草案。");
   setAgentBusy(true, "正在接回上次的整理");
@@ -2876,7 +2909,7 @@ async function runAgent(text, answered = {}, instruction = '', source = 'compose
   state.agentRequest = request; state.retryRequest = request;
   savePendingAgentRequest(request);
   if (!resumeRequest) {
-    userSay(text, request.attachments); state.agentRequestDisplayedId = request.requestId;
+    userSay(text, request.attachments, request.requestId); state.agentRequestDisplayedId = request.requestId;
     if (request.attachments.length) {
       const fileCount = request.attachments.filter(item => item.type === 'file').length;
       const linkCount = request.attachments.filter(item => item.type === 'link').length;
