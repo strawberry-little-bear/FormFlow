@@ -94,6 +94,7 @@ jobs:
           grep -Fqi "x-frame-options: sameorigin" /tmp/formflow-health-headers
           grep -Fqi "cache-control: no-store" /tmp/formflow-health-headers
           grep -Fqi "permissions-policy: camera=(), microphone=(), geolocation=()" /tmp/formflow-health-headers
+          grep -Fqi "cross-origin-resource-policy: same-origin" /tmp/formflow-health-headers
       - name: Verify initialized account login
         run: |
           curl --fail --silent --show-error \

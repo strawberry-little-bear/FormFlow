@@ -32,6 +32,7 @@ def test_caddy_example_keeps_api_on_loopback():
     assert "reverse_proxy 127.0.0.1:8000" in caddy
     assert 'Strict-Transport-Security "max-age=31536000; includeSubDomains"' in caddy
     assert 'Permissions-Policy "camera=(), microphone=(), geolocation=()"' in caddy
+    assert 'Cross-Origin-Resource-Policy "same-origin"' in caddy
     assert 'X-Content-Type-Options "nosniff"' in caddy
     assert 'X-Frame-Options "SAMEORIGIN"' in caddy
     assert 'Referrer-Policy "strict-origin-when-cross-origin"' in caddy
@@ -225,6 +226,7 @@ def test_baseline_security_headers_are_present():
     assert response.headers["X-Frame-Options"] == "SAMEORIGIN"
     assert response.headers["Referrer-Policy"] == "strict-origin-when-cross-origin"
     assert response.headers["Permissions-Policy"] == "camera=(), microphone=(), geolocation=()"
+    assert response.headers["Cross-Origin-Resource-Policy"] == "same-origin"
     assert response.headers["Cache-Control"] == "no-store"
 
 
