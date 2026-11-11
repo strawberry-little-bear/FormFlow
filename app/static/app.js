@@ -2678,7 +2678,7 @@ function agentUnderstandingHtml(bp = {}, draft = {}) {
   const sourceChips = sourceNames.length
     ? `<div class="agent-understanding-sources"><span>正在使用的资料</span><div>${sourceNames.map(name => `<b>${esc(name)}</b>`).join('')}</div></div>`
     : '';
-  return `<div class="agent-understanding" aria-label="小齐当前理解"><div class="agent-understanding-grid">
+  return `<div class="agent-understanding" role="group" aria-label="小齐当前理解"><div class="agent-understanding-grid">
     <div><span>收集对象</span><strong>${esc(scope.name || state.task?.name || '当前任务')}</strong></div>
     <div><span>登记信息</span><strong>${esc(fieldText)}</strong></div>
     <div><span>提交材料</span><strong>${esc(slotText)}</strong></div>
