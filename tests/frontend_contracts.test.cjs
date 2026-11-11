@@ -3914,6 +3914,7 @@ test('desktop design chat uses a conversation-first composer and collapsible sou
   assert.match(styleSource, /\.design-heading\s*\{\s*gap:18px/);
   assert.match(source, /class="agent-understanding" role="group" aria-label="小齐当前理解"/);
   assert.match(styleSource, /\.agent-understanding-grid span \{ color:#6b6572; font-size:9px; \}/);
+  assert.match(styleSource, /@media\s*\(min-width:981px\) and \(max-width:1440px\)\s*\{\s*\.readiness-grid \{ grid-template-columns:repeat\(2,minmax\(0,1fr\)\); align-items:start; \}\s*\.readiness-foot \{ grid-template-columns:minmax\(0,1fr\); \}\s*\}/);
 });
 test('submitter dock follows the visible viewport above a virtual keyboard', () => {
   const {context, document, visualViewport, viewportListeners} = setup();

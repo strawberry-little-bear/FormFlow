@@ -4712,6 +4712,10 @@ body.presentation-mode .agent-tour details > summary { padding:16px 0; }
 .readiness-alert b { white-space:nowrap; }
 .readiness-alert.warn { color:#8a651f; background:#fff8e9; border:1px solid #efdda9; }
 .readiness-alert.info { color:#4c5b99; background:#f2f3fb; border:1px solid #dfe2f4; }
+@media (min-width:981px) and (max-width:1440px) {
+  .readiness-grid { grid-template-columns:repeat(2,minmax(0,1fr)); align-items:start; }
+  .readiness-foot { grid-template-columns:minmax(0,1fr); }
+}
 .version-impact { margin:0 0 16px; border:1px solid #ded9ef; border-radius:10px; background:#fbfaff; overflow:hidden; }
 .version-impact > summary { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 14px; cursor:pointer; list-style:none; }
 .version-impact > summary::-webkit-details-marker { display:none; }
