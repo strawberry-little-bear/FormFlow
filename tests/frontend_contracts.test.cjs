@@ -3908,6 +3908,10 @@ test('desktop design chat uses a conversation-first composer and collapsible sou
   assert.match(styleSource, /#draft-panel\s*\{ max-height:calc\(100vh - 100px\); overflow:auto/);
   assert.match(styleSource, /@media\s*\(max-width:980px\)\s*\{[\s\S]*\.grid-chat\s*\{\s*grid-template-columns:minmax\(0,1fr\)/);
   assert.match(styleSource, /@media\s*\(max-width:620px\)\s*\{[\s\S]*\.source-pack-details \.source-pack-grid\s*\{\s*grid-template-columns:1fr/);
+  assert.match(styleSource, /\.chat-link-row\[hidden\]\s*\{\s*display:none !important/);
+  assert.match(styleSource, /\.chat-scroll\s*\{\s*min-height:220px/);
+  assert.match(styleSource, /@media\s*\(max-width:620px\)\s*\{[\s\S]*\.chat-scroll\s*\{\s*min-height:190px/);
+  assert.match(styleSource, /\.design-heading\s*\{\s*gap:18px/);
 });
 test('submitter dock follows the visible viewport above a virtual keyboard', () => {
   const {context, document, visualViewport, viewportListeners} = setup();

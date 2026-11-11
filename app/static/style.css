@@ -2243,6 +2243,7 @@ dialog p {
 .agent-heading h2 span { color:#555d6b; }
 .chat { height:min(68vh,680px); min-height:520px; max-height:none; background:#fbfbfd; }
 .chat-scroll { padding:30px clamp(20px,4vw,42px); gap:25px; background:#fbfbfd; }
+.chat-scroll { min-height:220px; }
 .msg { max-width:min(88%,640px); }
 .msg.agent { align-self:flex-start; }
 .msg.user { align-self:flex-end; flex-direction:row-reverse; padding-left:0; padding-right:0; }
@@ -2282,6 +2283,7 @@ dialog p {
 .chat-attachment-menu-item:hover, .chat-attachment-menu-item:focus-visible { background:#f3f0fb; color:#49366f; outline:0; }
 .chat-attachment-menu-item svg { width:15px; height:15px; color:#705bb0; }
 .chat-link-row { display:flex; align-items:center; gap:7px; margin:0 0 8px; padding:7px 8px; border:1px solid #e2dff0; border-radius:8px; background:#faf9fe; color:#705da4; }
+.chat-link-row[hidden] { display:none !important; }
 .chat-link-row > svg { width:14px; flex:none; }
 .chat-link-row input { min-width:0; flex:1; min-height:30px; padding:5px 7px; border:1px solid #e0dce9; border-radius:6px; background:#fff; font-size:11px; }
 .chat-attachments { margin:0 0 8px; }
@@ -2321,6 +2323,16 @@ dialog p {
 .step-hint { color:#85808e; }
 .chat-composer { box-shadow:0 -8px 22px rgba(38,32,64,.035); }
 .composer-intro > span:last-child { color:#6b6875; }
+.design-heading { gap:18px; }
+.design-heading > div { min-width:0; }
+.design-heading > .badge { flex:0 0 auto; margin-top:4px; border-color:#ddd7f1; background:#f4f1fc; color:#65518b; }
+.step-flow { border-bottom:1px solid #e5e4eb; }
+.design-jump-nav { display:flex; flex-wrap:wrap; gap:7px; }
+.design-jump-nav button { border:1px solid #e7e4ed; background:#fff; color:#655b76; }
+.design-jump-nav button:hover { border-color:#cfc5eb; background:#f8f6fd; color:#503f7f; }
+.agent-panel { overflow:hidden; }
+.agent-heading { border-bottom:1px solid #efedf3; }
+.chat { overflow:hidden; }
 @media (min-width:981px) {
   /* Keep the conversation as the primary workspace; the blueprint gets its own readable scroll area. */
   .grid-chat { grid-template-columns:minmax(0,1.16fr) minmax(400px,.84fr); gap:24px; }
@@ -2334,9 +2346,11 @@ dialog p {
 }
 @media (max-width:620px) {
   .design-heading h1 { font-size:23px; }
+  .design-heading { gap:8px; }
+  .design-heading > .badge { margin-top:0; }
   .composer-intro { align-items:flex-start; flex-direction:column; gap:3px; }
   .chat { min-height:500px; }
-  .chat-scroll { padding:23px 15px; }
+  .chat-scroll { min-height:190px; padding:23px 15px; }
   .msg { max-width:94%; }
   .chat-link-row { align-items:stretch; flex-wrap:wrap; }
   .chat-link-row input { flex:1 1 100%; order:2; }
